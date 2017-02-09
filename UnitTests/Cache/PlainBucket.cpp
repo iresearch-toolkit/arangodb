@@ -169,6 +169,57 @@ BOOST_AUTO_TEST_CASE(tst_insertion) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief test removal
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_removal) {
+  PlainBucket bucket;
+  bool success;
+
+  uint32_t hashes[3] = {
+      1, 2, 3};  // don't have to be real, but should be unique and non-zero
+  uint64_t keys[3] = {0, 1, 2};
+  uint64_t values[3] = {0, 1, 2};
+  CachedValue* ptrs[3];
+  for (size_t i = 0; i < 3; i++) {
+    ptrs[i] = CachedValue::construct(&(keys[i]), sizeof(uint64_t), &(values[i]),
+                                     sizeof(uint64_t));
+  }
+
+  success = bucket.lock(-1LL);
+  BOOST_CHECK(success);
+
+  for (size_t i = 0; i < 3; i++) {
+    bucket.insert(hashes[i], ptrs[i]);
+  }
+  for (size_t i = 0; i < 3; i++) {
+    CachedValue* res = bucket.find(hashes[i], ptrs[i]->key(), ptrs[i]->keySize);
+    BOOST_CHECK(res == ptrs[i]);
+  }
+
+  CachedValue* res;
+  res = bucket.remove(hashes[1], ptrs[1]->key(), ptrs[1]->keySize);
+  BOOST_CHECK(res == ptrs[1]);
+  res = bucket.find(hashes[1], ptrs[1]->key(), ptrs[1]->keySize);
+  BOOST_CHECK(nullptr == res);
+  res = bucket.remove(hashes[0], ptrs[0]->key(), ptrs[0]->keySize);
+  BOOST_CHECK(res == ptrs[0]);
+  res = bucket.find(hashes[0], ptrs[0]->key(), ptrs[0]->keySize);
+  BOOST_CHECK(nullptr == res);
+  res = bucket.remove(hashes[2], ptrs[2]->key(), ptrs[2]->keySize);
+  BOOST_CHECK(res == ptrs[2]);
+  res = bucket.find(hashes[2], ptrs[2]->key(), ptrs[2]->keySize);
+  BOOST_CHECK(nullptr == res);
+
+  bucket.unlock();
+
+  // cleanup
+  for (size_t i = 0; i < 3; i++) {
+    delete ptrs[i];
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief test eviction with subsequent insertion
 ////////////////////////////////////////////////////////////////////////////////
 

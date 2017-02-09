@@ -84,15 +84,20 @@ bool PlainBucket::isFull() const {
 CachedValue* PlainBucket::find(uint32_t hash, uint8_t const* key,
                                uint32_t keySize, bool moveToFront) {
   TRI_ASSERT(isLocked());
+  CachedValue* result = nullptr;
   for (size_t i = 0; i < SLOTS_DATA; i++) {
     if (_cachedHashes[i] == 0) {
       break;
     }
     if (_cachedHashes[i] == hash && _cachedData[i]->sameKey(key, keySize)) {
-      return _cachedData[i];
+      result = _cachedData[i];
+      if (moveToFront) {
+        moveSlot(i, true);
+      }
+      break;
     }
   }
-  return nullptr;
+  return result;
 }
 
 // requires there to be an open slot, otherwise will not be inserted
@@ -159,22 +164,22 @@ void PlainBucket::toggleMigrated() {
 void PlainBucket::moveSlot(size_t slot, bool moveToFront) {
   uint32_t hash = _cachedHashes[slot];
   CachedValue* value = _cachedData[slot];
+  size_t i = slot;
   if (moveToFront) {
     // move slot to front
-    for (size_t i = slot; i >= 1; i--) {
+    for (; i >= 1; i--) {
       _cachedHashes[i] = _cachedHashes[i - 1];
       _cachedData[i] = _cachedData[i - 1];
     }
-    _cachedHashes[0] = hash;
-    _cachedData[0] = value;
   } else {
     // move slot to back
-    for (size_t i = slot; (i < SLOTS_DATA - 1) && (_cachedHashes[i + 1] != 0);
-         i++) {
+    for (; (i < SLOTS_DATA - 1) && (_cachedHashes[i + 1] != 0); i++) {
       _cachedHashes[i] = _cachedHashes[i + 1];
       _cachedData[i] = _cachedData[i + 1];
     }
-    _cachedHashes[SLOTS_DATA - 1] = hash;
-    _cachedData[SLOTS_DATA - 1] = value;
+  }
+  if (i != slot) {
+    _cachedHashes[i] = hash;
+    _cachedData[i] = value;
   }
 }
