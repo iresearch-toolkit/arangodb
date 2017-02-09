@@ -35,55 +35,146 @@ uint32_t PlainBucket::FLAG_MIGRATED = 0x02;
 
 size_t PlainBucket::SLOTS_DATA = 5;
 
+PlainBucket::PlainBucket() { memset(this, 0, sizeof(PlainBucket)); }
+
 bool PlainBucket::lock(int64_t maxTries) {
-  // TODO: implement this
+  uint32_t expected;
+  int64_t attempt = 0;
+  while (maxTries < 0 || attempt < maxTries) {
+    // expect unlocked, but need to preserve migrating status
+    expected = _state.load() & (~FLAG_LOCK);
+    bool success = _state.compare_exchange_weak(
+        expected, (expected | FLAG_LOCK));  // try to lock
+    if (success) {
+      return true;
+    }
+    attempt++;
+    // TODO: exponential back-off for failure?
+  }
+
   return false;
 }
 
 void PlainBucket::unlock() {
-  // TODO: implement this
+  TRI_ASSERT(isLocked());
+  _state &= ~FLAG_LOCK;
 }
 
-bool PlainBucket::isLocked() const {
-  // TODO: implement this
-  return true;
-}
+bool PlainBucket::isLocked() const { return ((_state.load() & FLAG_LOCK) > 0); }
 
 bool PlainBucket::isMigrated() const {
-  // TODO: implement this
-  return false;
+  TRI_ASSERT(isLocked());
+  return ((_state.load() & FLAG_MIGRATED) > 0);
 }
 
 bool PlainBucket::isFull() const {
-  // TODO: implement this
-  return true;
+  TRI_ASSERT(isLocked());
+  bool hasEmptySlot = false;
+  for (size_t i = 0; i < SLOTS_DATA; i++) {
+    size_t slot = SLOTS_DATA - (i + 1);
+    if (_cachedHashes[slot] == 0) {
+      hasEmptySlot = true;
+      break;
+    }
+  }
+
+  return !hasEmptySlot;
 }
 
-CachedValue* PlainBucket::find(uint32_t hash, uint32_t keySize,
-                               uint8_t* key) const {
-  // TODO: implement this
+CachedValue* PlainBucket::find(uint32_t hash, uint8_t const* key,
+                               uint32_t keySize, bool moveToFront) {
+  TRI_ASSERT(isLocked());
+  for (size_t i = 0; i < SLOTS_DATA; i++) {
+    if (_cachedHashes[i] == 0) {
+      break;
+    }
+    if (_cachedHashes[i] == hash && _cachedData[i]->sameKey(key, keySize)) {
+      return _cachedData[i];
+    }
+  }
   return nullptr;
 }
 
+// requires there to be an open slot, otherwise will not be inserted
 void PlainBucket::insert(uint32_t hash, CachedValue* value) {
-  // TODO: implement this
+  TRI_ASSERT(isLocked());
+  for (size_t i = 0; i < SLOTS_DATA; i++) {
+    if (_cachedHashes[i] == 0) {
+      // found an empty slot
+      _cachedHashes[i] = hash;
+      _cachedData[i] = value;
+      if (i != 0) {
+        moveSlot(i, true);
+      }
+      return;
+    }
+  }
 }
 
-CachedValue* PlainBucket::remove(uint32_t hash, uint32_t keySize,
-                                 uint8_t* key) {
-  // TODO: implement this
-  return nullptr;
+CachedValue* PlainBucket::remove(uint32_t hash, uint8_t const* key,
+                                 uint32_t keySize) {
+  TRI_ASSERT(isLocked());
+  CachedValue* value = find(hash, key, keySize, false);
+  if (value != nullptr) {
+    evict(value, false);
+  }
+
+  return value;
 }
 
 CachedValue* PlainBucket::evictionCandidate() const {
-  // TODO: implement this
+  TRI_ASSERT(isLocked());
+  for (size_t i = 0; i < SLOTS_DATA; i++) {
+    size_t slot = SLOTS_DATA - (i + 1);
+    if (_cachedHashes[slot] == 0) {
+      continue;
+    }
+    if (_cachedData[slot]->isFreeable()) {
+      return _cachedData[slot];
+    }
+  }
+
   return nullptr;
 }
 
-void PlainBucket::evict(CachedValue* value) {
-  // TODO: implement this
+void PlainBucket::evict(CachedValue* value, bool optimizeForInsertion) {
+  TRI_ASSERT(isLocked());
+  for (size_t i = 0; i < SLOTS_DATA; i++) {
+    size_t slot = SLOTS_DATA - (i + 1);
+    if (_cachedData[slot] == value) {
+      // found a match
+      _cachedHashes[slot] = 0;
+      _cachedData[slot] = nullptr;
+      moveSlot(slot, optimizeForInsertion);
+      return;
+    }
+  }
 }
 
 void PlainBucket::toggleMigrated() {
-  // TODO: implement this
+  TRI_ASSERT(isLocked());
+  _state ^= FLAG_MIGRATED;
+}
+
+void PlainBucket::moveSlot(size_t slot, bool moveToFront) {
+  uint32_t hash = _cachedHashes[slot];
+  CachedValue* value = _cachedData[slot];
+  if (moveToFront) {
+    // move slot to front
+    for (size_t i = slot; i >= 1; i--) {
+      _cachedHashes[i] = _cachedHashes[i - 1];
+      _cachedData[i] = _cachedData[i - 1];
+    }
+    _cachedHashes[0] = hash;
+    _cachedData[0] = value;
+  } else {
+    // move slot to back
+    for (size_t i = slot; (i < SLOTS_DATA - 1) && (_cachedHashes[i + 1] != 0);
+         i++) {
+      _cachedHashes[i] = _cachedHashes[i + 1];
+      _cachedData[i] = _cachedData[i + 1];
+    }
+    _cachedHashes[SLOTS_DATA - 1] = hash;
+    _cachedData[SLOTS_DATA - 1] = value;
+  }
 }

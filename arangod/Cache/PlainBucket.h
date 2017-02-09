@@ -51,7 +51,9 @@ struct alignas(64) PlainBucket {
   uint32_t _padding[3];
 #endif
 
-  // must lock before using any other operations
+  PlainBucket();
+
+  // must lock before using any other operations besides isLocked
   bool lock(int64_t maxTries);
   void unlock();
 
@@ -61,14 +63,18 @@ struct alignas(64) PlainBucket {
   bool isFull() const;
 
   // primary functions
-  CachedValue* find(uint32_t hash, uint32_t keySize, uint8_t* key) const;
+  CachedValue* find(uint32_t hash, uint8_t const* key, uint32_t keySize,
+                    bool moveToFront = true);
   void insert(uint32_t hash, CachedValue* value);
-  CachedValue* remove(uint32_t hash, uint32_t keySize, uint8_t* key);
+  CachedValue* remove(uint32_t hash, uint8_t const* key, uint32_t keySize);
 
   // auxiliary functions
   CachedValue* evictionCandidate() const;
-  void evict(CachedValue* value);
+  void evict(CachedValue* value, bool optimizeForInsertion = false);
   void toggleMigrated();
+
+ private:
+  void moveSlot(size_t slot, bool moveToFront);
 };
 
 };  // end namespace cache

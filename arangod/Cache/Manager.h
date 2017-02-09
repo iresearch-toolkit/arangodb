@@ -59,6 +59,10 @@ class Manager {
   uint64_t _globalAllocation;
   uint64_t _globalUsage;
 
+  // transaction management
+  std::atomic<uint64_t> _openTransactions;
+  std::atomic<uint64_t> _transactionTerm;
+
  public:
   Manager(uint64_t globalLimit);
   ~Manager();
@@ -76,6 +80,11 @@ class Manager {
       std::list<Metadata>::iterator& metadata, uint64_t requestedLimit);
   std::pair<bool, std::time_t> requestMigrate(
       std::list<Metadata>::iterator& metadata, uint32_t requestedLogSize);
+
+  // transaction management
+  void startTransaction();
+  void endTransaction();
+  uint64_t transactionTerm();
 
   // report cache access
   void reportAccess(Cache const* cache);

@@ -49,6 +49,14 @@ uint64_t CachedValue::size() const {
   return size;
 }
 
+bool CachedValue::sameKey(void const* k, uint32_t kSize) {
+  if (keySize != kSize) {
+    return false;
+  }
+
+  return (0 == memcmp(key(), k, keySize));
+}
+
 void CachedValue::lease() { refCount++; }
 
 void CachedValue::release() { refCount--; }

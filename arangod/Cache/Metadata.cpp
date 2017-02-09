@@ -49,9 +49,9 @@ void Metadata::lock() {
   uint32_t expected;
   while (true) {
     // expect unlocked, but need to preserve migrating status
-    expected = _state.load() & (~Metadata::FLAG_LOCK);
+    expected = _state.load() & (~FLAG_LOCK);
     bool success = _state.compare_exchange_weak(
-        expected, (expected | Metadata::FLAG_LOCK));  // try to lock
+        expected, (expected | FLAG_LOCK));  // try to lock
     if (success) {
       break;
     }
@@ -61,7 +61,7 @@ void Metadata::lock() {
 
 void Metadata::unlock() {
   TRI_ASSERT(isLocked());
-  _state &= ~Metadata::FLAG_LOCK;
+  _state &= ~FLAG_LOCK;
 }
 
 bool Metadata::isLocked() const { return ((_state.load() & FLAG_LOCK) > 0); }
@@ -139,12 +139,12 @@ bool Metadata::adjustLimits(uint64_t softLimit, uint64_t hardLimit) {
 
 bool Metadata::isMigrating() const {
   TRI_ASSERT(isLocked());
-  return ((_state.load() & Metadata::FLAG_MIGRATING) > 0);
+  return ((_state.load() & FLAG_MIGRATING) > 0);
 }
 
 void Metadata::toggleMigrating() {
   TRI_ASSERT(isLocked());
-  _state ^= Metadata::FLAG_MIGRATING;
+  _state ^= FLAG_MIGRATING;
 }
 
 void Metadata::grantAuxiliaryTable(uint8_t* table, uint32_t logSize) {
@@ -161,12 +161,12 @@ void Metadata::swapTables() {
 
 bool Metadata::isResizing() const {
   TRI_ASSERT(isLocked());
-  return ((_state.load() & Metadata::FLAG_RESIZING) > 0);
+  return ((_state.load() & FLAG_RESIZING) > 0);
 }
 
 void Metadata::toggleResizing() {
   TRI_ASSERT(isLocked());
-  _state ^= Metadata::FLAG_RESIZING;
+  _state ^= FLAG_RESIZING;
 }
 
 uint8_t* Metadata::releaseTable() {

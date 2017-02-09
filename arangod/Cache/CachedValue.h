@@ -46,6 +46,9 @@ struct CachedValue {
   uint8_t const* value() const;
   uint64_t size() const;
 
+  // utility to check key equality
+  bool sameKey(void const* k, uint32_t kSize);
+
   // aliases to handle refCount
   void lease();
   void release();

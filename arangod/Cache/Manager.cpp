@@ -46,7 +46,9 @@ Manager::Manager(uint64_t globalLimit)
       _caches(),
       _globalLimit(globalLimit),
       _globalAllocation(0),
-      _globalUsage(0) {
+      _globalUsage(0),
+      _openTransactions(0),
+      _transactionTerm(0) {
   // TODO: implement this
 }
 
@@ -81,6 +83,20 @@ std::pair<bool, std::time_t> Manager::requestMigrate(
   // TODO: implement this
   return std::pair<bool, uint64_t>(false, 0);
 }
+
+void Manager::startTransaction() {
+  if (++_openTransactions == 1) {
+    _transactionTerm++;
+  }
+}
+
+void Manager::endTransaction() {
+  if (--_openTransactions == 0) {
+    _transactionTerm++;
+  }
+}
+
+uint64_t Manager::transactionTerm() { return _transactionTerm.load(); }
 
 void Manager::reportAccess(Cache const* cache) {
   // TODO: implement this

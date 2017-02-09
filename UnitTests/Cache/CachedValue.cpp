@@ -148,6 +148,29 @@ BOOST_AUTO_TEST_CASE(tst_copy) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief test key comparison
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_key_comparison) {
+  std::string k1("test");
+  std::string k2("testing");
+  std::string k3("TEST");
+  uint64_t v = 1;
+
+  auto cv = CachedValue::construct(k1.data(), k1.size(), &v, sizeof(uint64_t));
+
+  // same key
+  BOOST_CHECK(cv->sameKey(k1.data(), k1.size()));
+
+  // different length, matching prefix
+  BOOST_CHECK(!cv->sameKey(k2.data(), k2.size()));
+
+  // same length, different key
+  BOOST_CHECK(!cv->sameKey(k3.data(), k3.size()));
+
+  delete cv;
+}
+////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////
 

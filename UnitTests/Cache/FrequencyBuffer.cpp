@@ -79,25 +79,22 @@ BOOST_AUTO_TEST_CASE(tst_uint8_t) {
     buffer.insertRecord(one);
   }
 
-  std::vector<std::pair<uint8_t, uint64_t>>* f = buffer.getFrequencies();
-  std::vector<std::pair<uint8_t, uint64_t>>& frequencies = *f;
-  BOOST_CHECK_EQUAL(2ULL, frequencies.size());
-  BOOST_CHECK_EQUAL(one, frequencies[0].first);
-  BOOST_CHECK_EQUAL(2ULL, frequencies[0].second);
-  BOOST_CHECK_EQUAL(two, frequencies[1].first);
-  BOOST_CHECK_EQUAL(4ULL, frequencies[1].second);
-  delete f;
+  typedef std::vector<std::pair<uint8_t, uint64_t>> Frequencies;
+  std::unique_ptr<Frequencies> frequencies(buffer.getFrequencies());
+  BOOST_CHECK_EQUAL(2ULL, frequencies->size());
+  BOOST_CHECK_EQUAL(one, (*frequencies)[0].first);
+  BOOST_CHECK_EQUAL(2ULL, (*frequencies)[0].second);
+  BOOST_CHECK_EQUAL(two, (*frequencies)[1].first);
+  BOOST_CHECK_EQUAL(4ULL, (*frequencies)[1].second);
 
   for (size_t i = 0; i < 8; i++) {
     buffer.insertRecord(one);
   }
 
-  f = buffer.getFrequencies();
-  frequencies = *f;
-  BOOST_CHECK_EQUAL(1ULL, frequencies.size());
-  BOOST_CHECK_EQUAL(one, frequencies[0].first);
-  BOOST_CHECK_EQUAL(8ULL, frequencies[0].second);
-  delete f;
+  frequencies.reset(buffer.getFrequencies());
+  BOOST_CHECK_EQUAL(1ULL, frequencies->size());
+  BOOST_CHECK_EQUAL(one, (*frequencies)[0].first);
+  BOOST_CHECK_EQUAL(8ULL, (*frequencies)[0].second);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -124,14 +121,13 @@ BOOST_AUTO_TEST_CASE(tst_pointers) {
     buffer.insertRecord(&one);
   }
 
-  std::vector<std::pair<uint8_t*, uint64_t>>* f = buffer.getFrequencies();
-  std::vector<std::pair<uint8_t*, uint64_t>>& frequencies = *f;
-  BOOST_CHECK_EQUAL(2ULL, frequencies.size());
-  BOOST_CHECK_EQUAL(&one, frequencies[0].first);
-  BOOST_CHECK_EQUAL(2ULL, frequencies[0].second);
-  BOOST_CHECK_EQUAL(&two, frequencies[1].first);
-  BOOST_CHECK_EQUAL(4ULL, frequencies[1].second);
-  delete f;
+  typedef std::vector<std::pair<uint8_t*, uint64_t>> Frequencies;
+  std::unique_ptr<Frequencies> frequencies(buffer.getFrequencies());
+  BOOST_CHECK_EQUAL(2ULL, frequencies->size());
+  BOOST_CHECK_EQUAL(&one, (*frequencies)[0].first);
+  BOOST_CHECK_EQUAL(2ULL, (*frequencies)[0].second);
+  BOOST_CHECK_EQUAL(&two, (*frequencies)[1].first);
+  BOOST_CHECK_EQUAL(4ULL, (*frequencies)[1].second);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
