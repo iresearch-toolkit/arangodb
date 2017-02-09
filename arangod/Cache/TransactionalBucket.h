@@ -57,8 +57,10 @@ struct alignas(64) TransactionalBucket {
   uint32_t _padding[3];
 #endif
 
+  TransactionalBucket();
+
   // must lock before using any other operations
-  bool lock(int64_t maxTries);
+  bool lock(uint64_t transactionTerm, int64_t maxTries);
   void unlock();
 
   // state checkers
@@ -68,17 +70,22 @@ struct alignas(64) TransactionalBucket {
   bool isFull() const;
 
   // primary functions
-  CachedValue* find(uint32_t hash, uint32_t keySize, uint8_t* key) const;
+  CachedValue* find(uint32_t hash, void const* key, uint32_t keySize,
+                    bool moveToFront = true);
   void insert(uint32_t hash, CachedValue* value);
-  CachedValue* remove(uint32_t hash, uint32_t keySize, uint8_t* key);
-  void blacklist(uint32_t hash);
+  CachedValue* remove(uint32_t hash, void const* key, uint32_t keySize);
+  void blacklist(uint32_t hash, void const* key, uint32_t keySize);
 
   // auxiliary functions
-  void updateBlacklistTerm(uint64_t term);
   bool isBlacklisted(uint32_t hash) const;
   CachedValue* evictionCandidate() const;
-  void evict(CachedValue* value);
+  void evict(CachedValue* value, bool optimizeForInsertion);
   void toggleMigrated();
+
+ private:
+  void toggleFullyBlacklisted();
+  void updateBlacklistTerm(uint64_t term);
+  void moveSlot(size_t slot, bool moveToFront);
 };
 
 };  // end namespace cache

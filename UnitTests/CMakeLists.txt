@@ -59,10 +59,12 @@ add_executable(${TEST_CACHE_SUITE}
   Cache/FrequencyBuffer.cpp
   Cache/Metadata.cpp
   Cache/PlainBucket.cpp
+  Cache/TransactionalBucket.cpp
   ../lib/Basics/WorkMonitorDummy.cpp
   ../arangod/Cache/CachedValue.cpp
   ../arangod/Cache/Metadata.cpp
   ../arangod/Cache/PlainBucket.cpp
+  ../arangod/Cache/TransactionalBucket.cpp
 )
 
 include_directories(${TEST_CACHE_SUITE}

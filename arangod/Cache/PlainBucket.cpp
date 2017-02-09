@@ -85,6 +85,7 @@ CachedValue* PlainBucket::find(uint32_t hash, uint8_t const* key,
                                uint32_t keySize, bool moveToFront) {
   TRI_ASSERT(isLocked());
   CachedValue* result = nullptr;
+
   for (size_t i = 0; i < SLOTS_DATA; i++) {
     if (_cachedHashes[i] == 0) {
       break;
@@ -97,6 +98,7 @@ CachedValue* PlainBucket::find(uint32_t hash, uint8_t const* key,
       break;
     }
   }
+
   return result;
 }
 
