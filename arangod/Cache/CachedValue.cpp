@@ -88,3 +88,7 @@ CachedValue* CachedValue::construct(void const* k, uint32_t kSize,
 
   return cv;
 }
+
+void CachedValue::operator delete(void* ptr) {
+  delete[] reinterpret_cast<uint8_t*>(ptr);
+}

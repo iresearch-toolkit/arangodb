@@ -54,10 +54,11 @@ struct CachedValue {
   void release();
   bool isFreeable();
 
-  // utility methods to make creation easier easier
+  // utility methods to make creation easier
   CachedValue* copy() const;
   static CachedValue* construct(void const* k, uint32_t kSize, void const* v,
                                 uint64_t vSize);
+  static void operator delete(void* ptr);
 };
 
 static_assert(sizeof(CachedValue) == 16);
