@@ -57,11 +57,13 @@ add_executable(${TEST_CACHE_SUITE}
   Cache/Runner.cpp
   Cache/CachedValue.cpp
   Cache/FrequencyBuffer.cpp
+  Cache/Manager.cpp
   Cache/Metadata.cpp
   Cache/PlainBucket.cpp
   Cache/TransactionalBucket.cpp
   ../lib/Basics/WorkMonitorDummy.cpp
   ../arangod/Cache/CachedValue.cpp
+  ../arangod/Cache/Manager.cpp
   ../arangod/Cache/Metadata.cpp
   ../arangod/Cache/PlainBucket.cpp
   ../arangod/Cache/TransactionalBucket.cpp

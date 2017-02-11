@@ -45,6 +45,17 @@ Metadata::Metadata(Cache* cache, uint64_t limit, uint8_t* table,
       _logSize(logSize),
       _auxiliaryLogSize(0) {}
 
+Metadata::Metadata(Metadata const& other)
+    : _state(other._state.load()),
+      _cache(other._cache),
+      _usage(other._usage),
+      _softLimit(other._softLimit),
+      _hardLimit(other._hardLimit),
+      _table(other._table),
+      _auxiliaryTable(other._auxiliaryTable),
+      _logSize(other._logSize),
+      _auxiliaryLogSize(other._auxiliaryLogSize) {}
+
 void Metadata::lock() {
   uint32_t expected;
   while (true) {

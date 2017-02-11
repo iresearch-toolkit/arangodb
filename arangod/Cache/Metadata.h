@@ -37,7 +37,9 @@ class Cache;  // forward declaration
 
 class Metadata {
  public:
-  Metadata(Cache* cache, uint64_t limit, uint8_t* table, uint32_t logSize);
+  Metadata(Cache* cache, uint64_t limit, uint8_t* table = nullptr,
+           uint32_t logSize = 0);
+  Metadata(Metadata const& other);
 
   // record must be locked for both reading and writing!
   void lock();

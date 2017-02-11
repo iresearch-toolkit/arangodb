@@ -39,6 +39,9 @@ namespace cache {
 
 template <class T>
 class FrequencyBuffer {
+ public:
+  typedef std::vector<std::pair<T, uint64_t>> stats_t;
+
  private:
   std::atomic<uint64_t> _current;
   uint64_t _capacity;
@@ -65,7 +68,7 @@ class FrequencyBuffer {
   }
 
   // return frequencies in ASCENDING order
-  std::vector<std::pair<T, uint64_t>>* getFrequencies() const {
+  FrequencyBuffer::stats_t* getFrequencies() const {
     // calculate frequencies
     std::unordered_map<T, uint64_t> frequencies;
     for (size_t i = 0; i < _capacity; i++) {
