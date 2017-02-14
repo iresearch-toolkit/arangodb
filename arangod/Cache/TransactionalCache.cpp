@@ -36,19 +36,10 @@
 
 using namespace arangodb::cache;
 
-uint32_t TransactionalCache::FLAG_LOCK = 0x01;
-uint32_t TransactionalCache::FLAG_MIGRATING = 0x02;
-
-uint8_t TransactionalCache::STAT_EVICTION = 0x01;
-uint8_t TransactionalCache::STAT_NO_EVICTION = 0x02;
-
 TransactionalCache::TransactionalCache(Manager* manager,
                                        uint64_t requestedLimit,
                                        bool allowGrowth)
-    : _state(0),
-      _allowGrowth(allowGrowth),
-      _evictionStats(1024),
-      _manager(manager) {
+    : Cache(manager, requestedLimit, allowGrowth) {
   // TODO: implement this
 }
 
@@ -56,7 +47,7 @@ TransactionalCache::~TransactionalCache() {
   // TODO: implement this
 }
 
-Cache::Finding TransactionalCache::lookup(uint32_t keySize, uint8_t* key) {
+Cache::Finding TransactionalCache::find(void const* key, uint32_t keySize) {
   // TODO: implement this;
   return Cache::Finding(nullptr);
 }
@@ -66,17 +57,13 @@ bool TransactionalCache::insert(CachedValue* value) {
   return false;
 }
 
-bool TransactionalCache::remove(uint32_t keySize, uint8_t* key) {
+bool TransactionalCache::remove(void const* key, uint32_t keySize) {
   // TODO: implement this
   return false;
 }
 
-void TransactionalCache::blackList(uint32_t keySize, uint8_t* key) {
+void TransactionalCache::blackList(void const* key, uint32_t keySize) {
   // TODO: implement this
-}
-
-std::list<Metadata>::iterator& TransactionalCache::metadata() {
-  return _metadata;
 }
 
 void TransactionalCache::freeMemory() {
@@ -87,19 +74,6 @@ void TransactionalCache::migrate() {
   // TODO: implement this
 }
 
-void TransactionalCache::requestResize(uint64_t requestedLimit) {
-  // TODO: implement this
-}
-
-bool TransactionalCache::lock(int64_t maxTries) {
-  // TODO: implement this
-  return false;
-}
-
-void TransactionalCache::unlock() {
-  // TODO: implement this
-}
-
-void TransactionalCache::requestMigrate(uint32_t requestedLogSize) {
+void TransactionalCache::clearTables() {
   // TODO: implement this
 }

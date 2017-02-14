@@ -25,10 +25,10 @@
 #define ARANGODB_CACHE_MANAGER_H
 
 #include "Basics/Common.h"
-#include "Cache/Cache.h"
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Metadata.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
@@ -41,6 +41,8 @@
 namespace arangodb {
 namespace cache {
 
+class cache;  // forward declaration
+
 class Manager {
  public:
   typedef FrequencyBuffer<Cache*> StatBuffer;
@@ -48,13 +50,7 @@ class Manager {
 
  private:
   // simple state variable for locking and other purposes
-  std::atomic<uint32_t> _state;
-
-  // state flags
-  static uint32_t FLAG_LOCK;
-  static uint32_t FLAG_MIGRATING;
-  static uint32_t FLAG_RESIZING;
-  static uint32_t FLAG_REBALANCING;
+  State _state;
 
   // structure to handle access frequency monitoring
   Manager::StatBuffer _accessStats;
@@ -105,13 +101,6 @@ class Manager {
   void reportAccess(Cache* cache);
 
  private:
-  // methods to check and affect global state
-  void lock();
-  void unlock();
-  bool isLocked() const;
-  void toggleResizing();
-  bool isResizing() const;
-
   // periodically run to rebalance allocations globally
   void rebalance();
 

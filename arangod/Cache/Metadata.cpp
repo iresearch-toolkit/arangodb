@@ -23,19 +23,16 @@
 
 #include "Cache/Metadata.h"
 #include "Cache/Cache.h"
+#include "Cache/State.h"
 
 #include <atomic>
 #include <cstdint>
 
 using namespace arangodb::cache;
 
-uint32_t Metadata::FLAG_LOCK = 0x01;
-uint32_t Metadata::FLAG_MIGRATING = 0x02;
-uint32_t Metadata::FLAG_RESIZING = 0x04;
-
 Metadata::Metadata(Cache* cache, uint64_t limit, uint8_t* table,
                    uint32_t logSize)
-    : _state(0),
+    : _state(),
       _cache(cache),
       _usage(0),
       _softLimit(limit),
@@ -46,7 +43,7 @@ Metadata::Metadata(Cache* cache, uint64_t limit, uint8_t* table,
       _auxiliaryLogSize(0) {}
 
 Metadata::Metadata(Metadata const& other)
-    : _state(other._state.load()),
+    : _state(other._state),
       _cache(other._cache),
       _usage(other._usage),
       _softLimit(other._softLimit),
@@ -56,26 +53,14 @@ Metadata::Metadata(Metadata const& other)
       _logSize(other._logSize),
       _auxiliaryLogSize(other._auxiliaryLogSize) {}
 
-void Metadata::lock() {
-  uint32_t expected;
-  while (true) {
-    // expect unlocked, but need to preserve migrating status
-    expected = _state.load() & (~FLAG_LOCK);
-    bool success = _state.compare_exchange_weak(
-        expected, (expected | FLAG_LOCK));  // try to lock
-    if (success) {
-      break;
-    }
-    // TODO: exponential back-off for failure?
-  }
-}
+void Metadata::lock() { _state.lock(); }
 
 void Metadata::unlock() {
   TRI_ASSERT(isLocked());
-  _state &= ~FLAG_LOCK;
+  _state.unlock();
 }
 
-bool Metadata::isLocked() const { return ((_state.load() & FLAG_LOCK) > 0); }
+bool Metadata::isLocked() const { return _state.isLocked(); }
 
 Cache* Metadata::cache() const {
   TRI_ASSERT(isLocked());
@@ -148,16 +133,6 @@ bool Metadata::adjustLimits(uint64_t softLimit, uint64_t hardLimit) {
   return true;
 }
 
-bool Metadata::isMigrating() const {
-  TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_MIGRATING) > 0);
-}
-
-void Metadata::toggleMigrating() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_MIGRATING;
-}
-
 void Metadata::grantAuxiliaryTable(uint8_t* table, uint32_t logSize) {
   TRI_ASSERT(isLocked());
   _auxiliaryTable = table;
@@ -168,16 +143,6 @@ void Metadata::swapTables() {
   TRI_ASSERT(isLocked());
   std::swap(_table, _auxiliaryTable);
   std::swap(_logSize, _auxiliaryLogSize);
-}
-
-bool Metadata::isResizing() const {
-  TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_RESIZING) > 0);
-}
-
-void Metadata::toggleResizing() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_RESIZING;
 }
 
 uint8_t* Metadata::releaseTable() {
@@ -194,4 +159,14 @@ uint8_t* Metadata::releaseAuxiliaryTable() {
   _auxiliaryTable = nullptr;
   _auxiliaryLogSize = 0;
   return table;
+}
+
+bool Metadata::isSet(State::Flag flag) const {
+  TRI_ASSERT(isLocked());
+  return _state.isSet(flag);
+}
+
+void Metadata::toggleFlag(State::Flag flag) {
+  TRI_ASSERT(isLocked());
+  _state.toggleFlag(flag);
 }

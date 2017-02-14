@@ -30,6 +30,7 @@
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Metadata.h"
 #include "Cache/PlainBucket.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
@@ -41,41 +42,20 @@ namespace cache {
 
 class Manager;  // forward declaration
 
-class PlainCache : public Cache {
-  // simple state variable for locking and other purposes
-  std::atomic<uint32_t> _state;
-
-  // state flags
-  static uint32_t FLAG_LOCK;
-  static uint32_t FLAG_MIGRATING;
-
-  // whether to allow the cache to resize larger when it fills
-  bool _allowGrowth;
-
-  // structure to handle eviction-upon-insertion rate
-  FrequencyBuffer<uint8_t> _evictionStats;
-
-  // eviction stats definitions
-  static uint8_t STAT_EVICTION;
-  static uint8_t STAT_NO_EVICTION;
-
-  // allow communication with manager
-  Manager* _manager;
-  std::list<Metadata>::iterator _metadata;
-
+class PlainCache final : public Cache {
   // main table info
   PlainBucket* _table;
-  uint64_t _tableSize;
   uint32_t _logSize;
+  uint64_t _tableSize;
+  uint32_t _maskShift;
+  uint32_t _bucketMask;
 
   // auxiliary table info
   PlainBucket* _auxiliaryTable;
-  uint64_t _auxiliaryTableSize;
   uint32_t _auxiliaryLogSize;
-
-  // times to wait until requesting is allowed again
-  std::time_t _migrateRequestTime;
-  std::time_t _resizeRequestTime;
+  uint64_t _auxiliaryTableSize;
+  uint32_t _auxiliaryMaskShift;
+  uint32_t _auxiliaryBucketMask;
 
  public:
   PlainCache(Manager* manager, uint64_t requestedLimit,
@@ -83,22 +63,19 @@ class PlainCache : public Cache {
                                  // first parameter can be removed
   ~PlainCache();
 
-  Finding lookup(uint32_t keySize, uint8_t* key);
+  Cache::Finding find(void const* key, uint32_t keySize);
   bool insert(CachedValue* value);
-  bool remove(uint32_t keySize, uint8_t* key);
+  bool remove(void const* key, uint32_t keySize);
 
-  std::list<Metadata>::iterator& metadata();
   void freeMemory();
   void migrate();
 
-  void requestResize(uint64_t requestedLimit);
-
  private:
-  // methods to lock global state
-  bool lock(int64_t maxTries);
-  void unlock();
+  void clearTables();
 
-  void requestMigrate(uint32_t requestedLogSize);
+  std::pair<bool, PlainBucket*> getBucket(uint32_t hash);
+  void clearTable(PlainBucket* table, uint64_t tableSize);
+  uint32_t getIndex(uint32_t hash, bool useAuxiliary) const;
 };
 
 };  // end namespace cache

@@ -21,59 +21,52 @@
 /// @author Daniel H. Larkin
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGODB_CACHE_PLAIN_BUCKET_H
-#define ARANGODB_CACHE_PLAIN_BUCKET_H
+#ifndef ARANGODB_CACHE_STATE_H
+#define ARANGODB_CACHE_STATE_H
 
 #include "Basics/Common.h"
-#include "Cache/CachedValue.h"
-#include "Cache/State.h"
 
-#include <stdint.h>
 #include <atomic>
+#include <cstdint>
 
 namespace arangodb {
 namespace cache {
 
-struct alignas(64) PlainBucket {
-  State _state;
+struct State {
+  typedef std::function<void()> CallbackType;
 
-  // actual cached entries
-  uint32_t _cachedHashes[5];
-  CachedValue* _cachedData[5];
-  static size_t SLOTS_DATA;
+  // each flag must have exactly one bit set, fit in uint32_t
+  enum class Flag : uint32_t {
+    locked = 0x00000001,
+    blacklisted = 0x00000002,
+    migrated = 0x00000004,
+    migrating = 0x00000008,
+    rebalancing = 0x00000010,
+    resizing = 0x00000020,
+    shutdown = 0x00000040
+  };
 
-// padding, if necessary?
-#ifdef TRI_PADDING_32
-  uint32_t _padding[3];
-#endif
+  State();
+  State(State const& other);
 
-  PlainBucket();
-
-  // must lock before using any other operations besides isLocked
-  bool lock(int64_t maxTries);
+  bool isLocked() const;
+  bool lock(int64_t maxTries = -1LL, State::CallbackType cb = []() -> void {});
+  // must be locked to unlock
   void unlock();
 
-  // state checkers
-  bool isLocked() const;
-  bool isMigrated() const;
-  bool isFull() const;
+  // check and toggle public flags; must be locked first
+  bool isSet(State::Flag flag) const;
+  void toggleFlag(State::Flag flag);
 
-  // primary functions
-  CachedValue* find(uint32_t hash, void const* key, uint32_t keySize,
-                    bool moveToFront = true);
-  void insert(uint32_t hash, CachedValue* value);
-  CachedValue* remove(uint32_t hash, void const* key, uint32_t keySize);
-
-  // auxiliary functions
-  CachedValue* evictionCandidate() const;
-  void evict(CachedValue* value, bool optimizeForInsertion = false);
-
-  // cleanup
+  // clear all flags besides Flag::locked; must be locked first
   void clear();
 
  private:
-  void moveSlot(size_t slot, bool moveToFront);
+  // simple state variable for locking and other purposes
+  std::atomic<uint32_t> _state;
 };
+
+static_assert(sizeof(State) == 4);
 
 };  // end namespace cache
 };  // end namespace arangodb

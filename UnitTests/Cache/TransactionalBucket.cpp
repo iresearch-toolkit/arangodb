@@ -93,44 +93,6 @@ BOOST_AUTO_TEST_CASE(tst_locks) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test migration methods
-////////////////////////////////////////////////////////////////////////////////
-
-BOOST_AUTO_TEST_CASE(tst_migrated) {
-  TransactionalBucket bucket;
-  bool success;
-
-  success = bucket.lock(0, -1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(0, -1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.toggleMigrated();
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(0, -1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(0, -1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.toggleMigrated();
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(0, -1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// @brief test insertion to full and fail beyond
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -27,12 +27,12 @@
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Metadata.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <iostream>
 #include <list>
 #include <memory>
 #include <stack>
@@ -50,13 +50,8 @@ static constexpr uint64_t CACHE_RECORD_OVERHEAD = sizeof(Metadata) + 16;
 // assume at most 16 slots in each stack -- TODO: check validity
 static constexpr uint64_t TABLE_LISTS_OVERHEAD = 32 * 16 * 8;
 
-uint32_t Manager::FLAG_LOCK = 0x01;
-uint32_t Manager::FLAG_MIGRATING = 0x02;
-uint32_t Manager::FLAG_RESIZING = 0x04;
-uint32_t Manager::FLAG_REBALANCING = 0x08;
-
 Manager::Manager(uint64_t globalLimit)
-    : _state(0),
+    : _state(),
       _accessStats((globalLimit >= (1024 * 1024 * 1024))
                        ? (128 * 1024)
                        : (globalLimit / 8192ULL)),
@@ -74,12 +69,13 @@ Manager::Manager(uint64_t globalLimit)
 Manager::~Manager() {
   while (_caches.size() > 0) {
     // wait for caches to unregister
+    // TODO: send shutdown signals?
     usleep(1);
   }
 
-  lock();
+  _state.lock();
   freeUnusedTables();
-  unlock();
+  _state.unlock();
 }
 
 // change global cache limit
@@ -89,7 +85,7 @@ bool Manager::resize(uint64_t newGlobalLimit) {
   std::unique_ptr<Manager::StatBuffer::stats_t> stats(nullptr);
   uint64_t reclaimed = 0;
 
-  lock();
+  _state.lock();
 
   // if limit is safe, just set it
   done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
@@ -101,14 +97,14 @@ bool Manager::resize(uint64_t newGlobalLimit) {
   }
 
   // otherwise if we still have outstanding resize tasks, return unsuccessful
-  if (!done && isResizing()) {
+  if (!done && _state.isSet(State::Flag::resizing)) {
     done = true;
     success = false;
   }
 
   // must resize individual caches
   if (!done) {
-    toggleResizing();
+    _state.toggleFlag(State::Flag::resizing);
     _globalSoftLimit = newGlobalLimit;
 
     // get stats on cache access to prioritize freeing from less frequently used
@@ -131,22 +127,23 @@ bool Manager::resize(uint64_t newGlobalLimit) {
 
   // TODO: handle case where we still need to free more memory
 
-  unlock();
+  _state.unlock();
   return success;
 }
 
 uint64_t Manager::globalLimit() {
-  lock();
-  uint64_t limit = isResizing() ? _globalSoftLimit : _globalHardLimit;
-  unlock();
+  _state.lock();
+  uint64_t limit =
+      _state.isSet(State::Flag::resizing) ? _globalSoftLimit : _globalHardLimit;
+  _state.unlock();
 
   return limit;
 }
 
 uint64_t Manager::globalAllocation() {
-  lock();
+  _state.lock();
   uint64_t allocation = _globalAllocation;
-  unlock();
+  _state.unlock();
 
   return allocation;
 }
@@ -163,7 +160,7 @@ std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
     tableLogSize = logSize - TABLE_LOG_SIZE_ADJUSTMENT;
   }
 
-  lock();
+  _state.lock();
 
   while (logSize >= MIN_LOG_SIZE) {
     uint64_t tableAllocation =
@@ -181,7 +178,7 @@ std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
   }
 
   if (logSize < MIN_LOG_SIZE) {
-    unlock();
+    _state.unlock();
     throw std::bad_alloc();
   }
 
@@ -191,13 +188,13 @@ std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
   metadata->lock();
   leaseTable(metadata, tableLogSize);
   metadata->unlock();
-  unlock();
+  _state.unlock();
 
   return metadata;
 }
 
 void Manager::unregisterCache(std::list<Metadata>::iterator& metadata) {
-  lock();
+  _state.lock();
 
   metadata->lock();
   _globalAllocation -= (metadata->hardLimit() + CACHE_RECORD_OVERHEAD);
@@ -206,7 +203,7 @@ void Manager::unregisterCache(std::list<Metadata>::iterator& metadata) {
 
   _caches.erase(metadata);
 
-  unlock();
+  _state.unlock();
 }
 
 std::pair<bool, Manager::time_point> Manager::requestResize(
@@ -214,7 +211,7 @@ std::pair<bool, Manager::time_point> Manager::requestResize(
   Manager::time_point nextRequest = futureTime(30);
   bool allowed = false;
 
-  lock();
+  _state.lock();
   metadata->lock();
 
   TRI_ASSERT(requestedLimit > metadata->hardLimit());
@@ -228,7 +225,7 @@ std::pair<bool, Manager::time_point> Manager::requestResize(
   }
 
   metadata->unlock();
-  unlock();
+  _state.unlock();
 
   return std::pair<bool, Manager::time_point>(allowed, nextRequest);
 }
@@ -238,7 +235,7 @@ std::pair<bool, Manager::time_point> Manager::requestMigrate(
   Manager::time_point nextRequest = futureTime(30);
   bool allowed = false;
 
-  lock();
+  _state.lock();
   metadata->lock();
 
   if (!_tables[requestedLogSize].empty() ||
@@ -250,7 +247,7 @@ std::pair<bool, Manager::time_point> Manager::requestMigrate(
   }
 
   metadata->unlock();
-  unlock();
+  _state.unlock();
 
   // TODO: queue actual migrate task
 
@@ -276,44 +273,13 @@ void Manager::reportAccess(Cache* cache) {
   _accessStats.insertRecord(cache);
 }
 
-void Manager::lock() {
-  uint32_t expected;
-  while (true) {
-    // expect unlocked, but need to preserve migrating status
-    expected = _state.load() & (~FLAG_LOCK);
-    bool success = _state.compare_exchange_weak(
-        expected, (expected | FLAG_LOCK));  // try to lock
-    if (success) {
-      break;
-    }
-    // TODO: exponential back-off for failure?
-  }
-}
-
-void Manager::unlock() {
-  TRI_ASSERT(isLocked());
-  _state &= ~FLAG_LOCK;
-}
-
-bool Manager::isLocked() const { return ((_state.load() & FLAG_LOCK) > 0); }
-
-void Manager::toggleResizing() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_RESIZING;
-}
-
-bool Manager::isResizing() const {
-  TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_RESIZING) > 0);
-}
-
 void Manager::rebalance() {
   // TODO: implement this
 }
 
 void Manager::resizeCache(std::list<Metadata>::iterator& metadata,
                           uint64_t newLimit) {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());
 
   if (metadata->usage() <= newLimit) {
@@ -325,7 +291,7 @@ void Manager::resizeCache(std::list<Metadata>::iterator& metadata,
 
   bool success = metadata->adjustLimits(newLimit, metadata->hardLimit());
   TRI_ASSERT(success);
-  metadata->toggleResizing();
+  metadata->toggleFlag(State::Flag::resizing);
   metadata->unlock();
 
   // TODO: queue actual free task
@@ -333,12 +299,13 @@ void Manager::resizeCache(std::list<Metadata>::iterator& metadata,
 
 void Manager::leaseTable(std::list<Metadata>::iterator& metadata,
                          uint32_t logSize) {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());
 
   uint8_t* table;
   if (_tables[logSize].empty()) {
     table = new uint8_t[tableSize(logSize)];
+    memset(table, 0, tableSize(logSize));
     _globalAllocation += tableSize(logSize);
   } else {
     table = _tables[logSize].top();
@@ -354,7 +321,7 @@ void Manager::leaseTable(std::list<Metadata>::iterator& metadata,
 
 void Manager::reclaimTables(std::list<Metadata>::iterator& metadata,
                             bool auxiliaryOnly) {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());
 
   uint8_t* table;
@@ -378,8 +345,9 @@ void Manager::reclaimTables(std::list<Metadata>::iterator& metadata,
 }
 
 bool Manager::increaseAllowed(uint64_t increase) const {
-  TRI_ASSERT(isLocked());
-  if (isResizing() && (_globalAllocation < _globalSoftLimit)) {
+  TRI_ASSERT(_state.isLocked());
+  if (_state.isSet(State::Flag::resizing) &&
+      (_globalAllocation < _globalSoftLimit)) {
     return (increase < (_globalSoftLimit - _globalAllocation));
   }
 
@@ -396,7 +364,7 @@ Manager::time_point Manager::futureTime(uint64_t secondsFromNow) {
 }
 
 void Manager::freeUnusedTables() {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   for (size_t i = 0; i < 32; i++) {
     while (!_tables[i].empty()) {
       uint8_t* table = _tables[i].top();
@@ -407,7 +375,7 @@ void Manager::freeUnusedTables() {
 }
 
 bool Manager::adjustGlobalLimitsIfAllowed(uint64_t newGlobalLimit) {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   if (newGlobalLimit < _globalAllocation) {
     return false;
   }
@@ -421,7 +389,7 @@ bool Manager::adjustGlobalLimitsIfAllowed(uint64_t newGlobalLimit) {
 uint64_t Manager::resizeAllCaches(Manager::StatBuffer::stats_t* stats,
                                   bool noTasks, bool aggressive,
                                   uint64_t goal) {
-  TRI_ASSERT(isLocked());
+  TRI_ASSERT(_state.isLocked());
   uint64_t reclaimed = 0;
 
   for (auto s : *stats) {

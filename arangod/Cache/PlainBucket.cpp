@@ -24,47 +24,29 @@
 #include "Cache/PlainBucket.h"
 #include "Basics/Common.h"
 #include "Cache/CachedValue.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
 
 using namespace arangodb::cache;
 
-uint32_t PlainBucket::FLAG_LOCK = 0x01;
-uint32_t PlainBucket::FLAG_MIGRATED = 0x02;
-
 size_t PlainBucket::SLOTS_DATA = 5;
 
-PlainBucket::PlainBucket() { memset(this, 0, sizeof(PlainBucket)); }
+PlainBucket::PlainBucket() { clear(); }
 
-bool PlainBucket::lock(int64_t maxTries) {
-  uint32_t expected;
-  int64_t attempt = 0;
-  while (maxTries < 0 || attempt < maxTries) {
-    // expect unlocked, but need to preserve migrating status
-    expected = _state.load() & (~FLAG_LOCK);
-    bool success = _state.compare_exchange_weak(
-        expected, (expected | FLAG_LOCK));  // try to lock
-    if (success) {
-      return true;
-    }
-    attempt++;
-    // TODO: exponential back-off for failure?
-  }
-
-  return false;
-}
+bool PlainBucket::lock(int64_t maxTries) { return _state.lock(maxTries); }
 
 void PlainBucket::unlock() {
-  TRI_ASSERT(isLocked());
-  _state &= ~FLAG_LOCK;
+  TRI_ASSERT(_state.isLocked());
+  _state.unlock();
 }
 
-bool PlainBucket::isLocked() const { return ((_state.load() & FLAG_LOCK) > 0); }
+bool PlainBucket::isLocked() const { return _state.isLocked(); }
 
 bool PlainBucket::isMigrated() const {
   TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_MIGRATED) > 0);
+  return _state.isSet(State::Flag::migrated);
 }
 
 bool PlainBucket::isFull() const {
@@ -81,8 +63,8 @@ bool PlainBucket::isFull() const {
   return !hasEmptySlot;
 }
 
-CachedValue* PlainBucket::find(uint32_t hash, uint8_t const* key,
-                               uint32_t keySize, bool moveToFront) {
+CachedValue* PlainBucket::find(uint32_t hash, void const* key, uint32_t keySize,
+                               bool moveToFront) {
   TRI_ASSERT(isLocked());
   CachedValue* result = nullptr;
 
@@ -118,7 +100,7 @@ void PlainBucket::insert(uint32_t hash, CachedValue* value) {
   }
 }
 
-CachedValue* PlainBucket::remove(uint32_t hash, uint8_t const* key,
+CachedValue* PlainBucket::remove(uint32_t hash, void const* key,
                                  uint32_t keySize) {
   TRI_ASSERT(isLocked());
   CachedValue* value = find(hash, key, keySize, false);
@@ -158,10 +140,7 @@ void PlainBucket::evict(CachedValue* value, bool optimizeForInsertion) {
   }
 }
 
-void PlainBucket::toggleMigrated() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_MIGRATED;
-}
+void PlainBucket::clear() { memset(this, 0, sizeof(PlainBucket)); }
 
 void PlainBucket::moveSlot(size_t slot, bool moveToFront) {
   uint32_t hash = _cachedHashes[slot];

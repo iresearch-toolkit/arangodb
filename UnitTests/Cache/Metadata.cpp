@@ -70,64 +70,6 @@ BOOST_AUTO_TEST_CASE(tst_constructor) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test lock operations
-////////////////////////////////////////////////////////////////////////////////
-
-BOOST_AUTO_TEST_CASE(tst_locks) {
-  uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
-  uint8_t dummyTable;
-  uint32_t logSize = 1;
-  uint64_t limit = 1024;
-
-  Metadata metadata(dummyCache, limit, &dummyTable, logSize);
-
-  BOOST_CHECK(!metadata.isLocked());
-  metadata.lock();
-  BOOST_CHECK(metadata.isLocked());
-  metadata.unlock();
-  BOOST_CHECK(!metadata.isLocked());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// @brief test state operations
-////////////////////////////////////////////////////////////////////////////////
-
-BOOST_AUTO_TEST_CASE(tst_state_operations) {
-  uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
-  uint8_t dummyTable;
-  uint32_t logSize = 1;
-  uint64_t limit = 1024;
-
-  Metadata metadata(dummyCache, limit, &dummyTable, logSize);
-
-  BOOST_CHECK(!metadata.isLocked());
-  metadata.lock();
-  BOOST_CHECK(metadata.isLocked());
-  BOOST_CHECK(!metadata.isMigrating());
-  BOOST_CHECK(!metadata.isResizing());
-  metadata.toggleMigrating();
-  BOOST_CHECK(metadata.isLocked());
-  BOOST_CHECK(metadata.isMigrating());
-  BOOST_CHECK(!metadata.isResizing());
-  metadata.toggleMigrating();
-  BOOST_CHECK(metadata.isLocked());
-  BOOST_CHECK(!metadata.isMigrating());
-  BOOST_CHECK(!metadata.isResizing());
-  metadata.toggleResizing();
-  BOOST_CHECK(metadata.isLocked());
-  BOOST_CHECK(!metadata.isMigrating());
-  BOOST_CHECK(metadata.isResizing());
-  metadata.toggleResizing();
-  BOOST_CHECK(metadata.isLocked());
-  BOOST_CHECK(!metadata.isMigrating());
-  BOOST_CHECK(!metadata.isResizing());
-  metadata.unlock();
-  BOOST_CHECK(!metadata.isLocked());
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// @brief test getters
 ////////////////////////////////////////////////////////////////////////////////
 

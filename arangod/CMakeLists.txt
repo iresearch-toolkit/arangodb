@@ -175,6 +175,7 @@ SET(ARANGOD_SOURCES
   Cache/Metadata.cpp
   Cache/PlainBucket.cpp
   Cache/PlainCache.cpp
+  Cache/State.cpp
   Cache/TransactionalBucket.cpp
   Cache/TransactionalCache.cpp
   Cluster/AgencyCallback.cpp

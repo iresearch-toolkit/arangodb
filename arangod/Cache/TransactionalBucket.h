@@ -26,6 +26,7 @@
 
 #include "Basics/Common.h"
 #include "Cache/CachedValue.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
@@ -34,13 +35,7 @@ namespace arangodb {
 namespace cache {
 
 struct alignas(64) TransactionalBucket {
-  // simple state variable for locking and other purposes
-  std::atomic<uint32_t> _state;
-
-  // state flags
-  static uint32_t FLAG_LOCK;
-  static uint32_t FLAG_MIGRATED;
-  static uint32_t FLAG_BLACKLISTED;
+  State _state;
 
   // actual cached entries
   uint32_t _cachedHashes[3];
@@ -80,10 +75,8 @@ struct alignas(64) TransactionalBucket {
   bool isBlacklisted(uint32_t hash) const;
   CachedValue* evictionCandidate() const;
   void evict(CachedValue* value, bool optimizeForInsertion);
-  void toggleMigrated();
 
  private:
-  void toggleFullyBlacklisted();
   void updateBlacklistTerm(uint64_t term);
   void moveSlot(size_t slot, bool moveToFront);
 };

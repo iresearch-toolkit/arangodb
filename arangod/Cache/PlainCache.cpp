@@ -28,49 +28,153 @@
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Metadata.h"
 #include "Cache/PlainBucket.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <list>
 
+#include <iostream>
+
 using namespace arangodb::cache;
-
-uint32_t PlainCache::FLAG_LOCK = 0x01;
-uint32_t PlainCache::FLAG_MIGRATING = 0x02;
-
-uint8_t PlainCache::STAT_EVICTION = 0x01;
-uint8_t PlainCache::STAT_NO_EVICTION = 0x02;
 
 PlainCache::PlainCache(Manager* manager, uint64_t requestedLimit,
                        bool allowGrowth)
-    : _state(0),
-      _allowGrowth(allowGrowth),
-      _evictionStats(1024),
-      _manager(manager) {
-  // TODO: implement this
+    : Cache(manager, requestedLimit, allowGrowth),
+      _auxiliaryTable(nullptr),
+      _auxiliaryLogSize(0),
+      _auxiliaryTableSize(1),
+      _auxiliaryMaskShift(32),
+      _auxiliaryBucketMask(0) {
+  _state.lock();
+  if (isOperational()) {
+    _metadata->lock();
+    _table = reinterpret_cast<PlainBucket*>(_metadata->table());
+    _logSize = _metadata->logSize();
+    _tableSize = (1 << _logSize);
+    _maskShift = 32 - _logSize;
+    _bucketMask = (_tableSize - 1) << _maskShift;
+    _metadata->unlock();
+  }
+  _state.unlock();
 }
 
 PlainCache::~PlainCache() {
-  // TODO: implement this
+  _state.lock();
+  if (isOperational()) {
+    _state.unlock();
+    shutdown();
+  }
+  if (_state.isLocked()) {
+    _state.unlock();
+  }
 }
 
-Cache::Finding PlainCache::lookup(uint32_t keySize, uint8_t* key) {
-  // TODO: implement this;
-  return Cache::Finding(nullptr);
+Cache::Finding PlainCache::find(void const* key, uint32_t keySize) {
+  TRI_ASSERT(key != nullptr);
+  Finding result(nullptr);
+  uint32_t hash = hashKey(key, keySize);
+
+  bool ok;
+  PlainBucket* bucket;
+  std::tie(ok, bucket) = getBucket(hash);
+
+  if (ok) {
+    result.reset(bucket->find(hash, key, keySize));
+    bucket->unlock();
+    endOperation();
+  }
+
+  return result;
 }
 
 bool PlainCache::insert(CachedValue* value) {
-  // TODO: implement this
-  return false;
+  TRI_ASSERT(value != nullptr);
+  bool inserted = false;
+  uint32_t hash = hashKey(value->key(), value->keySize);
+
+  bool ok;
+  PlainBucket* bucket;
+  std::tie(ok, bucket) = getBucket(hash);
+
+  if (ok) {
+    Finding f = bucket->find(hash, value->key(), value->keySize);
+    if (f.found()) {
+      ok = false;
+      bucket->unlock();
+      endOperation();
+    }
+  }
+
+  if (ok) {
+    int64_t change = value->size();
+    CachedValue* candidate = nullptr;
+
+    if (bucket->isFull()) {
+      candidate = bucket->evictionCandidate();
+    }
+    if (candidate != nullptr) {
+      change -= candidate->size();
+    }
+
+    _metadata->lock();
+    bool allowed = _metadata->adjustUsageIfAllowed(change);
+    _metadata->unlock();
+
+    if (allowed) {
+      if (candidate != nullptr) {
+        bucket->evict(candidate);
+        freeValue(candidate);
+        recordStat(Stat::eviction);
+      } else {
+        recordStat(Stat::noEviction);
+      }
+      bucket->insert(hash, value);
+      inserted = true;
+    } else {
+      requestResize();  // let function do the hard work
+    }
+
+    bucket->unlock();
+    endOperation();
+    requestMigrate();  // let function do the hard work
+  }
+
+  return inserted;
 }
 
-bool PlainCache::remove(uint32_t keySize, uint8_t* key) {
-  // TODO: implement this
-  return false;
-}
+bool PlainCache::remove(void const* key, uint32_t keySize) {
+  TRI_ASSERT(key != nullptr);
+  bool removed = false;
+  uint32_t hash = hashKey(key, keySize);
 
-std::list<Metadata>::iterator& PlainCache::metadata() { return _metadata; }
+  bool ok;
+  PlainBucket* bucket;
+  std::tie(ok, bucket) = getBucket(hash);
+
+  if (ok) {
+    int64_t change = 0;
+    CachedValue* candidate = bucket->remove(hash, key, keySize);
+
+    if (candidate != nullptr) {
+      change -= candidate->size();
+
+      _metadata->lock();
+      bool allowed = _metadata->adjustUsageIfAllowed(change);
+      TRI_ASSERT(allowed);
+      _metadata->unlock();
+
+      freeValue(candidate);
+      removed = true;
+    }
+
+    bucket->unlock();
+    endOperation();
+  }
+
+  return removed;
+}
 
 void PlainCache::freeMemory() {
   // TODO: implement this
@@ -80,19 +184,74 @@ void PlainCache::migrate() {
   // TODO: implement this
 }
 
-void PlainCache::requestResize(uint64_t requestedLimit) {
-  // TODO: implement this
+std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash) {
+  PlainBucket* bucket = nullptr;
+  bool ok = _state.lock(10UL);
+  bool started = false;
+  if (ok) {
+    if (!isOperational()) {
+      ok = false;
+    }
+    if (ok) {
+      startOperation();
+      started = true;
+
+      bucket = &(_table[getIndex(hash, false)]);
+      ok = bucket->lock(10UL);
+      if (ok) {
+        if (isMigrating() &&
+            bucket->isMigrated()) {  // get bucket from auxiliary table instead
+          bucket->unlock();
+          bucket = &(_auxiliaryTable[getIndex(hash, true)]);
+          ok = bucket->lock(10UL);
+          if (ok && bucket->isMigrated()) {
+            ok = false;
+            bucket->unlock();
+          }
+        }
+      }
+    }
+    if (!ok && started) {
+      endOperation();
+    }
+    _state.unlock();
+  }
+
+  return std::pair<bool, PlainBucket*>(ok, bucket);
 }
 
-bool PlainCache::lock(int64_t maxTries) {
-  // TODO: implement this
-  return false;
+void PlainCache::clearTables() {
+  TRI_ASSERT(_state.isLocked());
+  if (_table != nullptr) {
+    clearTable(_table, _tableSize);
+  }
+  if (_auxiliaryTable != nullptr) {
+    clearTable(_auxiliaryTable, _auxiliaryTableSize);
+  }
 }
 
-void PlainCache::unlock() {
-  // TODO: implement this
+void PlainCache::clearTable(PlainBucket* table, uint64_t tableSize) {
+  for (uint64_t i = 0; i < tableSize; i++) {
+    PlainBucket* bucket = &(table[i]);
+    bucket->lock(-1LL);
+    CachedValue* value = bucket->evictionCandidate();
+    while (value != nullptr) {
+      bucket->evict(value);
+      _metadata->lock();
+      _metadata->adjustUsageIfAllowed(0LL - value->size());
+      _metadata->unlock();
+      freeValue(value);
+
+      value = bucket->evictionCandidate();
+    }
+    bucket->clear();
+  }
 }
 
-void PlainCache::requestMigrate(uint32_t requestedLogSize) {
-  // TODO: implement this
+uint32_t PlainCache::getIndex(uint32_t hash, bool useAuxiliary) const {
+  if (useAuxiliary) {
+    return ((hash & _auxiliaryBucketMask) >> _auxiliaryLogSize);
+  }
+
+  return ((hash & _bucketMask) >> _maskShift);
 }

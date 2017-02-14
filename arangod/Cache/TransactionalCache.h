@@ -41,28 +41,7 @@ namespace cache {
 
 class Manager;  // forward declaration
 
-class TransactionalCache : public Cache {
-  // simple state variable for locking and other purposes
-  std::atomic<uint32_t> _state;
-
-  // state flags
-  static uint32_t FLAG_LOCK;
-  static uint32_t FLAG_MIGRATING;
-
-  // whether to allow the cache to resize larger when it fills
-  bool _allowGrowth;
-
-  // structure to handle eviction-upon-insertion rate
-  FrequencyBuffer<uint8_t> _evictionStats;
-
-  // eviction stats definitions
-  static uint8_t STAT_EVICTION;
-  static uint8_t STAT_NO_EVICTION;
-
-  // allow communication with manager
-  Manager* _manager;
-  std::list<Metadata>::iterator _metadata;
-
+class TransactionalCache final : public Cache {
   // main table info
   TransactionalBucket* _table;
   uint64_t _tableSize;
@@ -83,23 +62,16 @@ class TransactionalCache : public Cache {
                                          // first parameter can be removed
   ~TransactionalCache();
 
-  Finding lookup(uint32_t keySize, uint8_t* key);
+  Cache::Finding find(void const* key, uint32_t keySize);
   bool insert(CachedValue* value);
-  bool remove(uint32_t keySize, uint8_t* key);
-  void blackList(uint32_t keySize, uint8_t* key);
+  bool remove(void const* key, uint32_t keySize);
+  void blackList(void const* key, uint32_t keySize);
 
-  std::list<Metadata>::iterator& metadata();
   void freeMemory();
   void migrate();
 
-  void requestResize(uint64_t requestedLimit);
-
  private:
-  // methods to lock global state
-  bool lock(int64_t maxTries);
-  void unlock();
-
-  void requestMigrate(uint32_t requestedLogSize);
+  void clearTables();
 };
 
 };  // end namespace cache

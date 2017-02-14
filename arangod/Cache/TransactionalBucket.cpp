@@ -24,15 +24,12 @@
 #include "Cache/TransactionalBucket.h"
 #include "Basics/Common.h"
 #include "Cache/CachedValue.h"
+#include "Cache/State.h"
 
 #include <stdint.h>
 #include <atomic>
 
 using namespace arangodb::cache;
-
-uint32_t TransactionalBucket::FLAG_LOCK = 0x01;
-uint32_t TransactionalBucket::FLAG_MIGRATED = 0x02;
-uint32_t TransactionalBucket::FLAG_BLACKLISTED = 0x04;
 
 size_t TransactionalBucket::SLOTS_DATA = 3;
 size_t TransactionalBucket::SLOTS_BLACKLIST = 4;
@@ -42,41 +39,25 @@ TransactionalBucket::TransactionalBucket() {
 }
 
 bool TransactionalBucket::lock(uint64_t transactionTerm, int64_t maxTries) {
-  uint32_t expected;
-  int64_t attempt = 0;
-  while (maxTries < 0 || attempt < maxTries) {
-    // expect unlocked, but need to preserve migrating status
-    expected = _state.load() & (~FLAG_LOCK);
-    bool success = _state.compare_exchange_weak(
-        expected, (expected | FLAG_LOCK));  // try to lock
-    if (success) {
-      updateBlacklistTerm(transactionTerm);
-      return true;
-    }
-    attempt++;
-    // TODO: exponential back-off for failure?
-  }
-
-  return false;
+  return _state.lock(maxTries,
+                     [&]() -> void { updateBlacklistTerm(transactionTerm); });
 }
 
 void TransactionalBucket::unlock() {
   TRI_ASSERT(isLocked());
-  _state &= ~FLAG_LOCK;
+  _state.unlock();
 }
 
-bool TransactionalBucket::isLocked() const {
-  return ((_state.load() & FLAG_LOCK) > 0);
-}
+bool TransactionalBucket::isLocked() const { return _state.isLocked(); }
 
 bool TransactionalBucket::isMigrated() const {
   TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_MIGRATED) > 0);
+  return _state.isSet(State::Flag::blacklisted);
 }
 
 bool TransactionalBucket::isFullyBlacklisted() const {
   TRI_ASSERT(isLocked());
-  return ((_state.load() & FLAG_BLACKLISTED) > 0);
+  return _state.isSet(State::Flag::blacklisted);
 }
 
 bool TransactionalBucket::isFull() const {
@@ -163,7 +144,7 @@ void TransactionalBucket::blacklist(uint32_t hash, void const* key,
   }
 
   // no empty slot found, fully blacklist
-  toggleFullyBlacklisted();
+  _state.toggleFlag(State::Flag::blacklisted);
 }
 
 bool TransactionalBucket::isBlacklisted(uint32_t hash) const {
@@ -212,22 +193,12 @@ void TransactionalBucket::evict(CachedValue* value, bool optimizeForInsertion) {
   }
 }
 
-void TransactionalBucket::toggleMigrated() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_MIGRATED;
-}
-
-void TransactionalBucket::toggleFullyBlacklisted() {
-  TRI_ASSERT(isLocked());
-  _state ^= FLAG_BLACKLISTED;
-}
-
 void TransactionalBucket::updateBlacklistTerm(uint64_t term) {
   if (term > _blacklistTerm) {
     _blacklistTerm = term;
 
     if (isFullyBlacklisted()) {
-      toggleFullyBlacklisted();
+      _state.toggleFlag(State::Flag::blacklisted);
     }
 
     memset(_blacklistHashes, 0, (SLOTS_BLACKLIST * sizeof(uint32_t)));

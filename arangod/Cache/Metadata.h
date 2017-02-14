@@ -25,7 +25,7 @@
 #define ARANGODB_CACHE_METADATA_H
 
 #include "Basics/Common.h"
-#include "Cache/Cache.h"
+#include "Cache/State.h"
 
 #include <atomic>
 #include <cstdint>
@@ -59,24 +59,17 @@ class Metadata {
   bool adjustUsageIfAllowed(int64_t usageChange);
   bool adjustLimits(uint64_t softLimit, uint64_t hardLimit);
 
-  bool isMigrating() const;
-  void toggleMigrating();
   void grantAuxiliaryTable(uint8_t* table, uint32_t logSize);
   void swapTables();
-  bool isResizing() const;
-  void toggleResizing();
 
   uint8_t* releaseTable();
   uint8_t* releaseAuxiliaryTable();
 
- private:
-  // simple state variable for locking and other purposes
-  std::atomic<uint32_t> _state;
+  bool isSet(State::Flag flag) const;
+  void toggleFlag(State::Flag flag);
 
-  // state flags
-  static uint32_t FLAG_LOCK;
-  static uint32_t FLAG_MIGRATING;
-  static uint32_t FLAG_RESIZING;
+ private:
+  State _state;
 
   // pointer to underlying cache
   Cache* _cache;

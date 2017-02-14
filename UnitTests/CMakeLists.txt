@@ -60,13 +60,19 @@ add_executable(${TEST_CACHE_SUITE}
   Cache/Manager.cpp
   Cache/Metadata.cpp
   Cache/PlainBucket.cpp
+  Cache/PlainCache.cpp
+  Cache/State.cpp
   Cache/TransactionalBucket.cpp
   ../lib/Basics/WorkMonitorDummy.cpp
+  ../arangod/Cache/Cache.cpp
   ../arangod/Cache/CachedValue.cpp
   ../arangod/Cache/Manager.cpp
   ../arangod/Cache/Metadata.cpp
   ../arangod/Cache/PlainBucket.cpp
+  ../arangod/Cache/PlainCache.cpp
+  ../arangod/Cache/State.cpp
   ../arangod/Cache/TransactionalBucket.cpp
+  ../arangod/Cache/TransactionalCache.cpp
 )
 
 include_directories(${TEST_CACHE_SUITE}

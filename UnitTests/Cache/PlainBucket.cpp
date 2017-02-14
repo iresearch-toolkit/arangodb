@@ -57,68 +57,6 @@ struct CCachePlainBucketSetup {
 BOOST_FIXTURE_TEST_SUITE(CCachePlainBucketTest, CCachePlainBucketSetup)
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test lock methods
-////////////////////////////////////////////////////////////////////////////////
-
-BOOST_AUTO_TEST_CASE(tst_locks) {
-  PlainBucket bucket;
-  bool success;
-
-  // check lock without contention
-  BOOST_CHECK(!bucket.isLocked());
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(bucket.isLocked());
-
-  // check lock with contention
-  success = bucket.lock(10LL);
-  BOOST_CHECK(!success);
-  BOOST_CHECK(bucket.isLocked());
-
-  // check unlock
-  bucket.unlock();
-  BOOST_CHECK(!bucket.isLocked());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// @brief test migration methods
-////////////////////////////////////////////////////////////////////////////////
-
-BOOST_AUTO_TEST_CASE(tst_migrated) {
-  PlainBucket bucket;
-  bool success;
-
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.toggleMigrated();
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(bucket.isMigrated());
-  bucket.toggleMigrated();
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-
-  success = bucket.lock(-1LL);
-  BOOST_CHECK(success);
-  BOOST_CHECK(!bucket.isMigrated());
-  bucket.unlock();
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// @brief test insertion to full and fail beyond
 ////////////////////////////////////////////////////////////////////////////////
 
