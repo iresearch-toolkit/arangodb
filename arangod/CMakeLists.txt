@@ -172,6 +172,7 @@ SET(ARANGOD_SOURCES
   Cache/Cache.cpp
   Cache/CachedValue.cpp
   Cache/Manager.cpp
+  Cache/ManagerTasks.cpp
   Cache/Metadata.cpp
   Cache/PlainBucket.cpp
   Cache/PlainCache.cpp

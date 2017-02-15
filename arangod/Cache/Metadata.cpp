@@ -30,7 +30,7 @@
 
 using namespace arangodb::cache;
 
-Metadata::Metadata(Cache* cache, uint64_t limit, uint8_t* table,
+Metadata::Metadata(std::shared_ptr<Cache> cache, uint64_t limit, uint8_t* table,
                    uint32_t logSize)
     : _state(),
       _cache(cache),
@@ -62,7 +62,7 @@ void Metadata::unlock() {
 
 bool Metadata::isLocked() const { return _state.isLocked(); }
 
-Cache* Metadata::cache() const {
+std::shared_ptr<Cache> Metadata::cache() const {
   TRI_ASSERT(isLocked());
   return _cache;
 }

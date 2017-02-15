@@ -36,23 +36,6 @@
 
 using namespace arangodb::cache;
 
-Cache::Cache(Manager* manager, uint64_t requestedLimit, bool allowGrowth)
-    : _state(),
-      _allowGrowth(allowGrowth),
-      _evictionStats(1024),
-      _insertionCount(0),
-      _manager(manager),
-      _openOperations(),
-      _migrateRequestTime(std::chrono::steady_clock::now()),
-      _resizeRequestTime(std::chrono::steady_clock::now()) {
-  try {
-    _metadata = _manager->registerCache(this, requestedLimit);
-  } catch (std::bad_alloc) {
-    // could not register, mark as non-operational
-    _state.toggleFlag(State::Flag::shutdown);
-  }
-}
-
 Cache::Finding::Finding(CachedValue* v) : _value(v) {
   if (_value != nullptr) {
     _value->lease();
@@ -121,21 +104,22 @@ void Cache::requestResize(uint64_t requestedLimit) {
   _state.unlock();
 }
 
-std::list<Metadata>::iterator& Cache::metadata() { return _metadata; }
-
-void Cache::shutdown() {
-  _state.lock();
-  while (_openOperations.load() > 0) {
-    usleep(1);
+Cache::Cache(Manager* manager, uint64_t requestedLimit, bool allowGrowth,
+             std::function<void(Cache*)> deleter)
+    : _state(),
+      _allowGrowth(allowGrowth),
+      _evictionStats(1024),
+      _insertionCount(0),
+      _manager(manager),
+      _openOperations(),
+      _migrateRequestTime(std::chrono::steady_clock::now()),
+      _resizeRequestTime(std::chrono::steady_clock::now()) {
+  try {
+    _metadata = _manager->registerCache(this, requestedLimit, deleter);
+  } catch (std::bad_alloc) {
+    // could not register, mark as non-operational
+    _state.toggleFlag(State::Flag::shutdown);
   }
-
-  _state.clear();
-  _state.toggleFlag(State::Flag::shutdown);
-
-  clearTables();
-  _manager->unregisterCache(_metadata);
-
-  _state.unlock();
 }
 
 bool Cache::isOperational() const {
@@ -183,6 +167,15 @@ void Cache::freeValue(CachedValue* value) {
   delete value;
 }
 
+bool Cache::reclaimMemory(uint64_t size) {
+  _metadata->lock();
+  _metadata->adjustUsageIfAllowed(-static_cast<int64_t>(size));
+  bool underLimit = (_metadata->softLimit() >= _metadata->usage());
+  _metadata->unlock();
+
+  return underLimit;
+}
+
 uint32_t Cache::hashKey(void const* key, uint32_t keySize) const {
   return std::max(static_cast<uint32_t>(1),
                   fasthash32(key, keySize, 0xdeadbeefUL));
@@ -190,4 +183,22 @@ uint32_t Cache::hashKey(void const* key, uint32_t keySize) const {
 
 void Cache::recordStat(Cache::Stat stat) {
   _evictionStats.insertRecord(static_cast<uint8_t>(stat));
+}
+
+Manager::MetadataItr& Cache::metadata() { return _metadata; }
+
+void Cache::shutdown() {
+  _state.lock();
+  if (isOperational()) {
+    while (_openOperations.load() > 0) {
+      usleep(1);
+    }
+
+    _state.clear();
+    _state.toggleFlag(State::Flag::shutdown);
+
+    clearTables();
+    _manager->unregisterCache(_metadata);
+  }
+  _state.unlock();
 }

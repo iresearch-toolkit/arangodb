@@ -28,6 +28,8 @@
 #include "Cache/Cache.h"
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
+#include "Cache/Manager.h"
+#include "Cache/ManagerTasks.h"
 #include "Cache/Metadata.h"
 #include "Cache/PlainBucket.h"
 #include "Cache/State.h"
@@ -43,6 +45,21 @@ namespace cache {
 class Manager;  // forward declaration
 
 class PlainCache final : public Cache {
+ public:
+  PlainCache() = delete;
+  PlainCache(PlainCache const&) = delete;
+  PlainCache& operator=(PlainCache const&) = delete;
+
+ public:
+  // creator -- do not use constructor explicitly
+  static std::shared_ptr<Cache> create(Manager* manager, uint64_t requestedSize,
+                                       bool allowGrowth);
+
+  Cache::Finding find(void const* key, uint32_t keySize);
+  bool insert(CachedValue* value);
+  bool remove(void const* key, uint32_t keySize);
+
+ private:
   // main table info
   PlainBucket* _table;
   uint32_t _logSize;
@@ -57,23 +74,24 @@ class PlainCache final : public Cache {
   uint32_t _auxiliaryMaskShift;
   uint32_t _auxiliaryBucketMask;
 
- public:
+  // friend class manager and tasks
+  friend class FreeMemoryTask;
+  friend class Manager;
+  friend class MigrateTask;
+
+ private:
   PlainCache(Manager* manager, uint64_t requestedLimit,
              bool allowGrowth);  // TODO: create CacheManagerFeature so
                                  // first parameter can be removed
   ~PlainCache();
 
-  Cache::Finding find(void const* key, uint32_t keySize);
-  bool insert(CachedValue* value);
-  bool remove(void const* key, uint32_t keySize);
-
+  // management
   void freeMemory();
   void migrate();
-
- private:
   void clearTables();
 
-  std::pair<bool, PlainBucket*> getBucket(uint32_t hash);
+  // helpers
+  std::pair<bool, PlainBucket*> getBucket(uint32_t hash, int64_t maxTries = 10);
   void clearTable(PlainBucket* table, uint64_t tableSize);
   uint32_t getIndex(uint32_t hash, bool useAuxiliary) const;
 };

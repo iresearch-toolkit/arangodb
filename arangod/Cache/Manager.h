@@ -25,6 +25,7 @@
 #define ARANGODB_CACHE_MANAGER_H
 
 #include "Basics/Common.h"
+#include "Basics/asio-helper.h"
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Metadata.h"
@@ -41,12 +42,36 @@
 namespace arangodb {
 namespace cache {
 
-class cache;  // forward declaration
+class Cache;           // forward declaration
+class FreeMemoryTask;  // forward declaration
+class MigrateTask;     // forward declaration
 
 class Manager {
  public:
   typedef FrequencyBuffer<Cache*> StatBuffer;
   typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
+  typedef std::list<Metadata>::iterator MetadataItr;
+
+ public:
+  Manager(boost::asio::io_service* ioService, uint64_t globalLimit);
+  ~Manager();
+
+  // cache factory
+  enum CacheType { Plain, Transactional };
+  std::shared_ptr<Cache> createCache(Manager::CacheType type,
+                                     uint64_t requestedLimit, bool allowGrowth);
+
+  // change global cache limit
+  bool resize(uint64_t newGlobalLimit);
+
+  // report current limit and usage
+  uint64_t globalLimit();
+  uint64_t globalAllocation();
+
+  // transaction management
+  void startTransaction();
+  void endTransaction();
+  uint64_t transactionTerm();
 
  private:
   // simple state variable for locking and other purposes
@@ -70,44 +95,40 @@ class Manager {
   std::atomic<uint64_t> _openTransactions;
   std::atomic<uint64_t> _transactionTerm;
 
- public:
-  Manager(uint64_t globalLimit);
-  ~Manager();
+  boost::asio::io_service* _ioService;
 
-  // change global cache limit
-  bool resize(uint64_t newGlobalLimit);
+  // friend class tasks and caches to allow access
+  friend class Cache;
+  friend class FreeMemoryTask;
+  friend class MigrateTask;
+  friend class PlainCache;
+  friend class TransactionalCache;
 
-  // report current limit and usage
-  uint64_t globalLimit();
-  uint64_t globalAllocation();
+ private:
+  // expose io_service
+  boost::asio::io_service* ioService();
 
   // register and unregister individual caches
-  std::list<Metadata>::iterator registerCache(Cache* cache,
-                                              uint64_t requestedLimit);
-  void unregisterCache(std::list<Metadata>::iterator& metadata);
+  Manager::MetadataItr registerCache(Cache* cache, uint64_t requestedLimit,
+                                     std::function<void(Cache*)> deleter);
+  void unregisterCache(Manager::MetadataItr& metadata);
 
   // allow individual caches to request changes to their allocations
   std::pair<bool, Manager::time_point> requestResize(
-      std::list<Metadata>::iterator& metadata, uint64_t requestedLimit);
+      Manager::MetadataItr& metadata, uint64_t requestedLimit);
   std::pair<bool, Manager::time_point> requestMigrate(
-      std::list<Metadata>::iterator& metadata, uint32_t requestedLogSize);
-
-  // transaction management
-  void startTransaction();
-  void endTransaction();
-  uint64_t transactionTerm();
+      Manager::MetadataItr& metadata, uint32_t requestedLogSize);
 
   // report cache access
   void reportAccess(Cache* cache);
 
- private:
-  // periodically run to rebalance allocations globally
+  // periodically run to rebalance allocations globally?
   void rebalance();
 
   // methods to adjust individual caches
-  void resizeCache(std::list<Metadata>::iterator& metadata, uint64_t newLimit);
-  void leaseTable(std::list<Metadata>::iterator& metadata, uint32_t logSize);
-  void reclaimTables(std::list<Metadata>::iterator& metadata,
+  void resizeCache(Manager::MetadataItr& metadata, uint64_t newLimit);
+  void leaseTable(Manager::MetadataItr& metadata, uint32_t logSize);
+  void reclaimTables(Manager::MetadataItr& metadata,
                      bool auxiliaryOnly = false);
 
   // helpers for allocations

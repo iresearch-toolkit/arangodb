@@ -67,6 +67,7 @@ add_executable(${TEST_CACHE_SUITE}
   ../arangod/Cache/Cache.cpp
   ../arangod/Cache/CachedValue.cpp
   ../arangod/Cache/Manager.cpp
+  ../arangod/Cache/ManagerTasks.cpp
   ../arangod/Cache/Metadata.cpp
   ../arangod/Cache/PlainBucket.cpp
   ../arangod/Cache/PlainCache.cpp

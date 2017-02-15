@@ -64,14 +64,16 @@ BOOST_FIXTURE_TEST_SUITE(CCachePlainCacheTest, CCachePlainCacheSetup)
 ////////////////////////////////////////////////////////////////////////////////
 
 BOOST_AUTO_TEST_CASE(tst_construction) {
-  Manager manager(1024ULL * 1024ULL);
-  PlainCache cache1(&manager, 256ULL * 1024ULL, false);
-  PlainCache cache2(&manager, 512ULL * 1024ULL, false);
+  Manager manager(nullptr, 1024ULL * 1024ULL);
+  auto cache1 =
+      manager.createCache(Manager::CacheType::Plain, 256ULL * 1024ULL, false);
+  auto cache2 =
+      manager.createCache(Manager::CacheType::Plain, 512ULL * 1024ULL, false);
 
-  BOOST_CHECK_EQUAL(0ULL, cache1.usage());
-  BOOST_CHECK_EQUAL(256ULL * 1024ULL, cache1.limit());
-  BOOST_CHECK_EQUAL(0ULL, cache2.usage());
-  BOOST_CHECK(512ULL * 1024ULL > cache2.limit());
+  BOOST_CHECK_EQUAL(0ULL, cache1->usage());
+  BOOST_CHECK_EQUAL(256ULL * 1024ULL, cache1->limit());
+  BOOST_CHECK_EQUAL(0ULL, cache2->usage());
+  BOOST_CHECK(512ULL * 1024ULL > cache2->limit());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,25 +82,26 @@ BOOST_AUTO_TEST_CASE(tst_construction) {
 
 BOOST_AUTO_TEST_CASE(tst_insertion) {
   uint64_t cacheLimit = 256ULL * 1024ULL;
-  Manager manager(4ULL * cacheLimit);
-  PlainCache cache(&manager, cacheLimit, false);
+  Manager manager(nullptr, 4ULL * cacheLimit);
+  auto cache =
+      manager.createCache(Manager::CacheType::Plain, cacheLimit, false);
 
   for (uint64_t i = 0; i < 1024; i++) {
     CachedValue* value =
         CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
-    bool success = cache.insert(value);
+    bool success = cache->insert(value);
     BOOST_CHECK(success);
-    auto f = cache.find(&i, sizeof(uint64_t));
+    auto f = cache->find(&i, sizeof(uint64_t));
     BOOST_CHECK(f.found());
   }
 
   for (uint64_t i = 0; i < 1024; i++) {
     CachedValue* value =
         CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
-    bool success = cache.insert(value);
+    bool success = cache->insert(value);
     BOOST_CHECK(!success);
     delete value;
-    auto f = cache.find(&i, sizeof(uint64_t));
+    auto f = cache->find(&i, sizeof(uint64_t));
     BOOST_CHECK(f.found());
   }
 
@@ -106,9 +109,9 @@ BOOST_AUTO_TEST_CASE(tst_insertion) {
   for (uint64_t i = 1024; i < 128 * 1024; i++) {
     CachedValue* value =
         CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
-    bool success = cache.insert(value);
+    bool success = cache->insert(value);
     if (success) {
-      auto f = cache.find(&i, sizeof(uint64_t));
+      auto f = cache->find(&i, sizeof(uint64_t));
       BOOST_CHECK(f.found());
     } else {
       delete value;
@@ -124,34 +127,35 @@ BOOST_AUTO_TEST_CASE(tst_insertion) {
 
 BOOST_AUTO_TEST_CASE(tst_removal) {
   uint64_t cacheLimit = 256ULL * 1024ULL;
-  Manager manager(4ULL * cacheLimit);
-  PlainCache cache(&manager, cacheLimit, false);
+  Manager manager(nullptr, 4ULL * cacheLimit);
+  auto cache =
+      manager.createCache(Manager::CacheType::Plain, cacheLimit, false);
 
   for (uint64_t i = 0; i < 1024; i++) {
     CachedValue* value =
         CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
-    bool success = cache.insert(value);
+    bool success = cache->insert(value);
     BOOST_CHECK(success);
-    auto f = cache.find(&i, sizeof(uint64_t));
+    auto f = cache->find(&i, sizeof(uint64_t));
     BOOST_CHECK(f.found());
   }
 
   // test removal of bogus keys
   for (uint64_t i = 1024; i < 2048; i++) {
-    bool removed = cache.remove(&i, sizeof(uint64_t));
+    bool removed = cache->remove(&i, sizeof(uint64_t));
     BOOST_ASSERT(!removed);
     // ensure existing keys not removed
     for (uint64_t j = 0; j < 1024; j++) {
-      auto f = cache.find(&j, sizeof(uint64_t));
+      auto f = cache->find(&j, sizeof(uint64_t));
       BOOST_CHECK(f.found());
     }
   }
 
   // remove actual keys
   for (uint64_t i = 0; i < 1024; i++) {
-    bool removed = cache.remove(&i, sizeof(uint64_t));
+    bool removed = cache->remove(&i, sizeof(uint64_t));
     BOOST_CHECK(removed);
-    auto f = cache.find(&i, sizeof(uint64_t));
+    auto f = cache->find(&i, sizeof(uint64_t));
     BOOST_CHECK(!f.found());
   }
 }

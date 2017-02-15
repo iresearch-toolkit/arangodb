@@ -36,15 +36,21 @@
 
 using namespace arangodb::cache;
 
-TransactionalCache::TransactionalCache(Manager* manager,
-                                       uint64_t requestedLimit,
-                                       bool allowGrowth)
-    : Cache(manager, requestedLimit, allowGrowth) {
-  // TODO: implement this
-}
+std::shared_ptr<Cache> TransactionalCache::create(Manager* manager,
+                                                  uint64_t requestedSize,
+                                                  bool allowGrowth) {
+  TransactionalCache* cache =
+      new TransactionalCache(manager, requestedSize, allowGrowth);
 
-TransactionalCache::~TransactionalCache() {
-  // TODO: implement this
+  if (cache == nullptr) {
+    return std::shared_ptr<Cache>(nullptr);
+  }
+
+  cache->metadata()->lock();
+  auto result = cache->metadata()->cache();
+  cache->metadata()->unlock();
+
+  return result;
 }
 
 Cache::Finding TransactionalCache::find(void const* key, uint32_t keySize) {
@@ -63,6 +69,19 @@ bool TransactionalCache::remove(void const* key, uint32_t keySize) {
 }
 
 void TransactionalCache::blackList(void const* key, uint32_t keySize) {
+  // TODO: implement this
+}
+
+TransactionalCache::TransactionalCache(Manager* manager,
+                                       uint64_t requestedLimit,
+                                       bool allowGrowth)
+    : Cache(manager, requestedLimit, allowGrowth, [](Cache* p) -> void {
+        delete reinterpret_cast<TransactionalCache*>(p);
+      }) {
+  // TODO: implement this
+}
+
+TransactionalCache::~TransactionalCache() {
   // TODO: implement this
 }
 

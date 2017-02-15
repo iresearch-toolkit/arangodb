@@ -23,11 +23,16 @@
 
 #include "Cache/Manager.h"
 #include "Basics/Common.h"
+#include "Basics/asio-helper.h"
 #include "Cache/Cache.h"
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
+#include "Cache/ManagerTasks.h"
 #include "Cache/Metadata.h"
+#include "Cache/PlainCache.h"
 #include "Cache/State.h"
+#include "Cache/TransactionalCache.h"
+#include "Random/RandomGenerator.h"
 
 #include <stdint.h>
 #include <algorithm>
@@ -50,10 +55,10 @@ static constexpr uint64_t CACHE_RECORD_OVERHEAD = sizeof(Metadata) + 16;
 // assume at most 16 slots in each stack -- TODO: check validity
 static constexpr uint64_t TABLE_LISTS_OVERHEAD = 32 * 16 * 8;
 
-Manager::Manager(uint64_t globalLimit)
+Manager::Manager(boost::asio::io_service* ioService, uint64_t globalLimit)
     : _state(),
-      _accessStats((globalLimit >= (1024 * 1024 * 1024))
-                       ? (128 * 1024)
+      _accessStats((globalLimit >= (1024ULL * 1024ULL * 1024ULL))
+                       ? (128ULL * 1024ULL)
                        : (globalLimit / 8192ULL)),
       _caches(),
       _globalSoftLimit(globalLimit),
@@ -61,21 +66,45 @@ Manager::Manager(uint64_t globalLimit)
       _globalAllocation(sizeof(Manager) + TABLE_LISTS_OVERHEAD +
                         _accessStats.memoryUsage()),
       _openTransactions(0),
-      _transactionTerm(0) {
+      _transactionTerm(0),
+      _ioService(ioService) {
   TRI_ASSERT(_globalAllocation < _globalSoftLimit);
   TRI_ASSERT(_globalAllocation < _globalHardLimit);
 }
 
 Manager::~Manager() {
-  while (_caches.size() > 0) {
-    // wait for caches to unregister
-    // TODO: send shutdown signals?
-    usleep(1);
+  _state.lock();
+  while (!_caches.empty()) {
+    _caches.begin()->lock();
+    auto cache = _caches.begin()->cache();
+    _caches.begin()->unlock();
+    _state.unlock();
+    cache->shutdown();
+    _state.lock();
   }
+  _state.unlock();
 
   _state.lock();
   freeUnusedTables();
   _state.unlock();
+}
+
+std::shared_ptr<Cache> Manager::createCache(Manager::CacheType type,
+                                            uint64_t requestedLimit,
+                                            bool allowGrowth) {
+  std::shared_ptr<Cache> result(nullptr);
+  switch (type) {
+    case CacheType::Plain:
+      result = PlainCache::create(this, requestedLimit, allowGrowth);
+      break;
+    case CacheType::Transactional:
+      result = TransactionalCache::create(this, requestedLimit, allowGrowth);
+      break;
+    default:
+      break;
+  }
+
+  return result;
 }
 
 // change global cache limit
@@ -148,9 +177,26 @@ uint64_t Manager::globalAllocation() {
   return allocation;
 }
 
+void Manager::startTransaction() {
+  if (++_openTransactions == 1) {
+    _transactionTerm++;
+  }
+}
+
+void Manager::endTransaction() {
+  if (--_openTransactions == 0) {
+    _transactionTerm++;
+  }
+}
+
+uint64_t Manager::transactionTerm() { return _transactionTerm.load(); }
+
+boost::asio::io_service* Manager::ioService() { return _ioService; }
+
 // register and unregister individual caches
-std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
-                                                     uint64_t requestedLimit) {
+Manager::MetadataItr Manager::registerCache(
+    Cache* cache, uint64_t requestedLimit,
+    std::function<void(Cache*)> deleter) {
   uint32_t logSize = 0;
   uint32_t tableLogSize = MIN_TABLE_LOG_SIZE;
   for (; (1ULL << logSize) < requestedLimit; logSize++) {
@@ -183,7 +229,7 @@ std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
   }
 
   _globalAllocation += (grantedLimit + CACHE_RECORD_OVERHEAD);
-  _caches.emplace_front(cache, grantedLimit);
+  _caches.emplace_front(std::shared_ptr<Cache>(cache, deleter), grantedLimit);
   auto metadata = _caches.begin();
   metadata->lock();
   leaseTable(metadata, tableLogSize);
@@ -193,7 +239,7 @@ std::list<Metadata>::iterator Manager::registerCache(Cache* cache,
   return metadata;
 }
 
-void Manager::unregisterCache(std::list<Metadata>::iterator& metadata) {
+void Manager::unregisterCache(Manager::MetadataItr& metadata) {
   _state.lock();
 
   metadata->lock();
@@ -207,7 +253,7 @@ void Manager::unregisterCache(std::list<Metadata>::iterator& metadata) {
 }
 
 std::pair<bool, Manager::time_point> Manager::requestResize(
-    std::list<Metadata>::iterator& metadata, uint64_t requestedLimit) {
+    Manager::MetadataItr& metadata, uint64_t requestedLimit) {
   Manager::time_point nextRequest = futureTime(30);
   bool allowed = false;
 
@@ -231,7 +277,7 @@ std::pair<bool, Manager::time_point> Manager::requestResize(
 }
 
 std::pair<bool, Manager::time_point> Manager::requestMigrate(
-    std::list<Metadata>::iterator& metadata, uint32_t requestedLogSize) {
+    Manager::MetadataItr& metadata, uint32_t requestedLogSize) {
   Manager::time_point nextRequest = futureTime(30);
   bool allowed = false;
 
@@ -249,36 +295,32 @@ std::pair<bool, Manager::time_point> Manager::requestMigrate(
   metadata->unlock();
   _state.unlock();
 
-  // TODO: queue actual migrate task
+  MigrateTask task(this, metadata);
+  bool dispatched = task.dispatch();
+  if (!dispatched) {
+    // TODO: decide what to do if we don't have an io_service
+    allowed = false;
+    _state.lock();
+    metadata->lock();
+    reclaimTables(metadata, true);
+    metadata->unlock();
+    _state.unlock();
+  }
 
   return std::pair<bool, Manager::time_point>(allowed, nextRequest);
 }
 
-void Manager::startTransaction() {
-  if (++_openTransactions == 1) {
-    _transactionTerm++;
-  }
-}
-
-void Manager::endTransaction() {
-  if (--_openTransactions == 0) {
-    _transactionTerm++;
-  }
-}
-
-uint64_t Manager::transactionTerm() { return _transactionTerm.load(); }
-
 void Manager::reportAccess(Cache* cache) {
-  // TODO: only record ~1% of accesses -- fast prng?
-  _accessStats.insertRecord(cache);
+  if (0U == RandomGenerator::interval(100U)) {
+    _accessStats.insertRecord(cache);
+  }
 }
 
 void Manager::rebalance() {
   // TODO: implement this
 }
 
-void Manager::resizeCache(std::list<Metadata>::iterator& metadata,
-                          uint64_t newLimit) {
+void Manager::resizeCache(Manager::MetadataItr& metadata, uint64_t newLimit) {
   TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());
 
@@ -294,11 +336,14 @@ void Manager::resizeCache(std::list<Metadata>::iterator& metadata,
   metadata->toggleFlag(State::Flag::resizing);
   metadata->unlock();
 
-  // TODO: queue actual free task
+  FreeMemoryTask task(this, metadata);
+  bool dispatched = task.dispatch();
+  if (!dispatched) {
+    // TODO: decide what to do if we don't have an io_service
+  }
 }
 
-void Manager::leaseTable(std::list<Metadata>::iterator& metadata,
-                         uint32_t logSize) {
+void Manager::leaseTable(Manager::MetadataItr& metadata, uint32_t logSize) {
   TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());
 
@@ -319,7 +364,7 @@ void Manager::leaseTable(std::list<Metadata>::iterator& metadata,
   }
 }
 
-void Manager::reclaimTables(std::list<Metadata>::iterator& metadata,
+void Manager::reclaimTables(Manager::MetadataItr& metadata,
                             bool auxiliaryOnly) {
   TRI_ASSERT(_state.isLocked());
   TRI_ASSERT(metadata->isLocked());

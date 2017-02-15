@@ -62,7 +62,7 @@ BOOST_FIXTURE_TEST_SUITE(CCacheManagerTest, CCacheManagerSetup)
 
 BOOST_AUTO_TEST_CASE(tst_constructor) {
   uint64_t requestLimit = 1024 * 1024;
-  Manager manager(requestLimit);
+  Manager manager(nullptr, requestLimit);
 
   BOOST_CHECK_EQUAL(requestLimit, manager.globalLimit());
   BOOST_CHECK_EQUAL(0ULL, manager.transactionTerm());
@@ -71,7 +71,7 @@ BOOST_AUTO_TEST_CASE(tst_constructor) {
   BOOST_CHECK(requestLimit > manager.globalAllocation());
 
   uint64_t bigRequestLimit = 4ULL * 1024ULL * 1024ULL * 1024ULL;
-  Manager bigManager(bigRequestLimit);
+  Manager bigManager(nullptr, bigRequestLimit);
 
   BOOST_CHECK_EQUAL(bigRequestLimit, bigManager.globalLimit());
   BOOST_CHECK_EQUAL(0ULL, bigManager.transactionTerm());
@@ -86,7 +86,7 @@ BOOST_AUTO_TEST_CASE(tst_constructor) {
 
 BOOST_AUTO_TEST_CASE(tst_transaction_term) {
   uint64_t requestLimit = 1024 * 1024;
-  Manager manager(requestLimit);
+  Manager manager(nullptr, requestLimit);
 
   BOOST_CHECK_EQUAL(0ULL, manager.transactionTerm());
 
@@ -109,9 +109,10 @@ BOOST_AUTO_TEST_CASE(tst_transaction_term) {
 /// @brief test cache registration
 ////////////////////////////////////////////////////////////////////////////////
 
+/*
 BOOST_AUTO_TEST_CASE(tst_registration) {
   uint64_t requestLimit = 1024 * 1024;
-  Manager manager(requestLimit);
+  Manager manager(nullptr, requestLimit);
 
   Cache* cache1 = reinterpret_cast<Cache*>(0x1ULL);
   uint64_t limit1 = 16 * 1024;
@@ -178,7 +179,7 @@ BOOST_AUTO_TEST_CASE(tst_registration) {
   for (auto m : ms) {
     manager.unregisterCache(m);
   }
-}
+}*/
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests

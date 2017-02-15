@@ -28,40 +28,20 @@
 #include "Cache/CachedValue.h"
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Manager.h"
+#include "Cache/ManagerTasks.h"
 #include "Cache/Metadata.h"
 #include "Cache/State.h"
 
 #include <stdint.h>
 #include <list>
+#include <memory>
 
 namespace arangodb {
 namespace cache {
 
 class Cache {
- protected:
+ public:
   typedef FrequencyBuffer<uint8_t> StatBuffer;
-
- protected:
-  State _state;
-
-  // whether to allow the cache to resize larger when it fills
-  bool _allowGrowth;
-
-  // structures to handle eviction-upon-insertion rate
-  enum class Stat : uint8_t { eviction = 1, noEviction = 2 };
-  StatBuffer _evictionStats;
-  std::atomic<uint64_t> _insertionCount;
-
-  // allow communication with manager
-  Manager* _manager;
-  std::list<Metadata>::iterator _metadata;
-
-  // keep track of number of open operations to allow clean shutdown
-  std::atomic<uint32_t> _openOperations;
-
-  // times to wait until requesting is allowed again
-  Manager::time_point _migrateRequestTime;
-  Manager::time_point _resizeRequestTime;
 
  public:
   // helper class for managing cached value lifecycles
@@ -81,10 +61,6 @@ class Cache {
   };
 
  public:
-  Cache(Manager* manager, uint64_t requestedLimit,
-        bool allowGrowth);  // TODO: create CacheManagerFeature so
-                            // first parameter can be removed
-
   // primary functionality
   virtual Finding find(void const* key, uint32_t keySize) = 0;
   virtual bool insert(CachedValue* value) = 0;
@@ -97,13 +73,39 @@ class Cache {
   // auxiliary functionality
   void requestResize(uint64_t requestedLimit = 0);
 
-  // management
-  std::list<Metadata>::iterator& metadata();
-  void shutdown();
-  virtual void freeMemory() = 0;
-  virtual void migrate() = 0;
+ protected:
+  State _state;
+
+  // whether to allow the cache to resize larger when it fills
+  bool _allowGrowth;
+
+  // structures to handle eviction-upon-insertion rate
+  enum class Stat : uint8_t { eviction = 1, noEviction = 2 };
+  StatBuffer _evictionStats;
+  std::atomic<uint64_t> _insertionCount;
+
+  // allow communication with manager
+  Manager* _manager;
+  Manager::MetadataItr _metadata;
+
+  // keep track of number of open operations to allow clean shutdown
+  std::atomic<uint32_t> _openOperations;
+
+  // times to wait until requesting is allowed again
+  Manager::time_point _migrateRequestTime;
+  Manager::time_point _resizeRequestTime;
+
+  // friend class manager and tasks
+  friend class FreeMemoryTask;
+  friend class Manager;
+  friend class MigrateTask;
 
  protected:
+  Cache(Manager* manager, uint64_t requestedLimit, bool allowGrowth,
+        std::function<void(Cache*)> deleter);  // TODO: create
+                                               // CacheManagerFeature so first
+                                               // parameter can be removed
+
   bool isOperational() const;
   void startOperation();
   void endOperation();
@@ -112,10 +114,17 @@ class Cache {
   void requestMigrate(uint32_t requestedLogSize = 0);
 
   void freeValue(CachedValue* value);
+  bool reclaimMemory(uint64_t size);
   virtual void clearTables() = 0;
 
   uint32_t hashKey(void const* key, uint32_t keySize) const;
   void recordStat(Cache::Stat stat);
+
+  // management
+  Manager::MetadataItr& metadata();
+  void shutdown();
+  virtual void freeMemory() = 0;
+  virtual void migrate() = 0;
 };
 
 };  // end namespace cache

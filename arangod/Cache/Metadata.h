@@ -37,8 +37,8 @@ class Cache;  // forward declaration
 
 class Metadata {
  public:
-  Metadata(Cache* cache, uint64_t limit, uint8_t* table = nullptr,
-           uint32_t logSize = 0);
+  Metadata(std::shared_ptr<Cache> cache, uint64_t limit,
+           uint8_t* table = nullptr, uint32_t logSize = 0);
   Metadata(Metadata const& other);
 
   // record must be locked for both reading and writing!
@@ -46,7 +46,7 @@ class Metadata {
   void unlock();
   bool isLocked() const;
 
-  Cache* cache() const;
+  std::shared_ptr<Cache> cache() const;
 
   uint32_t logSize() const;
   uint32_t auxiliaryLogSize() const;
@@ -72,7 +72,7 @@ class Metadata {
   State _state;
 
   // pointer to underlying cache
-  Cache* _cache;
+  std::shared_ptr<Cache> _cache;
 
   // vital information about memory usage
   uint64_t _usage;

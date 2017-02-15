@@ -33,6 +33,7 @@
 #include "Cache/Metadata.h"
 
 #include <stdint.h>
+#include <memory>
 
 using namespace arangodb::cache;
 
@@ -61,7 +62,8 @@ BOOST_FIXTURE_TEST_SUITE(CCacheMetadataTest, CCacheMetadataSetup)
 
 BOOST_AUTO_TEST_CASE(tst_constructor) {
   uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
+  std::shared_ptr<Cache> dummyCache(reinterpret_cast<Cache*>(&dummy),
+                                    [](Cache* p) -> void {});
   uint8_t dummyTable;
   uint32_t logSize = 1;
   uint64_t limit = 1024;
@@ -75,7 +77,8 @@ BOOST_AUTO_TEST_CASE(tst_constructor) {
 
 BOOST_AUTO_TEST_CASE(tst_getters) {
   uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
+  std::shared_ptr<Cache> dummyCache(reinterpret_cast<Cache*>(&dummy),
+                                    [](Cache* p) -> void {});
   uint8_t dummyTable;
   uint32_t logSize = 1;
   uint64_t limit = 1024;
@@ -105,7 +108,8 @@ BOOST_AUTO_TEST_CASE(tst_getters) {
 
 BOOST_AUTO_TEST_CASE(tst_usage_limits) {
   uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
+  std::shared_ptr<Cache> dummyCache(reinterpret_cast<Cache*>(&dummy),
+                                    [](Cache* p) -> void {});
   uint8_t dummyTable;
   uint32_t logSize = 1;
   bool success;
@@ -155,7 +159,8 @@ BOOST_AUTO_TEST_CASE(tst_usage_limits) {
 
 BOOST_AUTO_TEST_CASE(tst_migration) {
   uint64_t dummy;
-  Cache* dummyCache = reinterpret_cast<Cache*>(&dummy);
+  std::shared_ptr<Cache> dummyCache(reinterpret_cast<Cache*>(&dummy),
+                                    [](Cache* p) -> void {});
   uint8_t dummyTable;
   uint8_t dummyAuxiliaryTable;
   uint32_t logSize = 1;

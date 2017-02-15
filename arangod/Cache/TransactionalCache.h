@@ -42,6 +42,22 @@ namespace cache {
 class Manager;  // forward declaration
 
 class TransactionalCache final : public Cache {
+ public:
+  TransactionalCache() = delete;
+  TransactionalCache(TransactionalCache const&) = delete;
+  TransactionalCache& operator=(TransactionalCache const&) = delete;
+
+ public:
+  // creator -- do not use constructor explicitly
+  static std::shared_ptr<Cache> create(Manager* manager, uint64_t requestedSize,
+                                       bool allowGrowth);
+
+  Cache::Finding find(void const* key, uint32_t keySize);
+  bool insert(CachedValue* value);
+  bool remove(void const* key, uint32_t keySize);
+  void blackList(void const* key, uint32_t keySize);
+
+ private:
   // main table info
   TransactionalBucket* _table;
   uint64_t _tableSize;
@@ -56,21 +72,15 @@ class TransactionalCache final : public Cache {
   std::time_t _migrateRequestTime;
   std::time_t _resizeRequestTime;
 
- public:
+ private:
   TransactionalCache(Manager* manager, uint64_t requestedLimit,
                      bool allowGrowth);  // TODO: create CacheManagerFeature so
                                          // first parameter can be removed
   ~TransactionalCache();
 
-  Cache::Finding find(void const* key, uint32_t keySize);
-  bool insert(CachedValue* value);
-  bool remove(void const* key, uint32_t keySize);
-  void blackList(void const* key, uint32_t keySize);
-
+  // management
   void freeMemory();
   void migrate();
-
- private:
   void clearTables();
 };
 

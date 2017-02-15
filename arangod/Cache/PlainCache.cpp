@@ -29,6 +29,7 @@
 #include "Cache/Metadata.h"
 #include "Cache/PlainBucket.h"
 #include "Cache/State.h"
+#include "Random/RandomGenerator.h"
 
 #include <stdint.h>
 #include <atomic>
@@ -39,36 +40,20 @@
 
 using namespace arangodb::cache;
 
-PlainCache::PlainCache(Manager* manager, uint64_t requestedLimit,
-                       bool allowGrowth)
-    : Cache(manager, requestedLimit, allowGrowth),
-      _auxiliaryTable(nullptr),
-      _auxiliaryLogSize(0),
-      _auxiliaryTableSize(1),
-      _auxiliaryMaskShift(32),
-      _auxiliaryBucketMask(0) {
-  _state.lock();
-  if (isOperational()) {
-    _metadata->lock();
-    _table = reinterpret_cast<PlainBucket*>(_metadata->table());
-    _logSize = _metadata->logSize();
-    _tableSize = (1 << _logSize);
-    _maskShift = 32 - _logSize;
-    _bucketMask = (_tableSize - 1) << _maskShift;
-    _metadata->unlock();
-  }
-  _state.unlock();
-}
+std::shared_ptr<Cache> PlainCache::create(Manager* manager,
+                                          uint64_t requestedSize,
+                                          bool allowGrowth) {
+  PlainCache* cache = new PlainCache(manager, requestedSize, allowGrowth);
 
-PlainCache::~PlainCache() {
-  _state.lock();
-  if (isOperational()) {
-    _state.unlock();
-    shutdown();
+  if (cache == nullptr) {
+    return std::shared_ptr<Cache>(nullptr);
   }
-  if (_state.isLocked()) {
-    _state.unlock();
-  }
+
+  cache->metadata()->lock();
+  auto result = cache->metadata()->cache();
+  cache->metadata()->unlock();
+
+  return result;
 }
 
 Cache::Finding PlainCache::find(void const* key, uint32_t keySize) {
@@ -176,17 +161,90 @@ bool PlainCache::remove(void const* key, uint32_t keySize) {
   return removed;
 }
 
+PlainCache::PlainCache(Manager* manager, uint64_t requestedLimit,
+                       bool allowGrowth)
+    : Cache(manager, requestedLimit, allowGrowth,
+            [](Cache* p) -> void { delete reinterpret_cast<PlainCache*>(p); }),
+      _auxiliaryTable(nullptr),
+      _auxiliaryLogSize(0),
+      _auxiliaryTableSize(1),
+      _auxiliaryMaskShift(32),
+      _auxiliaryBucketMask(0) {
+  _state.lock();
+  if (isOperational()) {
+    _metadata->lock();
+    _table = reinterpret_cast<PlainBucket*>(_metadata->table());
+    _logSize = _metadata->logSize();
+    _tableSize = (1 << _logSize);
+    _maskShift = 32 - _logSize;
+    _bucketMask = (_tableSize - 1) << _maskShift;
+    _metadata->unlock();
+  }
+  _state.unlock();
+}
+
+PlainCache::~PlainCache() {
+  _state.lock();
+  if (isOperational()) {
+    _state.unlock();
+    shutdown();
+  }
+  if (_state.isLocked()) {
+    _state.unlock();
+  }
+}
+
 void PlainCache::freeMemory() {
-  // TODO: implement this
+  _state.lock();
+  if (!isOperational()) {
+    _state.unlock();
+    return;
+  }
+  _state.unlock();
+
+  bool underLimit = reclaimMemory(0ULL);
+  while (!underLimit) {
+    // pick a random bucket
+    uint32_t randomHash = RandomGenerator::interval(UINT32_MAX);
+    bool ok;
+    PlainBucket* bucket;
+    std::tie(ok, bucket) = getBucket(randomHash);
+
+    if (ok) {
+      // evict LRU freeable value if exists
+      CachedValue* candidate = bucket->evictionCandidate();
+
+      if (candidate != nullptr) {
+        uint64_t size = candidate->size();
+        bucket->evict(candidate);
+        freeValue(candidate);
+
+        underLimit = reclaimMemory(size);
+      }
+
+      bucket->unlock();
+    }
+  }
 }
 
 void PlainCache::migrate() {
   // TODO: implement this
 }
 
-std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash) {
+void PlainCache::clearTables() {
+  TRI_ASSERT(_state.isLocked());
+  if (_table != nullptr) {
+    clearTable(_table, _tableSize);
+  }
+  if (_auxiliaryTable != nullptr) {
+    clearTable(_auxiliaryTable, _auxiliaryTableSize);
+  }
+}
+
+std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash,
+                                                    int64_t maxTries) {
   PlainBucket* bucket = nullptr;
-  bool ok = _state.lock(10UL);
+  bool ok = _state.lock(maxTries);
   bool started = false;
   if (ok) {
     if (!isOperational()) {
@@ -197,13 +255,13 @@ std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash) {
       started = true;
 
       bucket = &(_table[getIndex(hash, false)]);
-      ok = bucket->lock(10UL);
+      ok = bucket->lock(maxTries);
       if (ok) {
         if (isMigrating() &&
             bucket->isMigrated()) {  // get bucket from auxiliary table instead
           bucket->unlock();
           bucket = &(_auxiliaryTable[getIndex(hash, true)]);
-          ok = bucket->lock(10UL);
+          ok = bucket->lock(maxTries);
           if (ok && bucket->isMigrated()) {
             ok = false;
             bucket->unlock();
@@ -218,16 +276,6 @@ std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash) {
   }
 
   return std::pair<bool, PlainBucket*>(ok, bucket);
-}
-
-void PlainCache::clearTables() {
-  TRI_ASSERT(_state.isLocked());
-  if (_table != nullptr) {
-    clearTable(_table, _tableSize);
-  }
-  if (_auxiliaryTable != nullptr) {
-    clearTable(_auxiliaryTable, _auxiliaryTableSize);
-  }
 }
 
 void PlainCache::clearTable(PlainBucket* table, uint64_t tableSize) {
