@@ -35,6 +35,7 @@ const serviceToJson = (service) => (
     development: service.isDevelopment,
     legacy: service.legacy,
     manifest: service.manifest,
+    checksum: service.checksum,
     options: _.pick(service.options, ['configuration', 'dependencies'])
   }
 );
@@ -390,6 +391,33 @@ instanceRouter.post('/tests', (req, res) => {
 .summary(`Run service tests`)
 .description(dd`
   Runs the tests for the service at the given mount path and returns the results.
+`);
+
+instanceRouter.get('/bundle', (req, res) => {
+  const service = req.service;
+  if (!fs.isFile(service.bundlePath)) {
+    res.throw(404, 'Bundle not available');
+  }
+  if (service.checksum) {
+    const checksum = `"${service.checksum}"`;
+    if (req.get('if-none-match') === checksum) {
+      res.status(304);
+      return;
+    }
+    if (req.get('if-match') && req.get('if-match') !== checksum) {
+      res.throw(404, 'No matching bundle available');
+    }
+    res.set('etag', checksum);
+  }
+  const name = service.mount.replace(/^\/|\/$/g, '').replace(/\//g, '_');
+  res.download(service.bundlePath, `${name}.zip`);
+})
+.response(200, ['application/zip'], `Zip bundle of the service.`)
+.header('if-match', joi.string().optional(), `Only return bundle matching the given ETag.`)
+.header('if-none-match', joi.string().optional(), `Only return bundle not matching the given ETag.`)
+.summary(`Download service bundle`)
+.description(dd`
+  Downloads a zip bundle of the service directory.
 `);
 
 instanceRouter.get('/readme', (req, res) => {
