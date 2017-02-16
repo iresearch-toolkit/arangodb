@@ -368,19 +368,6 @@ scriptsRouter.post('/:name', (req, res) => {
   Returns the exports of the script, if any.
 `);
 
-instanceRouter.post('/download', (req, res) => {
-  const service = req.service;
-  const dir = fs.join(fs.makeAbsolute(service.root), service.path);
-  const zipPath = fmu.zipDirectory(dir);
-  const name = service.mount.replace(/^\/|\/$/g, '').replace(/\//g, '_');
-  res.download(zipPath, `${name}.zip`);
-})
-.response(200, ['application/zip'], `Zip bundle of the service.`)
-.summary(`Download service bundle`)
-.description(dd`
-  Creates and downloads a zip bundle of the service directory.
-`);
-
 instanceRouter.post('/tests', (req, res) => {
   const service = req.service;
   const reporter = req.queryParams.reporter || null;
