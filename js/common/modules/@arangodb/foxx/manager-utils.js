@@ -294,11 +294,13 @@ parameterTypes.bool = parameterTypes.boolean;
 // //////////////////////////////////////////////////////////////////////////////
 // / @brief creates a zip archive of a foxx app. Returns the absolute path
 // //////////////////////////////////////////////////////////////////////////////
-var zipDirectory = function (directory) {
+var zipDirectory = function (directory, zipFilename) {
   if (!fs.isDirectory(directory)) {
     throw directory + ' is not a directory.';
   }
-  var tempFile = fs.getTempFile('zip', false);
+  if (!zipFilename) {
+    zipFilename = fs.getTempFile('zip', false);
+  }
 
   var tree = fs.listTree(directory);
   var files = [];
@@ -315,8 +317,8 @@ var zipDirectory = function (directory) {
   if (files.length === 0) {
     throwFileNotFound("Directory '" + String(directory) + "' is empty");
   }
-  fs.zipFile(tempFile, directory, files);
-  return tempFile;
+  fs.zipFile(zipFilename, directory, files);
+  return zipFilename;
 };
 
 // //////////////////////////////////////////////////////////////////////////////

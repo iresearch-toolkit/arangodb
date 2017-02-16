@@ -955,12 +955,15 @@ function initCache () {
 // / Does not check parameters and throws errors.
 // //////////////////////////////////////////////////////////////////////////////
 
-function _scanFoxx (mount, options, activateDevelopment) {
+function _scanFoxx (mount, options, activateDevelopment, updateChecksum) {
   options = options || { };
   var dbname = arangodb.db._name();
   delete serviceCache[dbname][mount];
   var service = createService(mount, options, activateDevelopment);
   if (!options.__clusterDistribution) {
+    if (updateChecksum) {
+      service.updateChecksum();
+    }
     db._executeTransaction({
       collections: {
         write: utils.getStorage().name()
@@ -1064,7 +1067,7 @@ function _buildServiceInPath (serviceInfo, path, options) {
   } catch (e) {
     try {
       fs.removeDirectoryRecursive(path, true);
-    } catch (err) {
+    } catch (e) {
       // noop
     }
     throw e;
@@ -1115,8 +1118,15 @@ function _install (serviceInfo, mount, options, runSetup) {
 
   initCache();
   _buildServiceInPath(serviceInfo, targetPath, options);
+
+  const bundlePath = FoxxService.bundlePath(mount);
+  if (fs.exists(bundlePath)) {
+    fs.remove(bundlePath);
+  }
+  utils.zipDirectory(targetPath, bundlePath);
+
   try {
-    service = _scanFoxx(mount, options);
+    service = _scanFoxx(mount, options, undefined, true);
     if (runSetup) {
       lookupService(mount).executeScript('setup');
     }

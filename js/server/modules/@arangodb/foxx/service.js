@@ -72,6 +72,7 @@ module.exports =
       // mount paths always start with a slash
       this.mount = data.mount;
       this.path = data.path;
+      this.checksum = data.checksum;
       this.basePath = path.resolve(this.root, this.path);
       this.isDevelopment = Boolean(data.isDevelopment);
 
@@ -397,7 +398,8 @@ module.exports =
         mount: this.mount,
         root: this.root,
         isSystem: this.isSystem,
-        isDevelopment: this.isDevelopment
+        isDevelopment: this.isDevelopment,
+        checksum: this.checksum
       };
       if (this.error) {
         result.error = this.error;
@@ -558,6 +560,13 @@ module.exports =
       }
     }
 
+    updateChecksum () {
+      if (!fs.isFile(this.bundlePath)) {
+        return;
+      }
+      this.checksum = fs.adler32(this.bundlePath).toString(16);
+    }
+
     get exports () {
       return this.main.exports;
     }
@@ -573,8 +582,20 @@ module.exports =
       return FoxxService._appPath;
     }
 
+    get bundlePath () {
+      return FoxxService.bundlePath(this.mount);
+    }
+
     get collectionPrefix () {
       return this.mount.substr(1).replace(/[-.:/]/g, '_') + '_';
+    }
+
+    static bundlePath (mount) {
+      if (mount.charAt(0) !== '/') {
+        mount = '/' + mount;
+      }
+      const bundleName = mount.substr(1).replace(/[-.:/]/g, '_');
+      return path.join(fs.getTempPath(), bundleName + '.zip');
     }
 
     static get _startupPath () {
