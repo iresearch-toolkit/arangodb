@@ -194,11 +194,11 @@ PlainCache::~PlainCache() {
   }
 }
 
-void PlainCache::freeMemory() {
+bool PlainCache::freeMemory() {
   _state.lock();
   if (!isOperational()) {
     _state.unlock();
-    return;
+    return false;
   }
   startOperation();
   _state.unlock();
@@ -228,13 +228,14 @@ void PlainCache::freeMemory() {
   }
 
   endOperation();
+  return true;
 }
 
-void PlainCache::migrate() {
+bool PlainCache::migrate() {
   _state.lock();
   if (!isOperational()) {
     _state.unlock();
-    return;
+    return false;
   }
   startOperation();
   _metadata->lock();
@@ -242,7 +243,7 @@ void PlainCache::migrate() {
     _metadata->unlock();
     _state.unlock();
     endOperation();
-    return;
+    return false;
   }
   _auxiliaryTable = reinterpret_cast<PlainBucket*>(_metadata->auxiliaryTable());
   _auxiliaryLogSize = _metadata->auxiliaryLogSize();
@@ -336,6 +337,7 @@ void PlainCache::migrate() {
   _metadata->unlock();
 
   endOperation();
+  return true;
 }
 
 void PlainCache::clearTables() {
@@ -351,12 +353,11 @@ std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash,
                                                     int64_t maxTries,
                                                     bool singleOperation) {
   PlainBucket* bucket = nullptr;
-  bool ok = _state.lock(maxTries);
   bool started = false;
+
+  bool ok = _state.lock(maxTries);
   if (ok) {
-    if (!isOperational()) {
-      ok = false;
-    }
+    ok = isOperational();
     if (ok) {
       if (singleOperation) {
         startOperation();
@@ -368,16 +369,14 @@ std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash,
 
       bucket = &(_table[getIndex(hash, false)]);
       ok = bucket->lock(maxTries);
-      if (ok) {
-        if (isMigrating() &&
-            bucket->isMigrated()) {  // get bucket from auxiliary table instead
+      if (ok &&
+          bucket->isMigrated()) {  // get bucket from auxiliary table instead
+        bucket->unlock();
+        bucket = &(_auxiliaryTable[getIndex(hash, true)]);
+        ok = bucket->lock(maxTries);
+        if (ok && bucket->isMigrated()) {
+          ok = false;
           bucket->unlock();
-          bucket = &(_auxiliaryTable[getIndex(hash, true)]);
-          ok = bucket->lock(maxTries);
-          if (ok && bucket->isMigrated()) {
-            ok = false;
-            bucket->unlock();
-          }
         }
       }
     }
@@ -410,7 +409,7 @@ void PlainCache::clearTable(PlainBucket* table, uint64_t tableSize) {
 
 uint32_t PlainCache::getIndex(uint32_t hash, bool useAuxiliary) const {
   if (useAuxiliary) {
-    return ((hash & _auxiliaryBucketMask) >> _auxiliaryLogSize);
+    return ((hash & _auxiliaryBucketMask) >> _auxiliaryMaskShift);
   }
 
   return ((hash & _bucketMask) >> _maskShift);

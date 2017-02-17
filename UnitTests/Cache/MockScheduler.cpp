@@ -51,6 +51,7 @@ MockScheduler::~MockScheduler() {
   _serviceGuard.reset();
   for (auto g : _group) {
     g->join();
+    delete g;
   }
   _ioService->stop();
 }

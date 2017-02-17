@@ -99,6 +99,12 @@ class FrequencyBuffer {
 
     return data;
   }
+
+  void clear() {
+    for (size_t i = 0; i < _capacity; i++) {
+      _buffer[i] = T();
+    }
+  }
 };
 
 };  // end namespace cache

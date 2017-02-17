@@ -79,8 +79,8 @@ class TransactionalCache final : public Cache {
   ~TransactionalCache();
 
   // management
-  void freeMemory();
-  void migrate();
+  bool freeMemory();
+  bool migrate();
   void clearTables();
 };
 

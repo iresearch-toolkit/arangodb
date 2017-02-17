@@ -86,8 +86,8 @@ class PlainCache final : public Cache {
   ~PlainCache();
 
   // management
-  void freeMemory();
-  void migrate();
+  bool freeMemory();
+  bool migrate();
   void clearTables();
 
   // helpers

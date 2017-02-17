@@ -85,12 +85,14 @@ TransactionalCache::~TransactionalCache() {
   // TODO: implement this
 }
 
-void TransactionalCache::freeMemory() {
+bool TransactionalCache::freeMemory() {
   // TODO: implement this
+  return false;
 }
 
-void TransactionalCache::migrate() {
+bool TransactionalCache::migrate() {
   // TODO: implement this
+  return false;
 }
 
 void TransactionalCache::clearTables() {

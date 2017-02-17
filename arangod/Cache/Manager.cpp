@@ -216,6 +216,11 @@ Manager::MetadataItr Manager::registerCache(
 void Manager::unregisterCache(Manager::MetadataItr& metadata) {
   _state.lock();
 
+  if (_caches.size() == 0) {
+    _state.unlock();
+    return;
+  }
+
   metadata->lock();
   _globalAllocation -= (metadata->hardLimit() + CACHE_RECORD_OVERHEAD);
   reclaimTables(metadata);
@@ -235,17 +240,14 @@ std::pair<bool, Manager::time_point> Manager::requestResize(
   _state.lock();
   metadata->lock();
 
-  TRI_ASSERT(requestedLimit > metadata->hardLimit());
   if ((requestedLimit < metadata->hardLimit()) ||
       increaseAllowed(requestedLimit - metadata->hardLimit())) {
-    bool success = metadata->adjustLimits(requestedLimit, requestedLimit);
-    if (success) {
-      allowed = true;
-      _globalAllocation += (requestedLimit - metadata->hardLimit());
-    }
+    allowed = true;
+    nextRequest = std::chrono::steady_clock::now();
+    resizeCache(metadata, requestedLimit);
+  } else {
+    metadata->unlock();
   }
-
-  metadata->unlock();
   _state.unlock();
 
   return std::pair<bool, Manager::time_point>(allowed, nextRequest);
@@ -263,7 +265,13 @@ std::pair<bool, Manager::time_point> Manager::requestMigrate(
   }
   if (allowed) {
     metadata->lock();
-    migrateCache(metadata, requestedLogSize);  // unlocks metadata
+    if (metadata->isSet(State::Flag::migrating)) {
+      allowed = false;
+      metadata->unlock();
+    } else {
+      nextRequest = std::chrono::steady_clock::now();
+      migrateCache(metadata, requestedLogSize);  // unlocks metadata
+    }
   }
   _state.unlock();
 

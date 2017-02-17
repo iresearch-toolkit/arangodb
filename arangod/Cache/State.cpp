@@ -42,7 +42,7 @@ bool State::lock(int64_t maxTries, State::CallbackType cb) {
   while (maxTries < 0 || attempt < maxTries) {
     // expect unlocked, but need to preserve migrating status
     uint32_t expected = _state.load() & (~static_cast<uint32_t>(Flag::locked));
-    bool success = _state.compare_exchange_weak(
+    bool success = _state.compare_exchange_strong(
         expected,
         (expected | static_cast<uint32_t>(Flag::locked)));  // try to lock
     if (success) {

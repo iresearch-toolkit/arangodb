@@ -53,21 +53,23 @@ bool FreeMemoryTask::dispatch() {
 }
 
 void FreeMemoryTask::run() {
-  _cache->freeMemory();
-  auto metadata = _cache->metadata();
-  _manager->_state.lock();
-  metadata->lock();
-  uint64_t reclaimed = metadata->hardLimit() - metadata->softLimit();
-  metadata->adjustLimits(metadata->softLimit(), metadata->softLimit());
-  metadata->toggleFlag(State::Flag::resizing);
-  metadata->unlock();
-  _manager->_globalAllocation -= reclaimed;
-  _manager->_state.unlock();
+  bool ran = _cache->freeMemory();
 
-  // if last outstanding task, let manager continue resizing process
-  if (--(_manager->_outstandingTasks) == 0) {
+  if (ran) {
+    auto metadata = _cache->metadata();
     _manager->_state.lock();
-    _manager->internalResize(_manager->_globalSoftLimit, false);
+    metadata->lock();
+    uint64_t reclaimed = metadata->hardLimit() - metadata->softLimit();
+    metadata->adjustLimits(metadata->softLimit(), metadata->softLimit());
+    metadata->toggleFlag(State::Flag::resizing);
+    metadata->unlock();
+    _manager->_globalAllocation -= reclaimed;
+
+    // if last outstanding task, let manager continue resizing process
+    if (--(_manager->_outstandingTasks) == 0) {
+      _manager->internalResize(_manager->_globalSoftLimit, false);
+    }
+
     _manager->_state.unlock();
   }
 }
@@ -96,22 +98,22 @@ bool MigrateTask::dispatch() {
 
 void MigrateTask::run() {
   // do the actual migration
-  _cache->migrate();
+  bool ran = _cache->migrate();
 
-  auto metadata = _cache->metadata();
-  _manager->_state.lock();
-  metadata->lock();
-  _manager->reclaimTables(metadata, true);
-  metadata->toggleFlag(State::Flag::migrating);
-  metadata->unlock();
-  _manager->_state.unlock();
-
-  // if last task, let manager continue resizing process if necessary
-  if (--(_manager->_outstandingTasks) == 0) {
+  if (ran) {
+    auto metadata = _cache->metadata();
     _manager->_state.lock();
-    if (_manager->_state.isSet(State::Flag::resizing)) {
+    metadata->lock();
+    _manager->reclaimTables(metadata, true);
+    metadata->toggleFlag(State::Flag::migrating);
+    metadata->unlock();
+
+    // if last task, let manager continue resizing process if necessary
+    if ((--(_manager->_outstandingTasks) == 0) &&
+        _manager->_state.isSet(State::Flag::resizing)) {
       _manager->internalResize(_manager->_globalSoftLimit, false);
     }
+
     _manager->_state.unlock();
   }
 }

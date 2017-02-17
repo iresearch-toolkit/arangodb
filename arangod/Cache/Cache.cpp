@@ -98,16 +98,19 @@ uint64_t Cache::usage() {
 }
 
 void Cache::requestResize(uint64_t requestedLimit) {
-  _state.lock(10LL);
-  if (_allowGrowth && (std::chrono::steady_clock::now() > _resizeRequestTime)) {
-    _metadata->lock();
-    uint64_t newLimit =
-        (requestedLimit > 0) ? requestedLimit : (_metadata->hardLimit() * 2);
-    _metadata->unlock();
-    auto result = _manager->requestResize(_metadata, newLimit);
-    _resizeRequestTime = result.second;
+  bool ok = _state.lock(10LL);
+  if (ok) {
+    if (_allowGrowth &&
+        (std::chrono::steady_clock::now() > _resizeRequestTime)) {
+      _metadata->lock();
+      uint64_t newLimit =
+          (requestedLimit > 0) ? requestedLimit : (_metadata->hardLimit() * 2);
+      _metadata->unlock();
+      auto result = _manager->requestResize(_metadata, newLimit);
+      _resizeRequestTime = result.second;
+    }
+    _state.unlock();
   }
-  _state.unlock();
 }
 
 Cache::Cache(Manager* manager, uint64_t requestedLimit, bool allowGrowth,
@@ -149,18 +152,23 @@ void Cache::requestMigrate(uint32_t requestedLogSize) {
          ((*stats)[0].first == static_cast<uint8_t>(Stat::eviction))) ||
         ((stats->size() == 2) &&
          ((*stats)[0].second * 16 > (*stats)[1].second))) {
-      _state.lock(10LL);
-      if (!isMigrating() &&
-          (std::chrono::steady_clock::now() > _resizeRequestTime)) {
-        _metadata->lock();
-        uint32_t newLogSize = (requestedLogSize > 0)
-                                  ? requestedLogSize
-                                  : (_metadata->logSize() + 1);
-        _metadata->unlock();
-        auto result = _manager->requestMigrate(_metadata, newLogSize);
-        _resizeRequestTime = result.second;
+      bool ok = _state.lock(10LL);
+      if (ok) {
+        if (!isMigrating() &&
+            (std::chrono::steady_clock::now() > _migrateRequestTime)) {
+          _metadata->lock();
+          uint32_t newLogSize = (requestedLogSize > 0)
+                                    ? requestedLogSize
+                                    : (_metadata->logSize() + 1);
+          _metadata->unlock();
+          auto result = _manager->requestMigrate(_metadata, newLogSize);
+          _resizeRequestTime = result.second;
+          if (result.first) {
+            _evictionStats.clear();
+          }
+        }
+        _state.unlock();
       }
-      _state.unlock();
     }
   }
 }
@@ -196,13 +204,13 @@ Manager::MetadataItr& Cache::metadata() { return _metadata; }
 void Cache::shutdown() {
   _state.lock();
   if (isOperational()) {
+    _state.toggleFlag(State::Flag::shutdown);
+
     while (_openOperations.load() > 0) {
-      usleep(1);
+      usleep(10);
     }
 
     _state.clear();
-    _state.toggleFlag(State::Flag::shutdown);
-
     clearTables();
     _manager->unregisterCache(_metadata);
   }

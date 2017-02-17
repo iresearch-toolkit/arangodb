@@ -33,9 +33,12 @@
 #include "Cache/Manager.h"
 #include "Cache/PlainCache.h"
 
+#include "MockScheduler.h"
+
 #include <stdint.h>
 #include <string>
 
+#include <chrono>
 #include <iostream>
 
 using namespace arangodb::cache;
@@ -174,21 +177,16 @@ BOOST_AUTO_TEST_CASE(tst_st_removal) {
 BOOST_AUTO_TEST_CASE(tst_st_growth) {
   uint64_t initialSize = 16ULL * 1024ULL;
   uint64_t minimumSize = 64ULL * initialSize;
-  Manager manager(nullptr, 1024ULL * 1024ULL * 1024ULL);
+  MockScheduler scheduler(4);
+  Manager manager(scheduler.ioService(), 2 * 1024ULL * 1024ULL * 1024ULL);
   auto cache =
       manager.createCache(Manager::CacheType::Plain, initialSize, true);
 
   for (uint64_t i = 0; i < 16ULL * 1024ULL * 1024ULL; i++) {
-    if ((i % 16384) == 0) {
-      std::cout << i << std::endl;
-    }
     CachedValue* value =
         CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
     bool success = cache->insert(value);
-    if (success) {
-      auto f = cache->find(&i, sizeof(uint64_t));
-      BOOST_CHECK(f.found());
-    } else {
+    if (!success) {
       delete value;
     }
   }

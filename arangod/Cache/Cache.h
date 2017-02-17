@@ -128,8 +128,8 @@ class Cache {
   void shutdown();
   bool canResize();
   bool canMigrate();
-  virtual void freeMemory() = 0;
-  virtual void migrate() = 0;
+  virtual bool freeMemory() = 0;
+  virtual bool migrate() = 0;
 };
 
 };  // end namespace cache
