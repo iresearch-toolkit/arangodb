@@ -59,6 +59,7 @@ add_executable(${TEST_CACHE_SUITE}
   Cache/FrequencyBuffer.cpp
   Cache/Manager.cpp
   Cache/Metadata.cpp
+  Cache/MockScheduler.cpp
   Cache/PlainBucket.cpp
   Cache/PlainCache.cpp
   Cache/State.cpp
@@ -83,6 +84,8 @@ include_directories(${TEST_CACHE_SUITE}
 target_link_libraries(${TEST_CACHE_SUITE}
   ${LIB_ARANGO}
   ${MSVC_LIBS}
+  boost_system
+  boost_boost
   ${SYSTEM_LIBRARIES}
 )
 

@@ -109,7 +109,7 @@ bool PlainCache::insert(CachedValue* value) {
 
     if (allowed) {
       if (candidate != nullptr) {
-        bucket->evict(candidate);
+        bucket->evict(candidate, true);
         freeValue(candidate);
         recordStat(Stat::eviction);
       } else {
@@ -122,8 +122,8 @@ bool PlainCache::insert(CachedValue* value) {
     }
 
     bucket->unlock();
-    endOperation();
     requestMigrate();  // let function do the hard work
+    endOperation();
   }
 
   return inserted;
@@ -200,6 +200,7 @@ void PlainCache::freeMemory() {
     _state.unlock();
     return;
   }
+  startOperation();
   _state.unlock();
 
   bool underLimit = reclaimMemory(0ULL);
@@ -208,7 +209,7 @@ void PlainCache::freeMemory() {
     uint32_t randomHash = RandomGenerator::interval(UINT32_MAX);
     bool ok;
     PlainBucket* bucket;
-    std::tie(ok, bucket) = getBucket(randomHash);
+    std::tie(ok, bucket) = getBucket(randomHash, 10LL, false);
 
     if (ok) {
       // evict LRU freeable value if exists
@@ -225,14 +226,119 @@ void PlainCache::freeMemory() {
       bucket->unlock();
     }
   }
+
+  endOperation();
 }
 
 void PlainCache::migrate() {
-  // TODO: implement this
+  _state.lock();
+  if (!isOperational()) {
+    _state.unlock();
+    return;
+  }
+  startOperation();
+  _metadata->lock();
+  if (_metadata->table() == nullptr || _metadata->auxiliaryTable() == nullptr) {
+    _metadata->unlock();
+    _state.unlock();
+    endOperation();
+    return;
+  }
+  _auxiliaryTable = reinterpret_cast<PlainBucket*>(_metadata->auxiliaryTable());
+  _auxiliaryLogSize = _metadata->auxiliaryLogSize();
+  _auxiliaryTableSize = (1 << _auxiliaryLogSize);
+  _auxiliaryMaskShift = (32 - _auxiliaryLogSize);
+  _auxiliaryBucketMask = (_auxiliaryTableSize - 1) << _auxiliaryMaskShift;
+  _metadata->unlock();
+  _state.toggleFlag(State::Flag::migrating);
+  _state.unlock();
+
+  for (uint32_t i = 0; i < _tableSize; i++) {
+    // lock current bucket
+    PlainBucket* bucket = &(_table[i]);
+    bucket->lock(-1LL);
+
+    // collect target bucket(s)
+    std::vector<PlainBucket*> targets;
+    if (_logSize > _auxiliaryLogSize) {
+      uint32_t targetIndex = (i << _maskShift) >> _auxiliaryMaskShift;
+      targets.emplace_back(&(_auxiliaryTable[targetIndex]));
+    } else {
+      uint32_t baseIndex = (i << _maskShift) >> _auxiliaryMaskShift;
+      for (size_t j = 0; j < (1U << (_auxiliaryLogSize - _logSize)); j++) {
+        uint32_t targetIndex = baseIndex + j;
+        targets.emplace_back(&(_auxiliaryTable[targetIndex]));
+      }
+    }
+    // lock target bucket(s)
+    for (auto targetBucket : targets) {
+      targetBucket->lock(-1LL);
+    }
+
+    for (size_t j = 0; j < PlainBucket::SLOTS_DATA; j++) {
+      size_t k = PlainBucket::SLOTS_DATA - (j + 1);
+      if ((*bucket)._cachedHashes[k] != 0) {
+        uint32_t hash = (*bucket)._cachedHashes[k];
+        CachedValue* value = (*bucket)._cachedData[k];
+
+        uint32_t targetIndex =
+            (hash & _auxiliaryBucketMask) >> _auxiliaryMaskShift;
+        PlainBucket* targetBucket = &(_auxiliaryTable[targetIndex]);
+        if (targetBucket->isFull()) {
+          CachedValue* candidate = targetBucket->evictionCandidate();
+          targetBucket->evict(candidate, true);
+          uint64_t size = candidate->size();
+          freeValue(candidate);
+          reclaimMemory(size);
+        }
+        targetBucket->insert(hash, value);
+
+        (*bucket)._cachedHashes[k] = 0;
+        (*bucket)._cachedData[k] = nullptr;
+      }
+    }
+
+    // unlock targets
+    for (auto targetBucket : targets) {
+      targetBucket->unlock();
+    }
+
+    // finish up this bucket's migration
+    bucket->_state.toggleFlag(State::Flag::migrated);
+    bucket->unlock();
+  }
+
+  // swap tables and unmark local migrating flag
+  _state.lock();
+  std::swap(_table, _auxiliaryTable);
+  std::swap(_logSize, _auxiliaryLogSize);
+  std::swap(_tableSize, _auxiliaryTableSize);
+  std::swap(_maskShift, _auxiliaryMaskShift);
+  std::swap(_bucketMask, _auxiliaryBucketMask);
+  _state.toggleFlag(State::Flag::migrating);
+  _state.unlock();
+
+  // clear out old table
+  clearTable(_auxiliaryTable, _auxiliaryTableSize);
+
+  // release references to old table
+  _state.lock();
+  _auxiliaryTable = nullptr;
+  _auxiliaryLogSize = 0;
+  _auxiliaryTableSize = 1;
+  _auxiliaryMaskShift = 32;
+  _auxiliaryBucketMask = 0;
+  _state.unlock();
+
+  // swap table in metadata
+  _metadata->lock();
+  _metadata->swapTables();
+  _metadata->unlock();
+
+  endOperation();
 }
 
 void PlainCache::clearTables() {
-  TRI_ASSERT(_state.isLocked());
   if (_table != nullptr) {
     clearTable(_table, _tableSize);
   }
@@ -242,7 +348,8 @@ void PlainCache::clearTables() {
 }
 
 std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash,
-                                                    int64_t maxTries) {
+                                                    int64_t maxTries,
+                                                    bool singleOperation) {
   PlainBucket* bucket = nullptr;
   bool ok = _state.lock(maxTries);
   bool started = false;
@@ -251,8 +358,13 @@ std::pair<bool, PlainBucket*> PlainCache::getBucket(uint32_t hash,
       ok = false;
     }
     if (ok) {
-      startOperation();
-      started = true;
+      if (singleOperation) {
+        startOperation();
+        started = true;
+        _metadata->lock();
+        _manager->reportAccess(_metadata->cache());
+        _metadata->unlock();
+      }
 
       bucket = &(_table[getIndex(hash, false)]);
       ok = bucket->lock(maxTries);

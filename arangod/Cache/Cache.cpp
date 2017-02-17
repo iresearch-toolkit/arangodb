@@ -67,6 +67,12 @@ CachedValue* Cache::Finding::copy() const {
   return ((_value == nullptr) ? nullptr : _value->copy());
 }
 
+void Cache::destroy(std::shared_ptr<Cache> cache) {
+  if (cache.get() != nullptr) {
+    cache->shutdown();
+  }
+}
+
 uint64_t Cache::limit() {
   uint64_t limit = 0;
   _state.lock();
@@ -137,8 +143,8 @@ bool Cache::isMigrating() const {
 }
 
 void Cache::requestMigrate(uint32_t requestedLogSize) {
-  if ((++_insertionCount & 4096) == 0) {
-    std::unique_ptr<StatBuffer::stats_t> stats(_evictionStats.getFrequencies());
+  if ((++_insertionCount & 0xFFF) == 0) {
+    auto stats = _evictionStats.getFrequencies();
     if (((stats->size() == 1) &&
          ((*stats)[0].first == static_cast<uint8_t>(Stat::eviction))) ||
         ((stats->size() == 2) &&
@@ -201,4 +207,38 @@ void Cache::shutdown() {
     _manager->unregisterCache(_metadata);
   }
   _state.unlock();
+}
+
+bool Cache::canResize() {
+  bool allowed = true;
+  _state.lock();
+  if (isOperational()) {
+    _metadata->lock();
+    if (_metadata->isSet(State::Flag::resizing)) {
+      allowed = false;
+    }
+    _metadata->unlock();
+  } else {
+    allowed = false;
+  }
+  _state.unlock();
+
+  return allowed;
+}
+
+bool Cache::canMigrate() {
+  bool allowed = true;
+  _state.lock();
+  if (isOperational()) {
+    _metadata->lock();
+    if (_metadata->isSet(State::Flag::migrating)) {
+      allowed = false;
+    }
+    _metadata->unlock();
+  } else {
+    allowed = false;
+  }
+  _state.unlock();
+
+  return allowed;
 }

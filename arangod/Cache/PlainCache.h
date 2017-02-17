@@ -91,7 +91,8 @@ class PlainCache final : public Cache {
   void clearTables();
 
   // helpers
-  std::pair<bool, PlainBucket*> getBucket(uint32_t hash, int64_t maxTries = 10);
+  std::pair<bool, PlainBucket*> getBucket(uint32_t hash, int64_t maxTries = 10,
+                                          bool singleOperation = true);
   void clearTable(PlainBucket* table, uint64_t tableSize);
   uint32_t getIndex(uint32_t hash, bool useAuxiliary) const;
 };

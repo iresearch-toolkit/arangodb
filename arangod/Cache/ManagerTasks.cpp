@@ -45,6 +45,7 @@ bool FreeMemoryTask::dispatch() {
     return false;
   }
 
+  _manager->_outstandingTasks++;
   auto self = shared_from_this();
   ioService->post([self, this]() -> void { run(); });
 
@@ -54,9 +55,21 @@ bool FreeMemoryTask::dispatch() {
 void FreeMemoryTask::run() {
   _cache->freeMemory();
   auto metadata = _cache->metadata();
+  _manager->_state.lock();
   metadata->lock();
+  uint64_t reclaimed = metadata->hardLimit() - metadata->softLimit();
   metadata->adjustLimits(metadata->softLimit(), metadata->softLimit());
+  metadata->toggleFlag(State::Flag::resizing);
   metadata->unlock();
+  _manager->_globalAllocation -= reclaimed;
+  _manager->_state.unlock();
+
+  // if last outstanding task, let manager continue resizing process
+  if (--(_manager->_outstandingTasks) == 0) {
+    _manager->_state.lock();
+    _manager->internalResize(_manager->_globalSoftLimit, false);
+    _manager->_state.unlock();
+  }
 }
 
 MigrateTask::MigrateTask(Manager* manager, Manager::MetadataItr& metadata)
@@ -74,10 +87,31 @@ bool MigrateTask::dispatch() {
     return false;
   }
 
+  _manager->_outstandingTasks++;
   auto self = shared_from_this();
   ioService->post([self, this]() -> void { run(); });
 
   return true;
 }
 
-void MigrateTask::run() { _cache->migrate(); }
+void MigrateTask::run() {
+  // do the actual migration
+  _cache->migrate();
+
+  auto metadata = _cache->metadata();
+  _manager->_state.lock();
+  metadata->lock();
+  _manager->reclaimTables(metadata, true);
+  metadata->toggleFlag(State::Flag::migrating);
+  metadata->unlock();
+  _manager->_state.unlock();
+
+  // if last task, let manager continue resizing process if necessary
+  if (--(_manager->_outstandingTasks) == 0) {
+    _manager->_state.lock();
+    if (_manager->_state.isSet(State::Flag::resizing)) {
+      _manager->internalResize(_manager->_globalSoftLimit, false);
+    }
+    _manager->_state.unlock();
+  }
+}

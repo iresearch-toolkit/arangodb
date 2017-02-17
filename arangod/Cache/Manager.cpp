@@ -32,7 +32,6 @@
 #include "Cache/PlainCache.h"
 #include "Cache/State.h"
 #include "Cache/TransactionalCache.h"
-#include "Random/RandomGenerator.h"
 
 #include <stdint.h>
 #include <algorithm>
@@ -40,8 +39,11 @@
 #include <chrono>
 #include <list>
 #include <memory>
+#include <set>
 #include <stack>
 #include <utility>
+
+#include <iostream>  // TODO
 
 using namespace arangodb::cache;
 
@@ -58,8 +60,9 @@ static constexpr uint64_t TABLE_LISTS_OVERHEAD = 32 * 16 * 8;
 Manager::Manager(boost::asio::io_service* ioService, uint64_t globalLimit)
     : _state(),
       _accessStats((globalLimit >= (1024ULL * 1024ULL * 1024ULL))
-                       ? (128ULL * 1024ULL)
+                       ? ((1024ULL * 1024ULL) / sizeof(std::shared_ptr<Cache>))
                        : (globalLimit / 8192ULL)),
+      _accessCounter(0),
       _caches(),
       _globalSoftLimit(globalLimit),
       _globalHardLimit(globalLimit),
@@ -67,7 +70,9 @@ Manager::Manager(boost::asio::io_service* ioService, uint64_t globalLimit)
                         _accessStats.memoryUsage()),
       _openTransactions(0),
       _transactionTerm(0),
-      _ioService(ioService) {
+      _ioService(ioService),
+      _resizeAttempt(0),
+      _outstandingTasks(0) {
   TRI_ASSERT(_globalAllocation < _globalSoftLimit);
   TRI_ASSERT(_globalAllocation < _globalHardLimit);
 }
@@ -109,52 +114,21 @@ std::shared_ptr<Cache> Manager::createCache(Manager::CacheType type,
 
 // change global cache limit
 bool Manager::resize(uint64_t newGlobalLimit) {
-  bool done = false;
-  bool success = true;
-  std::unique_ptr<Manager::StatBuffer::stats_t> stats(nullptr);
-  uint64_t reclaimed = 0;
+  if (newGlobalLimit < MINIMUM_SIZE) {
+    return false;
+  }
 
+  bool success = true;
   _state.lock();
 
-  // if limit is safe, just set it
-  done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
-
-  // otherwise see if we can free enough from unused tables
-  if (!done) {
-    freeUnusedTables();
-    done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
-  }
-
-  // otherwise if we still have outstanding resize tasks, return unsuccessful
-  if (!done && _state.isSet(State::Flag::resizing)) {
-    done = true;
+  if (_state.isSet(State::Flag::resizing)) {
+    // if we still have outstanding resize tasks, return unsuccessful
     success = false;
-  }
-
-  // must resize individual caches
-  if (!done) {
+  } else {
+    // otherwise we need to actually resize
     _state.toggleFlag(State::Flag::resizing);
-    _globalSoftLimit = newGlobalLimit;
-
-    // get stats on cache access to prioritize freeing from less frequently used
-    // caches first, so more frequently used ones stay large
-    stats.reset(_accessStats.getFrequencies());
-
-    // first just adjust limits down to usage
-    reclaimed = resizeAllCaches(stats.get(), true, true,
-                                _globalAllocation - _globalSoftLimit);
-    _globalAllocation -= reclaimed;
-    done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
+    internalResize(newGlobalLimit, true);
   }
-
-  // still haven't freed enough, now try cutting allocations more aggressively
-  // by allowing use of background tasks to actually free memory from caches
-  if (!done) {
-    reclaimed = resizeAllCaches(stats.get(), false, true,
-                                _globalAllocation - _globalSoftLimit);
-  }
-
-  // TODO: handle case where we still need to free more memory
 
   _state.unlock();
   return success;
@@ -245,6 +219,7 @@ void Manager::unregisterCache(Manager::MetadataItr& metadata) {
   metadata->lock();
   _globalAllocation -= (metadata->hardLimit() + CACHE_RECORD_OVERHEAD);
   reclaimTables(metadata);
+  _accessStats.purgeRecord(metadata->cache());
   metadata->unlock();
 
   _caches.erase(metadata);
@@ -282,42 +257,94 @@ std::pair<bool, Manager::time_point> Manager::requestMigrate(
   bool allowed = false;
 
   _state.lock();
-  metadata->lock();
-
   if (!_tables[requestedLogSize].empty() ||
       increaseAllowed(tableSize(requestedLogSize))) {
     allowed = true;
   }
   if (allowed) {
-    leaseTable(metadata, requestedLogSize);
-  }
-
-  metadata->unlock();
-  _state.unlock();
-
-  MigrateTask task(this, metadata);
-  bool dispatched = task.dispatch();
-  if (!dispatched) {
-    // TODO: decide what to do if we don't have an io_service
-    allowed = false;
-    _state.lock();
     metadata->lock();
-    reclaimTables(metadata, true);
-    metadata->unlock();
-    _state.unlock();
+    migrateCache(metadata, requestedLogSize);  // unlocks metadata
   }
+  _state.unlock();
 
   return std::pair<bool, Manager::time_point>(allowed, nextRequest);
 }
 
-void Manager::reportAccess(Cache* cache) {
-  if (0U == RandomGenerator::interval(100U)) {
+void Manager::reportAccess(std::shared_ptr<Cache> cache) {
+  if (((++_accessCounter) & 0x7FULL) == 0) {  // record 1 in 128
     _accessStats.insertRecord(cache);
   }
 }
 
+std::shared_ptr<Manager::PriorityList> Manager::priorityList() {
+  TRI_ASSERT(_state.isLocked());
+  std::shared_ptr<PriorityList> list(new PriorityList());
+  list->reserve(_caches.size());
+
+  // catalog accessed caches
+  auto stats = _accessStats.getFrequencies();
+  std::set<Cache*> accessed;
+  for (auto s : *stats) {
+    accessed.emplace(s.first.get());
+  }
+
+  // gather all unaccessed caches at beginning of list
+  for (auto m : _caches) {
+    m.lock();
+    auto cache = m.cache();
+    m.unlock();
+
+    auto found = accessed.find(cache.get());
+    if (found == accessed.end()) {
+      list->emplace_back(cache);
+    }
+  }
+
+  // gather all accessed caches in order
+  for (auto s : *stats) {
+    list->emplace_back(s.first);
+  }
+
+  return list;
+}
+
 void Manager::rebalance() {
-  // TODO: implement this
+  _state.lock();
+  if (_state.isSet(State::Flag::resizing)) {
+    _state.unlock();
+    return;
+  }
+
+  // start rebalancing
+  _state.toggleFlag(State::Flag::rebalancing);
+
+  // determine strategy
+
+  // allow background tasks if more than 7/8ths full
+  bool allowTasks =
+      _globalAllocation > (_globalHardLimit - (_globalHardLimit >> 3));
+
+  // be aggressive if more than 3/4ths full
+  bool beAggressive =
+      _globalAllocation > (_globalHardLimit - (_globalHardLimit >> 2));
+
+  // aim for 1/4th with background tasks, 1/8th if no tasks but aggressive, no
+  // goal otherwise
+  uint64_t goal = beAggressive ? (allowTasks ? (_globalAllocation >> 2)
+                                             : (_globalAllocation >> 3))
+                               : 0;
+
+  // get stats on cache access to prioritize freeing from less frequently used
+  // caches first, so more frequently used ones stay large
+  std::shared_ptr<PriorityList> cacheList = priorityList();
+
+  // just adjust limits
+  uint64_t reclaimed =
+      resizeAllCaches(cacheList, allowTasks, beAggressive, goal);
+  _globalAllocation -= reclaimed;
+
+  _state.toggleFlag(State::Flag::rebalancing);
+  _state.unlock();
 }
 
 void Manager::resizeCache(Manager::MetadataItr& metadata, uint64_t newLimit) {
@@ -336,10 +363,30 @@ void Manager::resizeCache(Manager::MetadataItr& metadata, uint64_t newLimit) {
   metadata->toggleFlag(State::Flag::resizing);
   metadata->unlock();
 
-  FreeMemoryTask task(this, metadata);
-  bool dispatched = task.dispatch();
+  auto task = std::make_shared<FreeMemoryTask>(this, metadata);
+  bool dispatched = task->dispatch();
   if (!dispatched) {
     // TODO: decide what to do if we don't have an io_service
+    std::cerr << "NO SERVICE TO DISPATCH FREE MEMORY TASK" << std::endl;
+  }
+}
+
+void Manager::migrateCache(Manager::MetadataItr& metadata, uint32_t logSize) {
+  TRI_ASSERT(_state.isLocked());
+  TRI_ASSERT(metadata->isLocked());
+
+  leaseTable(metadata, logSize);
+  metadata->toggleFlag(State::Flag::migrating);
+  metadata->unlock();
+
+  auto task = std::make_shared<MigrateTask>(this, metadata);
+  bool dispatched = task->dispatch();
+  if (!dispatched) {
+    // TODO: decide what to do if we don't have an io_service
+    std::cerr << "NO SERVICE TO DISPATCH MIGRATE TASK" << std::endl;
+    metadata->lock();
+    reclaimTables(metadata, true);
+    metadata->unlock();
   }
 }
 
@@ -419,6 +466,57 @@ void Manager::freeUnusedTables() {
   }
 }
 
+void Manager::internalResize(uint64_t newGlobalLimit, bool firstAttempt) {
+  TRI_ASSERT(_state.isLocked());
+  bool done = false;
+  std::shared_ptr<PriorityList> cacheList(nullptr);
+  uint64_t reclaimed = 0;
+
+  if (firstAttempt) {
+    _resizeAttempt = 0;
+  }
+
+  // if limit is safe, just set it
+  done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
+
+  // see if we can free enough from unused tables
+  if (!done) {
+    freeUnusedTables();
+    done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
+  }
+
+  // must resize individual caches
+  if (!done) {
+    _globalSoftLimit = newGlobalLimit;
+
+    // get stats on cache access to prioritize freeing from less frequently used
+    // caches first, so more frequently used ones stay large
+    cacheList = priorityList();
+
+    // first just adjust limits down to usage
+    reclaimed = resizeAllCaches(cacheList, true, true,
+                                _globalAllocation - _globalSoftLimit);
+    _globalAllocation -= reclaimed;
+    done = adjustGlobalLimitsIfAllowed(newGlobalLimit);
+  }
+
+  // still haven't freed enough, now try cutting allocations more aggressively
+  // by allowing use of background tasks to actually free memory from caches
+  if (!done) {
+    if ((_resizeAttempt % 2) == 0) {
+      reclaimed = resizeAllCaches(cacheList, false, true,
+                                  _globalAllocation - _globalSoftLimit);
+    } else {
+      reclaimed =
+          migrateAllCaches(cacheList, _globalAllocation - _globalSoftLimit);
+    }
+  }
+
+  if (done) {
+    _state.toggleFlag(State::Flag::resizing);
+  }
+}
+
 bool Manager::adjustGlobalLimitsIfAllowed(uint64_t newGlobalLimit) {
   TRI_ASSERT(_state.isLocked());
   if (newGlobalLimit < _globalAllocation) {
@@ -431,14 +529,19 @@ bool Manager::adjustGlobalLimitsIfAllowed(uint64_t newGlobalLimit) {
   return true;
 }
 
-uint64_t Manager::resizeAllCaches(Manager::StatBuffer::stats_t* stats,
+uint64_t Manager::resizeAllCaches(std::shared_ptr<PriorityList> cacheList,
                                   bool noTasks, bool aggressive,
                                   uint64_t goal) {
   TRI_ASSERT(_state.isLocked());
   uint64_t reclaimed = 0;
 
-  for (auto s : *stats) {
-    auto metadata = s.first->metadata();
+  for (std::shared_ptr<Cache> c : *cacheList) {
+    // skip this cache if it is already resizing or shutdown!
+    if (!c->canResize()) {
+      continue;
+    }
+
+    auto metadata = c->metadata();
     metadata->lock();
 
     uint64_t newLimit;
@@ -455,6 +558,38 @@ uint64_t Manager::resizeAllCaches(Manager::StatBuffer::stats_t* stats,
 
     reclaimed += metadata->hardLimit() - newLimit;
     resizeCache(metadata, newLimit);  // unlocks cache
+
+    if (goal > 0 && reclaimed >= goal) {
+      break;
+    }
+  }
+
+  return reclaimed;
+}
+
+uint64_t Manager::migrateAllCaches(std::shared_ptr<PriorityList> cacheList,
+                                   uint64_t goal) {
+  TRI_ASSERT(_state.isLocked());
+  uint64_t reclaimed = 0;
+
+  for (std::shared_ptr<Cache> c : *cacheList) {
+    // skip this cache if it is already migrating or shutdown!
+    if (!c->canMigrate()) {
+      continue;
+    }
+
+    auto metadata = c->metadata();
+    metadata->lock();
+
+    uint32_t logSize = metadata->logSize();
+    if (logSize > MIN_TABLE_LOG_SIZE) {
+      // TODO: ensure new table allocation does not violate _globalHardLimit!
+      reclaimed += (tableSize(logSize) - tableSize(logSize - 1));
+      migrateCache(metadata, logSize - 1);  // unlocks metadata
+    }
+    if (metadata->isLocked()) {
+      metadata->unlock();
+    }
 
     if (goal > 0 && reclaimed >= goal) {
       break;

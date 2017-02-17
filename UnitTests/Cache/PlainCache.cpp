@@ -60,10 +60,10 @@ struct CCachePlainCacheSetup {
 BOOST_FIXTURE_TEST_SUITE(CCachePlainCacheTest, CCachePlainCacheSetup)
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test construction
+/// @brief test construction (single-threaded)
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_AUTO_TEST_CASE(tst_construction) {
+BOOST_AUTO_TEST_CASE(tst_st_construction) {
   Manager manager(nullptr, 1024ULL * 1024ULL);
   auto cache1 =
       manager.createCache(Manager::CacheType::Plain, 256ULL * 1024ULL, false);
@@ -74,13 +74,16 @@ BOOST_AUTO_TEST_CASE(tst_construction) {
   BOOST_CHECK_EQUAL(256ULL * 1024ULL, cache1->limit());
   BOOST_CHECK_EQUAL(0ULL, cache2->usage());
   BOOST_CHECK(512ULL * 1024ULL > cache2->limit());
+
+  Cache::destroy(cache1);
+  Cache::destroy(cache2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test insertion to check for
+/// @brief test insertion (single-threaded)
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_AUTO_TEST_CASE(tst_insertion) {
+BOOST_AUTO_TEST_CASE(tst_st_insertion) {
   uint64_t cacheLimit = 256ULL * 1024ULL;
   Manager manager(nullptr, 4ULL * cacheLimit);
   auto cache =
@@ -119,13 +122,15 @@ BOOST_AUTO_TEST_CASE(tst_insertion) {
     }
   }
   BOOST_CHECK(notInserted > 0);
+
+  Cache::destroy(cache);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief test removal
+/// @brief test removal (single-threaded)
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_AUTO_TEST_CASE(tst_removal) {
+BOOST_AUTO_TEST_CASE(tst_st_removal) {
   uint64_t cacheLimit = 256ULL * 1024ULL;
   Manager manager(nullptr, 4ULL * cacheLimit);
   auto cache =
@@ -158,6 +163,39 @@ BOOST_AUTO_TEST_CASE(tst_removal) {
     auto f = cache->find(&i, sizeof(uint64_t));
     BOOST_CHECK(!f.found());
   }
+
+  Cache::destroy(cache);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief test growth behavior (single-threaded)
+////////////////////////////////////////////////////////////////////////////////
+
+BOOST_AUTO_TEST_CASE(tst_st_growth) {
+  uint64_t initialSize = 16ULL * 1024ULL;
+  uint64_t minimumSize = 64ULL * initialSize;
+  Manager manager(nullptr, 1024ULL * 1024ULL * 1024ULL);
+  auto cache =
+      manager.createCache(Manager::CacheType::Plain, initialSize, true);
+
+  for (uint64_t i = 0; i < 16ULL * 1024ULL * 1024ULL; i++) {
+    if ((i % 16384) == 0) {
+      std::cout << i << std::endl;
+    }
+    CachedValue* value =
+        CachedValue::construct(&i, sizeof(uint64_t), &i, sizeof(uint64_t));
+    bool success = cache->insert(value);
+    if (success) {
+      auto f = cache->find(&i, sizeof(uint64_t));
+      BOOST_CHECK(f.found());
+    } else {
+      delete value;
+    }
+  }
+
+  BOOST_CHECK(cache->usage() > minimumSize);
+
+  Cache::destroy(cache);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

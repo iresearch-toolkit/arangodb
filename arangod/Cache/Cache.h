@@ -61,6 +61,9 @@ class Cache {
   };
 
  public:
+  // shutdown cache and let its memory be reclaimed
+  static void destroy(std::shared_ptr<Cache> cache);
+
   // primary functionality
   virtual Finding find(void const* key, uint32_t keySize) = 0;
   virtual bool insert(CachedValue* value) = 0;
@@ -123,6 +126,8 @@ class Cache {
   // management
   Manager::MetadataItr& metadata();
   void shutdown();
+  bool canResize();
+  bool canMigrate();
   virtual void freeMemory() = 0;
   virtual void migrate() = 0;
 };

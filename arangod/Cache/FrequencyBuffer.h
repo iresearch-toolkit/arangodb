@@ -67,8 +67,16 @@ class FrequencyBuffer {
     _buffer[_current & _mask] = record;
   }
 
+  void purgeRecord(T const& record) {
+    for (size_t i = 0; i < _capacity; i++) {
+      if (_buffer[i] == record) {
+        _buffer[i] = T();
+      }
+    }
+  }
+
   // return frequencies in ASCENDING order
-  FrequencyBuffer::stats_t* getFrequencies() const {
+  std::shared_ptr<FrequencyBuffer::stats_t> getFrequencies() const {
     // calculate frequencies
     std::unordered_map<T, uint64_t> frequencies;
     for (size_t i = 0; i < _capacity; i++) {
@@ -79,7 +87,7 @@ class FrequencyBuffer {
     }
 
     // gather and sort frequencies
-    auto data = new std::vector<std::pair<T, uint64_t>>();
+    std::shared_ptr<stats_t> data(new stats_t());
     data->reserve(frequencies.size());
     for (auto f : frequencies) {
       data->emplace_back(std::pair<T, uint64_t>(f.first, f.second));

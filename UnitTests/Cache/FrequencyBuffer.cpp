@@ -79,8 +79,7 @@ BOOST_AUTO_TEST_CASE(tst_uint8_t) {
     buffer.insertRecord(one);
   }
 
-  typedef std::vector<std::pair<uint8_t, uint64_t>> Frequencies;
-  std::unique_ptr<Frequencies> frequencies(buffer.getFrequencies());
+  auto frequencies = buffer.getFrequencies();
   BOOST_CHECK_EQUAL(2ULL, frequencies->size());
   BOOST_CHECK_EQUAL(one, (*frequencies)[0].first);
   BOOST_CHECK_EQUAL(2ULL, (*frequencies)[0].second);
@@ -91,7 +90,7 @@ BOOST_AUTO_TEST_CASE(tst_uint8_t) {
     buffer.insertRecord(one);
   }
 
-  frequencies.reset(buffer.getFrequencies());
+  frequencies = buffer.getFrequencies();
   BOOST_CHECK_EQUAL(1ULL, frequencies->size());
   BOOST_CHECK_EQUAL(one, (*frequencies)[0].first);
   BOOST_CHECK_EQUAL(8ULL, (*frequencies)[0].second);
@@ -121,8 +120,7 @@ BOOST_AUTO_TEST_CASE(tst_pointers) {
     buffer.insertRecord(&one);
   }
 
-  typedef std::vector<std::pair<uint8_t*, uint64_t>> Frequencies;
-  std::unique_ptr<Frequencies> frequencies(buffer.getFrequencies());
+  auto frequencies = buffer.getFrequencies();
   BOOST_CHECK_EQUAL(2ULL, frequencies->size());
   BOOST_CHECK_EQUAL(&one, (*frequencies)[0].first);
   BOOST_CHECK_EQUAL(2ULL, (*frequencies)[0].second);

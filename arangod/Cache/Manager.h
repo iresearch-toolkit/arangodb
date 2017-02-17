@@ -48,7 +48,9 @@ class MigrateTask;     // forward declaration
 
 class Manager {
  public:
-  typedef FrequencyBuffer<Cache*> StatBuffer;
+  static constexpr uint64_t MINIMUM_SIZE = 1024 * 1024;
+  typedef FrequencyBuffer<std::shared_ptr<Cache>> StatBuffer;
+  typedef std::vector<std::shared_ptr<Cache>> PriorityList;
   typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
   typedef std::list<Metadata>::iterator MetadataItr;
 
@@ -79,6 +81,7 @@ class Manager {
 
   // structure to handle access frequency monitoring
   Manager::StatBuffer _accessStats;
+  std::atomic<uint64_t> _accessCounter;
 
   // list of metadata objects to keep track of all the registered caches
   std::list<Metadata> _caches;
@@ -95,7 +98,10 @@ class Manager {
   std::atomic<uint64_t> _openTransactions;
   std::atomic<uint64_t> _transactionTerm;
 
+  // task management
   boost::asio::io_service* _ioService;
+  uint64_t _resizeAttempt;
+  std::atomic<uint64_t> _outstandingTasks;
 
   // friend class tasks and caches to allow access
   friend class Cache;
@@ -119,14 +125,16 @@ class Manager {
   std::pair<bool, Manager::time_point> requestMigrate(
       Manager::MetadataItr& metadata, uint32_t requestedLogSize);
 
-  // report cache access
-  void reportAccess(Cache* cache);
+  // methods for lr-accessed behavior
+  void reportAccess(std::shared_ptr<Cache> cache);
+  std::shared_ptr<PriorityList> priorityList();
 
   // periodically run to rebalance allocations globally?
   void rebalance();
 
   // methods to adjust individual caches
   void resizeCache(Manager::MetadataItr& metadata, uint64_t newLimit);
+  void migrateCache(Manager::MetadataItr& metadata, uint32_t logSize);
   void leaseTable(Manager::MetadataItr& metadata, uint32_t logSize);
   void reclaimTables(Manager::MetadataItr& metadata,
                      bool auxiliaryOnly = false);
@@ -139,10 +147,13 @@ class Manager {
   Manager::time_point futureTime(uint64_t secondsFromNow);
 
   // helpers for global resizing
+  void internalResize(uint64_t newGlobalLimit, bool firstAttempt);
   void freeUnusedTables();
   bool adjustGlobalLimitsIfAllowed(uint64_t newGlobalLimit);
-  uint64_t resizeAllCaches(Manager::StatBuffer::stats_t* stats, bool noTasks,
-                           bool aggressive, uint64_t goal);
+  uint64_t resizeAllCaches(std::shared_ptr<PriorityList> cacheList,
+                           bool noTasks, bool aggressive, uint64_t goal);
+  uint64_t migrateAllCaches(std::shared_ptr<PriorityList> cacheList,
+                            uint64_t goal);
 };
 
 };  // end namespace cache
