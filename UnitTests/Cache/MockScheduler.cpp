@@ -39,15 +39,19 @@ using namespace arangodb::cache;
 MockScheduler::MockScheduler(size_t threads)
     : _ioService(new boost::asio::io_service()),
       _serviceGuard(new boost::asio::io_service::work(*_ioService)) {
-  while (threads--) {
-    auto worker = boost::bind(&boost::asio::io_service::run, _ioService.get());
-    _group.add_thread(new boost::thread(worker));
+  for (size_t i = 0; i < threads; i++) {
+    auto worker = std::bind(static_cast<size_t (boost::asio::io_service::*)()>(
+                                &boost::asio::io_service::run),
+                            _ioService.get());
+    _group.emplace_back(new std::thread(worker));
   }
 }
 
 MockScheduler::~MockScheduler() {
   _serviceGuard.reset();
-  _group.join_all();
+  for (auto g : _group) {
+    g->join();
+  }
   _ioService->stop();
 }
 
