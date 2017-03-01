@@ -97,6 +97,10 @@
 #include "Enterprise/RestServer/arangodEE.h"
 #endif
 
+#ifdef USE_IRESEARCH
+#include "IResearch/IResearchFeature.h"
+#endif
+
 using namespace arangodb;
 
 static int runServer(int argc, char** argv) {
@@ -192,6 +196,10 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new MMFilesEngine(&server));
     server.addFeature(new MMFilesWalRecoveryFeature(&server));
     //server.addFeature(new RocksDBEngine(&server)); //enable RocksDB storage here
+
+#ifdef USE_IRESEARCH
+    server.addFeature(new IResearchFeature(&server));
+#endif
 
     try {
       server.run(argc, argv);

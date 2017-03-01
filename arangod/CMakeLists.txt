@@ -39,6 +39,23 @@ if (USE_MAINTAINER_MODE AND NOT MSVC)
 endif ()
 
 ################################################################################
+## IResearch
+################################################################################
+
+if (USE_IRESEARCH)
+  set(LIB_ARANGO_IRESEARCH arango_iresearch)
+
+  add_definitions("-DUSE_IRESEARCH=1")
+
+  add_library(${LIB_ARANGO_IRESEARCH}
+    IResearch/IResearchFeature.cpp
+    IResearch/RestIResearchViewHandler.cpp
+  )
+else()
+  set(LIB_ARANGO_IRESEARCH "")
+endif ()
+
+################################################################################
 ## arangod
 ################################################################################
 
@@ -381,6 +398,7 @@ target_link_libraries(${BIN_ARANGOD}
   ${MSVC_LIBS}
   ${V8_LIBS}
   ${ROCKSDB_LIBS}
+  ${LIB_ARANGO_IRESEARCH}
   ${SYSTEM_LIBRARIES}
   boost_boost
   boost_system
