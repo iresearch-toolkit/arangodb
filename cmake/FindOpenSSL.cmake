@@ -160,7 +160,7 @@ find_path(OPENSSL_INCLUDE_DIR
   HINTS
     ${_OPENSSL_INCLUDEDIR}
   PATH_SUFFIXES
-    include
+    include64 include
 )
 
 if(WIN32 AND NOT CYGWIN)
@@ -246,12 +246,14 @@ if(WIN32 AND NOT CYGWIN)
 
     if(OPENSSL_USE_STATIC_LIBS)
       set(_OPENSSL_PATH_SUFFIXES
+        "lib64"
         "lib"
         "VC/static"
         "lib/VC/static"
         )
     else()
       set(_OPENSSL_PATH_SUFFIXES
+        "lib64"
         "lib"
         "VC"
         "lib/VC"
@@ -267,6 +269,16 @@ if(WIN32 AND NOT CYGWIN)
         ${_OPENSSL_PATH_SUFFIXES}
     )
 
+    find_file(LIB_EAY_DEBUG_DLL
+      NAMES
+        libeay32${_OPENSSL_MSVC_RT_MODE}d.dll
+        libeay32d.dll
+      PATHS
+        ${_OPENSSL_ROOT_HINTS_AND_PATHS}
+      PATH_SUFFIXES
+        ${_OPENSSL_PATH_SUFFIXES} bin64 bin
+    )
+
     find_library(LIB_EAY_RELEASE
       NAMES
         libeay32${_OPENSSL_MSVC_RT_MODE}
@@ -274,6 +286,16 @@ if(WIN32 AND NOT CYGWIN)
       ${_OPENSSL_ROOT_HINTS_AND_PATHS}
       PATH_SUFFIXES
         ${_OPENSSL_PATH_SUFFIXES}
+    )
+
+    find_file(LIB_EAY_RELEASE_DLL
+      NAMES
+        libeay32${_OPENSSL_MSVC_RT_MODE}.dll
+        libeay32.dll
+      PATHS
+        ${_OPENSSL_ROOT_HINTS_AND_PATHS}
+      PATH_SUFFIXES
+        ${_OPENSSL_PATH_SUFFIXES} bin64 bin
     )
 
     find_library(SSL_EAY_DEBUG
@@ -285,6 +307,17 @@ if(WIN32 AND NOT CYGWIN)
         ${_OPENSSL_PATH_SUFFIXES}
     )
 
+    find_file(SSL_EAY_DEBUG_DLL
+      NAMES
+        ssleay32${_OPENSSL_MSVC_RT_MODE}d.dll
+        ssleay32d.dll
+        ssl.dll
+      PATHS
+        ${_OPENSSL_ROOT_HINTS_AND_PATHS}
+      PATH_SUFFIXES
+        ${_OPENSSL_PATH_SUFFIXES} bin64 bin
+    )
+
     find_library(SSL_EAY_RELEASE
       NAMES
         ssleay32${_OPENSSL_MSVC_RT_MODE}
@@ -293,6 +326,17 @@ if(WIN32 AND NOT CYGWIN)
       ${_OPENSSL_ROOT_HINTS_AND_PATHS}
       PATH_SUFFIXES
         ${_OPENSSL_PATH_SUFFIXES}
+    )
+
+    find_file(SSL_EAY_RELEASE_DLL
+      NAMES
+        ssleay32${_OPENSSL_MSVC_RT_MODE}.dll
+        ssleay32.dll
+        ssl.dll
+      PATHS
+        ${_OPENSSL_ROOT_HINTS_AND_PATHS}
+      PATH_SUFFIXES
+        ${_OPENSSL_PATH_SUFFIXES} bin64 bin
     )
 
     set(LIB_EAY_LIBRARY_DEBUG "${LIB_EAY_DEBUG}")
