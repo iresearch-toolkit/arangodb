@@ -1,24 +1,19 @@
 
-@startDocuBlock REST_VIEW_UPDATE
-@brief Updates a view or link
+@startDocuBlock REST_VIEW_LINK_CREATE
+@brief adds collection to a view
 
-@RESTHEADER{PUT /_api/view/{view-name}, Update a view or link}
+@RESTHEADER{POST /_api/view/{view-name}, Add a collection to a view}
 
 @RESTURLPARAMETERS
 
 @RESTURLPARAM{view-name,string,required}
 The name of the view.
 
-@RESTQUERYPARAMETERS
-
-@RESTQUERYPARAM{collection,string,optional}
-The collection name.
-
-@RESTBODYPARAM{properties,string,required,string}
+@RESTBODYPARAM{collection,string,required,string}
 The name of the view.
 
 @RESTDESCRIPTION
-Updates a view with a given name or a link to a collection with a given name . 
+Adds collection with a given name to a view with a given name.
 The request must contain an object with the following attributes.
 
 @RESTRETURNCODES
@@ -30,7 +25,6 @@ returned.
 @RESTRETURNCODE{404}
 If the *view-name* is unknown, then a *HTTP 404* is returned.
 If the *collecton* is unknown, then a *HTTP 404* is returned.
-If the *view-name* does not contain link to the *collection*, 
-then a *HTTP 404* is returned.
 
 @endDocuBlock
+

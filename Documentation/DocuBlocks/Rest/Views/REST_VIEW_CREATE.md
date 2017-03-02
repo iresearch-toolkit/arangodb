@@ -2,7 +2,7 @@
 @startDocuBlock REST_VIEW_CREATE
 @brief creates a view
 
-@RESTHEADER{POST /_api/view, Create view}
+@RESTHEADER{POST /_api/view, Create a view}
 
 @RESTBODYPARAM{name,string,required,string}
 The name of the view.
@@ -16,9 +16,6 @@ object with the following attributes.
 @RESTRETURNCODE{400}
 If the *view-name* is missing, then a *HTTP 400* is
 returned.
-
-@RESTRETURNCODE{404}
-If the *view-name* is unknown, then a *HTTP 404* is returned.
 
 @endDocuBlock
 

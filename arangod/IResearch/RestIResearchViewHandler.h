@@ -33,7 +33,7 @@ namespace arangodb {
 
 class RestIResearchViewHandler : public arangodb::RestBaseHandler {
  public:
-  static const std::string IRESEARCH_VIEW_PATH;
+  static std::string const IRESEARCH_VIEW_PATH;
 
   RestIResearchViewHandler(GeneralRequest*, GeneralResponse*);
 
@@ -42,17 +42,22 @@ class RestIResearchViewHandler : public arangodb::RestBaseHandler {
   RestStatus execute() override;
 
  private:
-  void deleteView();
+  bool handleDelete();
+  bool deleteView();
+  bool deleteViewLink(std::string const& collectionName);
 
-  void readView();
+  bool handleRead();
+  bool readAllViews();
+  bool readView();
+  bool readViewLink(std::string const& collectionName);
 
-  void createView();
+  bool handleCreate();
+  bool createView();
+  bool createViewLink();
 
-  void replaceView();
-
-  void updateView();
-
-  void generateNotImplemented(std::string const&);
+  bool handleUpdate();
+  bool updateView();
+  bool updateViewLink(std::string const& collectionName);
 };
 
 }
