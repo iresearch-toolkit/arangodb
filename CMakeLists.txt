@@ -255,6 +255,10 @@ include_directories(${ROCKSDB_INCLUDE_DIR})
 
 option(USE_IRESEARCH OFF)
 
+if(USE_IRESEARCH)
+  set(TEST_IRESEARCH_SUITE iresearch_suite)
+endif()
+
 ################################################################################
 ## EXTERNAL PROGRAMS
 ################################################################################
