@@ -1,7 +1,7 @@
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
-/// Copyright 2016 ArangoDB GmbH, Cologne, Germany
+/// Copyright 2017 EMC Corporation
 ///
 /// Licensed under the Apache License, Version 2.0 (the "License");
 /// you may not use this file except in compliance with the License.
@@ -15,32 +15,40 @@
 /// See the License for the specific language governing permissions and
 /// limitations under the License.
 ///
-/// Copyright holder is ArangoDB GmbH, Cologne, Germany
+/// Copyright holder is EMC Corporation
 ///
-/// @author
+/// @author Andrey Abramov
+/// @author Vasily Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "RestIResearchViewHandler.h"
+#include "RestViewHandler.h"
 
 #include <velocypack/Builder.h>
 #include <velocypack/velocypack-aliases.h>
 
+#include "RestServer/VocbaseContext.h"
 #include "Rest/HttpRequest.h"
 #include "Rest/Version.h"
+#include "Basics/StringRef.h"
 
 using namespace arangodb;
 using namespace arangodb::basics;
 using namespace arangodb::rest;
 
-std::string const RestIResearchViewHandler::IRESEARCH_VIEW_PATH = "/_api/view";
+std::string const RestViewHandler::VIEW_PATH = "/_api/view";
 
-RestIResearchViewHandler::RestIResearchViewHandler(
+RestViewHandler::RestViewHandler(
     GeneralRequest* request,
-    GeneralResponse* response)
-  : RestBaseHandler(request, response) {
+    GeneralResponse* response,
+    const ViewFactory* viewFactory)
+  : RestBaseHandler(request, response),
+    _viewFactory(*viewFactory),
+    _context(static_cast<VocbaseContext*>(request->requestContext())),
+    _vocbase(_context->vocbase()) {
+  TRI_ASSERT(_viewFactory && _context && _vocbase);
 }
 
-RestStatus RestIResearchViewHandler::execute() {
+RestStatus RestViewHandler::execute() {
   // extract the sub-request type
   auto const type = _request->requestType();
 
@@ -61,7 +69,7 @@ RestStatus RestIResearchViewHandler::execute() {
     default: {
       generateError(
         rest::ResponseCode::NOT_IMPLEMENTED, TRI_ERROR_NOT_IMPLEMENTED,
-        "'" + IRESEARCH_VIEW_PATH + "' not implemented"
+        "'" + VIEW_PATH + "' not implemented"
       );
       break;
     }
@@ -71,14 +79,14 @@ RestStatus RestIResearchViewHandler::execute() {
   return RestStatus::DONE;
 }
 
-bool RestIResearchViewHandler::handleDelete() {
+bool RestViewHandler::handleDelete() {
   if (1 != _request->suffixes().size()) {
     generateError(
       rest::ResponseCode::BAD,
       TRI_ERROR_HTTP_BAD_PARAMETER,
       "expecting DELETE "
-        + IRESEARCH_VIEW_PATH + "/<view-name>"
-        + " or " + IRESEARCH_VIEW_PATH + "/<view-name>?collection=<collection-name>"
+        + VIEW_PATH + "/<view-name>"
+        + " or " + VIEW_PATH + "/<view-name>?collection=<collection-name>"
     );
     return false;
   }
@@ -89,7 +97,7 @@ bool RestIResearchViewHandler::handleDelete() {
   return isLink ? deleteViewLink(collectionName) : deleteView();
 }
 
-bool RestIResearchViewHandler::handleRead() {
+bool RestViewHandler::handleRead() {
   size_t const len = _request->suffixes().size();
 
   switch (len) {
@@ -106,15 +114,15 @@ bool RestIResearchViewHandler::handleRead() {
   generateError(
     rest::ResponseCode::BAD,
     TRI_ERROR_HTTP_SUPERFLUOUS_SUFFICES,
-    "expecting GET " + IRESEARCH_VIEW_PATH
-        + " or " + IRESEARCH_VIEW_PATH + "/<view-name>" +
-        + " or " + IRESEARCH_VIEW_PATH + "/<view-name>?collection=<collection-name>"
+    "expecting GET " + VIEW_PATH
+        + " or " + VIEW_PATH + "/<view-name>" +
+        + " or " + VIEW_PATH + "/<view-name>?collection=<collection-name>"
   );
 
   return false;
 }
 
-bool RestIResearchViewHandler::handleCreate() {
+bool RestViewHandler::handleCreate() {
   size_t const len = _request->suffixes().size();
 
   switch (len) {
@@ -128,21 +136,21 @@ bool RestIResearchViewHandler::handleCreate() {
   generateError(
     rest::ResponseCode::BAD,
     TRI_ERROR_HTTP_SUPERFLUOUS_SUFFICES,
-    "expecting POST " + IRESEARCH_VIEW_PATH
-        + " or " + IRESEARCH_VIEW_PATH + "/<view-name>"
+    "expecting POST " + VIEW_PATH
+        + " or " + VIEW_PATH + "/<view-name>"
   );
 
   return false;
 }
 
-bool RestIResearchViewHandler::handleUpdate() {
+bool RestViewHandler::handleUpdate() {
   if (1 != _request->suffixes().size()) {
     generateError(
       rest::ResponseCode::BAD,
       TRI_ERROR_HTTP_BAD_PARAMETER,
       "expecting PUT"
-        + IRESEARCH_VIEW_PATH + "/<view-name>"
-        + " or " + IRESEARCH_VIEW_PATH + "/<view-name>?collection=<collection-name>"
+        + VIEW_PATH + "/<view-name>"
+        + " or " + VIEW_PATH + "/<view-name>?collection=<collection-name>"
     );
     return false;
   }
@@ -153,7 +161,7 @@ bool RestIResearchViewHandler::handleUpdate() {
   return isLink ? updateViewLink(collectionName) : updateView();
 }
 
-bool RestIResearchViewHandler::deleteView() {
+bool RestViewHandler::deleteView() {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());
@@ -172,27 +180,7 @@ bool RestIResearchViewHandler::deleteView() {
   return true;
 }
 
-bool RestIResearchViewHandler::deleteViewLink(const std::string& collectionName) {
-  // decode URL suffixes
-  auto const suffixes = _request->decodedSuffixes();
-  TRI_ASSERT(1 == suffixes.size());
-
-  std::string const& viewName = suffixes[0];
-
-  VPackBuilder result;
-  result.add(VPackValue(VPackValueType::Object));
-  result.add("server", VPackValue("arango"));
-  result.add("version", VPackValue(ARANGODB_VERSION));
-  result.add("name", VPackValue(viewName));
-  result.add("action", VPackValue(__FUNCTION__));
-  result.close();
-
-  generateResult(rest::ResponseCode::OK, result.slice());
-
-  return true;
-}
-
-bool RestIResearchViewHandler::readView() {
+bool RestViewHandler::deleteViewLink(const std::string& collectionName) {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());
@@ -212,7 +200,27 @@ bool RestIResearchViewHandler::readView() {
   return true;
 }
 
-bool RestIResearchViewHandler::readAllViews() {
+bool RestViewHandler::readView() {
+  // decode URL suffixes
+  auto const suffixes = _request->decodedSuffixes();
+  TRI_ASSERT(1 == suffixes.size());
+
+  std::string const& viewName = suffixes[0];
+
+  VPackBuilder result;
+  result.add(VPackValue(VPackValueType::Object));
+  result.add("server", VPackValue("arango"));
+  result.add("version", VPackValue(ARANGODB_VERSION));
+  result.add("name", VPackValue(viewName));
+  result.add("action", VPackValue(__FUNCTION__));
+  result.close();
+
+  generateResult(rest::ResponseCode::OK, result.slice());
+
+  return true;
+}
+
+bool RestViewHandler::readAllViews() {
   TRI_ASSERT(_request->suffixes().empty());
 
   VPackBuilder result;
@@ -227,7 +235,7 @@ bool RestIResearchViewHandler::readAllViews() {
   return true;
 }
 
-bool RestIResearchViewHandler::readViewLink(std::string const& collectionName) {
+bool RestViewHandler::readViewLink(std::string const& collectionName) {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());
@@ -248,7 +256,7 @@ bool RestIResearchViewHandler::readViewLink(std::string const& collectionName) {
   return true;
 }
 
-bool RestIResearchViewHandler::createView() {
+bool RestViewHandler::createView() {
   TRI_ASSERT(_request->suffixes().empty());
 
   bool parseSuccess = true;
@@ -262,7 +270,26 @@ bool RestIResearchViewHandler::createView() {
   }
 
   VPackSlice body = parsedBody->slice();
-  VPackSlice viewName = body.get("name");
+  VPackSlice viewType = body.get("type");
+
+  if (!viewType.isString()) {
+    generateError(
+      rest::ResponseCode::BAD,
+      TRI_ERROR_HTTP_BAD_PARAMETER,
+      "wrong view type specified"
+    );
+    return false;
+  }
+
+  VPackBuilder view;
+  if (!_viewFactory(arangodb::StringRef(viewType), body, &view)) {
+    generateError(
+      rest::ResponseCode::BAD,
+      TRI_ERROR_HTTP_BAD_PARAMETER,
+      "cannot create a view"
+    );
+    return false;
+  }
 
   VPackBuilder result;
   result.add(VPackValue(VPackValueType::Object));
@@ -276,7 +303,7 @@ bool RestIResearchViewHandler::createView() {
   return true;
 }
 
-bool RestIResearchViewHandler::createViewLink() {
+bool RestViewHandler::createViewLink() {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());
@@ -308,7 +335,7 @@ bool RestIResearchViewHandler::createViewLink() {
   return true;
 }
 
-bool RestIResearchViewHandler::updateView() {
+bool RestViewHandler::updateView() {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());
@@ -338,7 +365,7 @@ bool RestIResearchViewHandler::updateView() {
   return true;
 }
 
-bool RestIResearchViewHandler::updateViewLink(std::string const& collectionName) {
+bool RestViewHandler::updateViewLink(std::string const& collectionName) {
   // decode URL suffixes
   auto const suffixes = _request->decodedSuffixes();
   TRI_ASSERT(1 == suffixes.size());

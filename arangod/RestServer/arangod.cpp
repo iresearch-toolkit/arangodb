@@ -98,7 +98,7 @@
 #endif
 
 #ifdef USE_IRESEARCH
-#include "IResearch/IResearchFeature.h"
+#include "IResearch/ViewFeature.h"
 #endif
 
 using namespace arangodb;
@@ -198,7 +198,7 @@ static int runServer(int argc, char** argv) {
     //server.addFeature(new RocksDBEngine(&server)); //enable RocksDB storage here
 
 #ifdef USE_IRESEARCH
-    server.addFeature(new IResearchFeature(&server));
+    server.addFeature(new ViewFeature(&server));
 #endif
 
     try {

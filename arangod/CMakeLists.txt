@@ -48,8 +48,8 @@ if (USE_IRESEARCH)
   add_definitions("-DUSE_IRESEARCH=1")
 
   add_library(${LIB_ARANGO_IRESEARCH}
-    IResearch/IResearchFeature.cpp
-    IResearch/RestIResearchViewHandler.cpp
+    IResearch/ViewFeature.cpp
+    IResearch/RestViewHandler.cpp
   )
 else()
   set(LIB_ARANGO_IRESEARCH "")

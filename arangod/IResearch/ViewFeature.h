@@ -1,7 +1,7 @@
-////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
-/// Copyright 2016 ArangoDB GmbH, Cologne, Germany
+/// Copyright 2017 EMC Corporation
 ///
 /// Licensed under the Apache License, Version 2.0 (the "License");
 /// you may not use this file except in compliance with the License.
@@ -15,20 +15,21 @@
 /// See the License for the specific language governing permissions and
 /// limitations under the License.
 ///
-/// Copyright holder is ArangoDB GmbH, Cologne, Germany
+/// Copyright holder is EMC Corporation
 ///
-/// @author 
+/// @author Andrey Abramov
+/// @author Vasily Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGODB_APPLICATION_FEATURES_IRESEARCH_FEATURE_H
-#define ARANGODB_APPLICATION_FEATURES_IRESEARCH_FEATURE_H 1
+#ifndef ARANGOD_IRESEARCH__IRESEARCH_FEATURE_H
+#define ARANGOD_IRESEARCH__IRESEARCH_FEATURE_H 1
 
 #include "ApplicationFeatures/ApplicationFeature.h"
 
 namespace arangodb {
-class IResearchFeature final : public application_features::ApplicationFeature {
+class ViewFeature final : public application_features::ApplicationFeature {
  public:
-  IResearchFeature(application_features::ApplicationServer* server);
+  ViewFeature(application_features::ApplicationServer* server);
 
  public:
   void collectOptions(std::shared_ptr<options::ProgramOptions>) override final;
@@ -39,4 +40,3 @@ class IResearchFeature final : public application_features::ApplicationFeature {
 }
 
 #endif
-

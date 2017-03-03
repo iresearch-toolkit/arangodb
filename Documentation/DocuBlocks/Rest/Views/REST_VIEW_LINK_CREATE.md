@@ -18,6 +18,13 @@ The request must contain an object with the following attributes.
 
 @RESTRETURNCODES
 
+@RESTRETURNCODE{200}
+If the collection already present in a view, then an *HTTP 200* is returned.
+
+@RESTRETURNCODE{201}
+If the collection does not already present in a view and could be added, then an *HTTP 201*
+is returned.
+
 @RESTRETURNCODE{400}
 If the *view-name* is missing, then a *HTTP 400* is
 returned.
