@@ -43,8 +43,8 @@ class RestViewHandler : public arangodb::RestBaseHandler {
  public:
   typedef std::function<bool( // return code
     StringRef const& type,    // view type
-    VPackSlice params,        // view paramenters
-    VPackBuilder* out         // optional out json presentation of the created view
+    VPackSlice params,        // view parameters
+    VPackBuilder* out         // optional out json representation of the created view
   )> ViewFactory;
 
   static std::string const VIEW_PATH;

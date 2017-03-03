@@ -25,6 +25,7 @@
 #include "RestViewHandler.h"
 
 #include "Basics/ArangoGlobalContext.h"
+#include "Basics/StringRef.h"
 #include "Cluster/ServerState.h"
 #include "GeneralServer/GeneralServerFeature.h"
 #include "GeneralServer/RestHandlerFactory.h"
@@ -33,24 +34,46 @@
 #include "ProgramOptions/ProgramOptions.h"
 #include "ProgramOptions/Section.h"
 
+#include <unordered_map>
+#include <functional>
+
 using namespace arangodb;
 using namespace arangodb::options;
 
 namespace {
 
+typedef std::function<bool( // return code
+  VPackSlice params,        // view parameters
+  VPackBuilder* out         // optional out json representation of the created view
+)> ViewFactory;
+
+std::unordered_map<arangodb::StringRef, ViewFactory> VIEW_FACTORIES {
+  { StringRef("iresearch"), [](VPackSlice params, VPackBuilder* out) { return false; } }
+};
+
 RestViewHandler::ViewFactory localViewFactory = [] (
-    arangodb::StringRef const& type,
+    StringRef const& type,
+    VPackSlice params,
+    VPackBuilder* out) -> bool {
+  const auto it = VIEW_FACTORIES.find(type);
+
+  return it == VIEW_FACTORIES.end()
+    ? false
+    : it->second(params, out);
+};
+
+RestViewHandler::ViewFactory coordinatorViewFactory = [] (
+    StringRef const& type,
     VPackSlice params,
     VPackBuilder* out) -> bool {
   return false;
 };
 
-RestViewHandler::ViewFactory remoteViewFactory = [] (
-    arangodb::StringRef const& type,
-    VPackSlice params,
-    VPackBuilder* out) -> bool {
-  return false;
-};
+inline ViewFactory* viewFactory() {
+  return  ServerState::instance()->isCoordinator()
+    ? &coordinatorViewFactory
+    : &localViewFactory;
+}
 
 }
 
@@ -76,6 +99,6 @@ void ViewFeature::start() {
   GeneralServerFeature::HANDLER_FACTORY->addPrefixHandler(
     RestViewHandler::VIEW_PATH,
     RestHandlerCreator<RestViewHandler>::createData<const RestViewHandler::ViewFactory*>,
-    ServerState::instance()->isCoordinator() ? &remoteViewFactory : &localViewFactory
+    viewFactory()
   );
 }
