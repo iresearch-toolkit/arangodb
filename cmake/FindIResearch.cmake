@@ -9,6 +9,7 @@
 
 # - Find iResearch (iresearch.dll core/*/*.hpp)
 # This module defines
+#  IRESEARCH_BUILD_DIR, directory to the iresearch build path
 #  IRESEARCH_CXX_FLAGS, flags to use with CXX compilers
 #  IRESEARCH_INCLUDE, directory containing headers
 #  IRESEARCH_LIBRARY_DIR, directory containing iResearch libraries
@@ -45,10 +46,12 @@ set(IRESEARCH_SEARCH_HEADER_PATHS
   ${IRESEARCH_ROOT}/build/core
 )
 
+set(IRESEARCH_BUILD_DIR "${CMAKE_BINARY_DIR}/3rdParty/iresearch")
+
 set(IRESEARCH_SEARCH_LIB_PATH
-  ${IRESEARCH_ROOT}/build/bin
-  ${IRESEARCH_ROOT}/build/bin/Release
-  ${IRESEARCH_ROOT}/build/bin/Debug
+  ${IRESEARCH_BUILD_DIR}/build/bin
+  ${IRESEARCH_BUILD_DIR}/build/bin/Release
+  ${IRESEARCH_BUILD_DIR}/build/bin/Debug
 )
 
 set(IRESEARCH_CXX_FLAGS " ") # has to be a non-empty string
@@ -219,6 +222,7 @@ find_package_handle_standard_args(IRESEARCH
   IRESEARCH_STATIC_LIBS
   IRESEARCH_CXX_FLAGS
 )
+message("IRESEARCH_BUILD_DIR: " ${IRESEARCH_BUILD_DIR})
 message("IRESEARCH_INCLUDE: " ${IRESEARCH_INCLUDE})
 message("IRESEARCH_LIBRARY_DIR: " ${IRESEARCH_LIBRARY_DIR})
 message("IRESEARCH_SHARED_LIBS: " ${IRESEARCH_SHARED_LIBS})

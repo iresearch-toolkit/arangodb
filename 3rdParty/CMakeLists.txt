@@ -110,7 +110,7 @@ if (USE_IRESEARCH)
     endif()
   endforeach()
 
-  add_subdirectory("${IRESEARCH_ROOT}" "${CMAKE_BINARY_DIR}/3rdParty/iresearch" EXCLUDE_FROM_ALL) # do not build unused targets
+  add_subdirectory("${IRESEARCH_ROOT}" "${IRESEARCH_BUILD_DIR}" EXCLUDE_FROM_ALL) # do not build unused targets
 endif()
 
 ################################################################################
