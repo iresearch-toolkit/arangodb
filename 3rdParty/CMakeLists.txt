@@ -94,8 +94,23 @@ endif ()
 ################################################################################
 
 if (USE_IRESEARCH)
-  find_package(IResearch REQUIRED)
-  add_subdirectory("${IRESEARCH_ROOT}" "${CMAKE_BINARY_DIR}/3rdParty/iresearch")
+  find_package(IResearch REQUIRED) # required or "CMake Error at 3rdParty/boost/CMakeLists.txt:18"
+
+  set(SKIP_NEXT FALSE)
+  unset(ICU_STATIC_LIBS)
+
+  # explicitly use ICU from ArangoDB to avoid library/include conflicts
+  foreach(ELEMENT ${ICU_LIBS})
+    if(SKIP_NEXT OR "${ELEMENT}" STREQUAL "optimized")
+      set(SKIP_NEXT FALSE)
+    elseif("${ELEMENT}" STREQUAL "debug")
+      set(SKIP_NEXT TRUE) # skip debug versions of ICU libraries
+    else()
+      list(APPEND ICU_STATIC_LIBS "${ELEMENT}")
+    endif()
+  endforeach()
+
+  add_subdirectory("${IRESEARCH_ROOT}" "${CMAKE_BINARY_DIR}/3rdParty/iresearch" EXCLUDE_FROM_ALL) # do not build unused targets
 endif()
 
 ################################################################################
