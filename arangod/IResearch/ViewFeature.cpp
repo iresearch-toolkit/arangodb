@@ -69,7 +69,7 @@ RestViewHandler::ViewFactory coordinatorViewFactory = [] (
   return false;
 };
 
-inline ViewFactory* viewFactory() {
+inline RestViewHandler::ViewFactory* viewFactory() {
   return  ServerState::instance()->isCoordinator()
     ? &coordinatorViewFactory
     : &localViewFactory;
