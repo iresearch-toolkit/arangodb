@@ -43,14 +43,32 @@ endif ()
 ################################################################################
 
 if (USE_IRESEARCH)
-  set(LIB_ARANGO_IRESEARCH arango_iresearch)
-
-  add_definitions("-DUSE_IRESEARCH=1")
+  find_package(IResearch REQUIRED)
 
   add_library(${LIB_ARANGO_IRESEARCH}
-    IResearch/ViewFeature.cpp
+    IResearch/ViewFeature.cpp IResearch/ViewFeature.h
     IResearch/RestViewHandler.cpp
   )
+
+  target_include_directories(${LIB_ARANGO_IRESEARCH}
+    PUBLIC ${Boost_INCLUDE_DIR} # for boost/lockfree/queue.hpp from WorkMonitor.h
+    PUBLIC ${IRESEARCH_INCLUDE}
+  )
+
+  if(MSVC)
+    set(IRESEARCH_TARGET_DEPENDENCY iresearch-static-scrt) # use static + staticCRT to match ArangoDB
+  else()
+    set(IRESEARCH_TARGET_DEPENDENCY iresearch-static) # use static to match ArangoDB
+  endif()
+
+  target_link_libraries(${LIB_ARANGO_IRESEARCH}
+    ${IRESEARCH_TARGET_DEPENDENCY}
+  )
+
+  add_dependencies(${LIB_ARANGO_IRESEARCH}
+    ${IRESEARCH_TARGET_DEPENDENCY}
+  )
+
 else()
   set(LIB_ARANGO_IRESEARCH "")
 endif ()

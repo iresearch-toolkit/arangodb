@@ -70,3 +70,13 @@ target_link_libraries(${TEST_GEO_SUITE}
 if (NOT USE_PRECOMPILED_V8)
   add_dependencies(geo_suite v8_build)
 endif ()
+
+################################################################################
+## iresearch_suite
+################################################################################
+
+if (USE_IRESEARCH)
+  find_package(Boost COMPONENTS unit_test_framework)
+  find_package(IResearch REQUIRED)
+
+endif()
