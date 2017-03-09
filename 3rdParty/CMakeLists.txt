@@ -94,8 +94,6 @@ endif ()
 ################################################################################
 
 if (USE_IRESEARCH)
-  find_package(IResearch REQUIRED) # required or "CMake Error at 3rdParty/boost/CMakeLists.txt:18"
-
   set(SKIP_NEXT FALSE)
   unset(ICU_STATIC_LIBS)
 
@@ -110,6 +108,8 @@ if (USE_IRESEARCH)
     endif()
   endforeach()
 
+  find_package(IResearch REQUIRED) # set IRESEARCH_BUILD_DIR
+  list(APPEND CMAKE_MODULE_PATH "${IRESEARCH_ROOT}/cmake") # to find iResearch dependencies
   add_subdirectory("${IRESEARCH_ROOT}" "${IRESEARCH_BUILD_DIR}" EXCLUDE_FROM_ALL) # do not build unused targets
 endif()
 
