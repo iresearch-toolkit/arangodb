@@ -61,7 +61,7 @@ std::unordered_multimap<std::string, ScorerMeta> const& allKnownScorers() {
         _scorers.emplace(name, ScorerMeta(features, builder, isDefault));
         return true;
       };
-      //SimilarityDocumentAdapter::visitScorers(visitor); FIXME todo
+      //iResearchDocumentAdapter::visitScorers(visitor); FIXME TODO
     }
   } KNOWN_SCORERS;
 
@@ -293,7 +293,7 @@ bool IResearchViewMeta::CommitItemMeta::operator!=(
   return !(*this == other);
 }
 
-IResearchViewMeta::IResearchViewMeta(void*)
+IResearchViewMeta::IResearchViewMeta()
   : _dataPath(""),
     _iid(0),
     _locale(std::locale::classic()),
@@ -323,9 +323,8 @@ IResearchViewMeta::IResearchViewMeta(void*)
   }
 }
 
-IResearchViewMeta::IResearchViewMeta(
-  IResearchViewMeta const& defaults /*= DEFAULT()*/
-) : _collections(defaults._collections),
+IResearchViewMeta::IResearchViewMeta(IResearchViewMeta const& defaults)
+  : _collections(defaults._collections),
     _commitBulk(defaults._commitBulk),
     _commitItem(defaults._commitItem),
     _dataPath(defaults._dataPath),
@@ -419,7 +418,7 @@ bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcep
 }
 
 /*static*/ const IResearchViewMeta& IResearchViewMeta::DEFAULT() {
-  static const IResearchViewMeta meta(nullptr); // internal constructor
+  static const IResearchViewMeta meta;
 
   return meta;
 }
@@ -427,6 +426,7 @@ bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcep
 bool IResearchViewMeta::init(
   arangodb::velocypack::Slice const& slice,
   std::string& errorField,
+  IResearchViewMeta const& defaults /*= DEFAULT()*/,
   Mask* mask /*= nullptr*/
 ) noexcept {
   if (!slice.isObject()) {
@@ -438,8 +438,6 @@ bool IResearchViewMeta::init(
   if (!mask) {
     mask = &tmpMask;
   }
-
-  auto& defaults = DEFAULT();
 
   {
     // optional uint64 list
