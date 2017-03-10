@@ -46,6 +46,8 @@ if (USE_IRESEARCH)
   find_package(IResearch REQUIRED)
 
   add_library(${LIB_ARANGO_IRESEARCH}
+    IResearch/IResearchLinkMeta.cpp IResearch/IResearchLinkMeta.h
+    IResearch/IResearchViewMeta.cpp IResearch/IResearchViewMeta.h
     IResearch/ViewFeature.cpp IResearch/ViewFeature.h
     IResearch/RestViewHandler.cpp
   )
@@ -63,12 +65,15 @@ if (USE_IRESEARCH)
 
   target_link_libraries(${LIB_ARANGO_IRESEARCH}
     ${IRESEARCH_TARGET_DEPENDENCY}
+    boost_filesystem # required by iResearch
+    boost_locale # required by iResearch
+    ${ICU_LIBS} # required by iResearch
   )
 
   add_dependencies(${LIB_ARANGO_IRESEARCH}
     ${IRESEARCH_TARGET_DEPENDENCY}
+    v8_build # for ICU required by iResearch
   )
-
 else()
   set(LIB_ARANGO_IRESEARCH "")
 endif ()
@@ -430,9 +435,9 @@ install(
 install_config(arangod)
 
 if (NOT USE_PRECOMPILED_V8)
-  add_dependencies(arangod zlibstatic v8_build)
+  add_dependencies(arangod zlibstatic v8_build ${LIB_ARANGO_IRESEARCH})
 else ()
-  add_dependencies(arangod zlibstatic)
+  add_dependencies(arangod zlibstatic ${LIB_ARANGO_IRESEARCH})
 endif ()
 
 ################################################################################
