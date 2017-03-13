@@ -22,6 +22,8 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "IResearchDocument.h"
+
 irs::string_ref const StoredPrimaryKey::NAME = "_pk";
 
 bool StoredPrimaryKey::write(irs::data_output& out) const {

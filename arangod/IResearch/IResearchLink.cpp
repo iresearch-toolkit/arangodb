@@ -28,8 +28,8 @@
 
 #include "VocBase/LogicalCollection.h"
 
-using namespace arangodb;
-using namespace arangodb::iresearch;
+namespace arangodb {
+namespace iresearch {
 
 IResearchLink::IResearchLink(
     TRI_idx_iid_t iid,
@@ -134,7 +134,7 @@ arangodb::aql::AstNode* IResearchLink::specializeCondition(
 int EnhanceJsonIResearchLink(
     VPackSlice const definition,
     VPackBuilder& builder,
-    bool create) {
+    bool create) noexcept {
   if (definition.isNone()) {
     return TRI_ERROR_BAD_PARAMETER;
   }
@@ -179,3 +179,6 @@ IResearchLink::ptr createIResearchLink(
 
   return nullptr;
 }
+
+} // iresearch
+} // arangodb

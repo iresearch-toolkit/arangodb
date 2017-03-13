@@ -67,6 +67,16 @@ const irs::string_ref IRS_CURRENT_FORMAT = "1_0";
   );
 }
 
+IndexStore::IndexStore(
+    irs::directory::ptr&& dir,
+    irs::index_writer::ptr&& writer,
+    irs::directory_reader::ptr&& reader) noexcept
+  : _dir(std::move(_dir)),
+    _writer(std::move(_writer)),
+    _reader(std::move(_reader)) {
+  assert(_dir && _writer && _reader);
+}
+
 IndexStore::IndexStore(IndexStore&& rhs)
   : _dir(std::move(rhs._dir)),
     _writer(std::move(rhs._writer)),

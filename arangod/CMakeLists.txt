@@ -51,6 +51,7 @@ if (USE_IRESEARCH)
     IResearch/IResearchView.cpp IResearch/IResearchView.h
     IResearch/IResearchViewMeta.cpp IResearch/IResearchViewMeta.h
     IResearch/IResearchFeature.cpp IResearch/IResearchFeature.h
+    IResearch/IResearchDocument.cpp IResearch/IResearchDocument.h
     IResearch/ViewFeature.cpp IResearch/ViewFeature.h
     IResearch/RestViewHandler.cpp
   )

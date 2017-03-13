@@ -39,7 +39,9 @@
 #include "MMFiles/MMFilesSkiplistIndex.h"
 #include "VocBase/voc-types.h"
 
+#ifdef USE_IRESEARCH
 #include "IResearch/IResearchLink.h"
+#endif
 
 #include <velocypack/Builder.h>
 #include <velocypack/Iterator.h>
@@ -320,7 +322,7 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
       case Index::TRI_IDX_TYPE_SKIPLIST_INDEX:
         res = EnhanceJsonIndexSkiplist(definition, enhanced, create);
         break;
-      
+
       case Index::TRI_IDX_TYPE_ROCKSDB_INDEX:
         res = EnhanceJsonIndexPersistent(definition, enhanced, create);
         break;
@@ -328,9 +330,12 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
       case Index::TRI_IDX_TYPE_FULLTEXT_INDEX:
         res = EnhanceJsonIndexFulltext(definition, enhanced, create);
         break;
+
+#ifdef USE_IRESEARCH
       case Index::TRI_IDX_TYPE_IRESEARCH_LINK:
-        res = iresearch::EnhanceJsonIResearchLink(definition, enhanced, create);
+        res = arangodb::iresearch::EnhanceJsonIResearchLink(definition, enhanced, create);
         break;
+#endif
     }
 
   } catch (...) {
@@ -433,10 +438,12 @@ std::shared_ptr<Index> MMFilesIndexFactory::prepareIndexFromSlice(
       newIdx.reset(new arangodb::MMFilesFulltextIndex(iid, col, info));
       break;
     }
+#ifdef USE_IRESEARCH
     case arangodb::Index::TRI_IDX_TYPE_IRESEARCH_LINK: {
-      newIdx = iresearch::createIResearchLink(iid, col, info);
+      newIdx = arangodb::iresearch::createIResearchLink(iid, col, info);
       break;
     }
+#endif
   }
   if (newIdx == nullptr) {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);

@@ -25,6 +25,8 @@
 #ifndef ARANGOD_IRESEARCH__IRESEARCH_DOCUMENT_H
 #define ARANGOD_IRESEARCH__IRESEARCH_DOCUMENT_H 1
 
+#include "VocBase/voc-types.h"
+
 #include "store/data_output.hpp"
 #include "utils/attributes.hpp"
 #include "analysis/token_streams.hpp"

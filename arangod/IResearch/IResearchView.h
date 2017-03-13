@@ -69,8 +69,8 @@ class IndexStore {
  private:
   IndexStore(
     irs::directory::ptr&& dir,
-    irs::index_writer::ptr writer,
-    irs::directory_reader::ptr reader
+    irs::index_writer::ptr&& writer,
+    irs::directory_reader::ptr&& reader
   ) noexcept;
 
   // disallow copy and assign
