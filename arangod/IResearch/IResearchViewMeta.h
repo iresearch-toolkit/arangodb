@@ -120,16 +120,17 @@ struct IResearchViewMeta {
   irs::iql::order_functions _scorers; // supported scorers
   size_t _threadsMaxIdle; // maximum idle number of threads for single-run tasks
   size_t _threadsMaxTotal; // maximum total number of threads for single-run tasks
+  // NOTE: if adding fields don't forget to modify the default constructor !!!
   // NOTE: if adding fields don't forget to modify the copy constructor !!!
   // NOTE: if adding fields don't forget to modify the move constructor !!!
-                // NOTE: if adding fields don't forget to modify the move operator !!!
   // NOTE: if adding fields don't forget to modify the comparison operator !!!
   // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask !!!
   // NOTE: if adding fields don't forget to modify the init(...) function !!!
   // NOTE: if adding fields don't forget to modify the json(...) function !!!
   // NOTE: if adding fields don't forget to modify the memSize() function !!!
 
-  IResearchViewMeta(IResearchViewMeta const& defaults = DEFAULT());
+  IResearchViewMeta();
+  IResearchViewMeta(IResearchViewMeta const& defaults); // does not copy 'name'
   IResearchViewMeta(IResearchViewMeta&& other) noexcept;
 
   bool operator==(IResearchViewMeta const& other) const noexcept;
@@ -148,6 +149,7 @@ struct IResearchViewMeta {
   bool init(
     arangodb::velocypack::Slice const& slice,
     std::string& errorField,
+    IResearchViewMeta const& defaults = DEFAULT(),
     Mask* mask = nullptr
   ) noexcept;
 
@@ -167,12 +169,6 @@ struct IResearchViewMeta {
   /// @brief amount of memory in bytes occupied by this index
   ////////////////////////////////////////////////////////////////////////////////
   size_t memSize() const;
-
-private:
-  ////////////////////////////////////////////////////////////////////////////////
-  /// @brief constructor used internally
-  ////////////////////////////////////////////////////////////////////////////////
-  IResearchViewMeta(void*);
 };
 
 NS_END // iresearch

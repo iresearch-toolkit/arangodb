@@ -18,6 +18,79 @@ else()
     add_library(boost_boost INTERFACE)
     target_include_directories(boost_boost SYSTEM INTERFACE "${boost_src}")
 
+    add_library(boost_filesystem STATIC
+        ${boost_src}/libs/filesystem/src/codecvt_error_category.cpp
+        ${boost_src}/libs/filesystem/src/operations.cpp
+        ${boost_src}/libs/filesystem/src/path.cpp
+        ${boost_src}/libs/filesystem/src/path_traits.cpp
+        ${boost_src}/libs/filesystem/src/portability.cpp
+        ${boost_src}/libs/filesystem/src/unique_path.cpp
+        ${boost_src}/libs/filesystem/src/utf8_codecvt_facet.cpp
+        ${boost_src}/libs/filesystem/src/windows_file_codecvt.cpp
+    )
+    target_link_libraries(boost_filesystem PUBLIC boost_boost) #this will add required includes
+    target_compile_definitions(boost_filesystem PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_filesystem PUBLIC  "BOOST_ALL_NO_LIB=1")
+
+    if(MSVC)
+      set(BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_POSIX_BACKEND=1")
+      list(APPEND BOOST_LOCALE_PLATFORM_SRC
+        ${boost_src}/libs/locale/src/win32/collate.cpp
+        ${boost_src}/libs/locale/src/win32/converter.cpp
+        ${boost_src}/libs/locale/src/win32/lcid.cpp
+        ${boost_src}/libs/locale/src/win32/numeric.cpp
+        ${boost_src}/libs/locale/src/win32/win_backend.cpp
+      )
+    else()
+      set(BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_WINAPI_BACKEND=1")
+      list(APPEND BOOST_LOCALE_PLATFORM_SRC
+        ${boost_src}/libs/locale/src/posix/codecvt.cpp
+        ${boost_src}/libs/locale/src/posix/collate.cpp
+        ${boost_src}/libs/locale/src/posix/converter.cpp
+        ${boost_src}/libs/locale/src/posix/numeric.cpp
+        ${boost_src}/libs/locale/src/posix/posix_backend.cpp
+      )
+    endif()
+
+    #build boost_locale - add more source files as needed
+    add_library(boost_locale STATIC
+        ${boost_src}/libs/locale/src/encoding/codepage.cpp
+        ${boost_src}/libs/locale/src/icu/boundary.cpp
+        ${boost_src}/libs/locale/src/icu/codecvt.cpp
+        ${boost_src}/libs/locale/src/icu/collator.cpp
+        ${boost_src}/libs/locale/src/icu/conversion.cpp
+        ${boost_src}/libs/locale/src/icu/date_time.cpp
+        ${boost_src}/libs/locale/src/icu/formatter.cpp
+        ${boost_src}/libs/locale/src/icu/icu_backend.cpp
+        ${boost_src}/libs/locale/src/icu/numeric.cpp
+        ${boost_src}/libs/locale/src/icu/time_zone.cpp
+        ${boost_src}/libs/locale/src/shared/date_time.cpp
+        ${boost_src}/libs/locale/src/shared/format.cpp
+        ${boost_src}/libs/locale/src/shared/formatting.cpp
+        ${boost_src}/libs/locale/src/shared/generator.cpp
+        ${boost_src}/libs/locale/src/shared/ids.cpp
+        ${boost_src}/libs/locale/src/shared/localization_backend.cpp
+        ${boost_src}/libs/locale/src/shared/message.cpp
+        ${boost_src}/libs/locale/src/shared/mo_lambda.cpp
+        ${boost_src}/libs/locale/src/std/codecvt.cpp
+        ${boost_src}/libs/locale/src/std/collate.cpp
+        ${boost_src}/libs/locale/src/std/converter.cpp
+        ${boost_src}/libs/locale/src/std/numeric.cpp
+        ${boost_src}/libs/locale/src/std/std_backend.cpp
+        ${boost_src}/libs/locale/src/util/codecvt_converter.cpp
+        ${boost_src}/libs/locale/src/util/default_locale.cpp
+        ${boost_src}/libs/locale/src/util/gregorian.cpp
+        ${boost_src}/libs/locale/src/util/info.cpp
+        ${boost_src}/libs/locale/src/util/locale_data.cpp
+        ${BOOST_LOCALE_PLATFORM_SRC}
+    )
+    add_dependencies(boost_locale v8_build) # for ICU libs
+    target_link_libraries(boost_locale PUBLIC boost_boost) #this will add required includes
+    target_include_directories(boost_locale PRIVATE ${ICU_INCLUDE_DIR})
+    target_compile_definitions(boost_locale PRIVATE "${BOOST_LOCALE_PLATFORM_DEFINE}")
+    target_compile_definitions(boost_locale PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_locale PUBLIC  "BOOST_ALL_NO_LIB=1")
+
     #build boost_system - there seems to be just one cpp file:)
     add_library(boost_system STATIC
         ${boost_src}/libs/system/src/error_code.cpp

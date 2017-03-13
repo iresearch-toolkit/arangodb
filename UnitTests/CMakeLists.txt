@@ -79,4 +79,42 @@ if (USE_IRESEARCH)
   find_package(Boost COMPONENTS unit_test_framework)
   find_package(IResearch REQUIRED)
 
+  add_executable(${TEST_IRESEARCH_SUITE}
+    ../lib/Basics/WorkMonitorDummy.cpp # required by LIB_ARANGO
+    IResearch/Runner.cpp
+  )
+
+  target_include_directories(${TEST_IRESEARCH_SUITE}
+    PRIVATE ${Boost_UNIT_TEST_INCLUDE_DIR}
+    PRIVATE ${IRESEARCH_INCLUDE}
+  )
+
+  target_link_libraries(${TEST_IRESEARCH_SUITE}
+    ${LIB_ARANGO_IRESEARCH}
+    ${LIB_ARANGO}
+    ${OPENSSL_LIBRARIES} # required by LIB_ARANGO
+    zlibstatic # required by LIB_ARANGO
+  )
+
+  add_dependencies(${TEST_IRESEARCH_SUITE}
+   ${LIB_ARANGO_IRESEARCH}
+    ${LIB_ARANGO}
+    zlibstatic # required by LIB_ARANGO
+  )
+
+  find_package(OpenSSL REQUIRED)
+  list(APPEND IRESEARCH_LIB_RESOURCES
+    "${LIB_EAY_DEBUG_DLL}"
+    "${SSL_EAY_DEBUG_DLL}"
+    "${LIB_EAY_RELEASE_DLL}"
+    "${SSL_EAY_RELEASE_DLL}"
+  )
+
+  foreach(ELEMENT ${IRESEARCH_LIB_RESOURCES})
+    add_custom_command(
+      TARGET ${TEST_IRESEARCH_SUITE} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E echo "copying library resource:" "${ELEMENT}" " -> " "$<TARGET_FILE_DIR:${TEST_IRESEARCH_SUITE}>"
+      COMMAND cp -lf ${ELEMENT} $<TARGET_FILE_DIR:${TEST_IRESEARCH_SUITE}> || ${CMAKE_COMMAND} -E copy ${ELEMENT} $<TARGET_FILE_DIR:${TEST_IRESEARCH_SUITE}>
+    )
+  endforeach()
 endif()

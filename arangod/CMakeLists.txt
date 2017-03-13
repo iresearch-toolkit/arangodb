@@ -67,7 +67,6 @@ if (USE_IRESEARCH)
     ${IRESEARCH_TARGET_DEPENDENCY}
     boost_filesystem # required by iResearch
     boost_locale # required by iResearch
-    ${ICU_LIBS} # required by iResearch
   )
 
   add_dependencies(${LIB_ARANGO_IRESEARCH}

@@ -78,16 +78,17 @@ struct IResearchLinkMeta {
   std::mutex _mutex; // for use with _tokenizers
   std::locale _locale;
   std::multimap<std::string, std::pair<std::string, irs::analysis::analyzer::ptr>> _tokenizers;
+  // NOTE: if adding fields don't forget to modify the default constructor !!!
   // NOTE: if adding fields don't forget to modify the copy constructor !!!
   // NOTE: if adding fields don't forget to modify the move constructor !!!
-  // NOTE: if adding fields don't forget to modify the move operator !!!
   // NOTE: if adding fields don't forget to modify the comparison operator !!!
   // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask !!!
   // NOTE: if adding fields don't forget to modify the init(...) function !!!
   // NOTE: if adding fields don't forget to modify the json(...) function !!!
   // NOTE: if adding fields don't forget to modify the memSize() function !!!
 
-  IResearchLinkMeta(IResearchLinkMeta const& defaults = DEFAULT());
+  IResearchLinkMeta();
+  IResearchLinkMeta(IResearchLinkMeta const& other);
   IResearchLinkMeta(IResearchLinkMeta&& other) noexcept;
 
   IResearchLinkMeta& operator=(IResearchLinkMeta&& other) noexcept;
@@ -108,6 +109,7 @@ struct IResearchLinkMeta {
   bool init(
     arangodb::velocypack::Slice const& slice,
     std::string& errorField,
+    IResearchLinkMeta const& defaults = DEFAULT(),
     Mask* mask = nullptr
   ) noexcept;
 
@@ -127,12 +129,6 @@ struct IResearchLinkMeta {
   /// @brief amount of memory in bytes occupied by this index
   ////////////////////////////////////////////////////////////////////////////////
   size_t memSize() const;
-
- private:
-   ////////////////////////////////////////////////////////////////////////////////
-   /// @brief constructor used internally
-   ////////////////////////////////////////////////////////////////////////////////
-   IResearchLinkMeta(void*);
 };
 
 NS_END // iresearch

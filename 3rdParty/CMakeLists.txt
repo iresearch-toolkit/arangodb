@@ -94,22 +94,18 @@ endif ()
 ################################################################################
 
 if (USE_IRESEARCH)
-  set(SKIP_NEXT FALSE)
-  unset(ICU_STATIC_LIBS)
-
-  # explicitly use ICU from ArangoDB to avoid library/include conflicts
-  foreach(ELEMENT ${ICU_LIBS})
-    if(SKIP_NEXT OR "${ELEMENT}" STREQUAL "optimized")
-      set(SKIP_NEXT FALSE)
-    elseif("${ELEMENT}" STREQUAL "debug")
-      set(SKIP_NEXT TRUE) # skip debug versions of ICU libraries
-    else()
-      list(APPEND ICU_STATIC_LIBS "${ELEMENT}")
-    endif()
-  endforeach()
-
+  set(LIB_NOOP "--verbose") # a library value that does not require anything and is always successful
   find_package(IResearch REQUIRED) # set IRESEARCH_BUILD_DIR
   list(APPEND CMAKE_MODULE_PATH "${IRESEARCH_ROOT}/cmake") # to find iResearch dependencies
+  set(ICU_SHARED_LIB_RESOURCES "") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_STATIC_LIBS "${ICU_LIBS}") # link against ICU from 3rdParty
+  set(ICU_SHARED_LIBRARY_DT "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_STATIC_LIBRARY_DT "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_SHARED_LIBRARY_IN "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_STATIC_LIBRARY_IN "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_SHARED_LIBRARY_UC "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(ICU_STATIC_LIBRARY_UC "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
+  set(IRESEARCH_EXCLUDE_STATIC_THIRD_PARTY_LIBS TRUE) # disable linking in of 3rd party libraries automatically
   add_subdirectory("${IRESEARCH_ROOT}" "${IRESEARCH_BUILD_DIR}" EXCLUDE_FROM_ALL) # do not build unused targets
 endif()
 

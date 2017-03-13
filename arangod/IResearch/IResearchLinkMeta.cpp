@@ -117,7 +117,7 @@ NS_END
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
-IResearchLinkMeta::IResearchLinkMeta(void*)
+IResearchLinkMeta::IResearchLinkMeta()
   : _boost(1.0), // no boosting of field preference in view ordering
     _depth(std::numeric_limits<decltype(_depth)>::max()), // 0 do not descend into object
     //_fields(<empty>), // empty map to match all encounteredfields
@@ -134,14 +134,13 @@ IResearchLinkMeta::IResearchLinkMeta(void*)
   );
 }
 
-IResearchLinkMeta::IResearchLinkMeta(
-  IResearchLinkMeta const& defaults /*= DEFAULT()*/
-) : _boost(defaults._boost),
-    _depth(defaults._depth),
-    _fields(defaults._fields),
-    _listValuation(defaults._listValuation),
-    _locale(defaults._locale),
-    _tokenizers(defaults._tokenizers) {
+IResearchLinkMeta::IResearchLinkMeta(IResearchLinkMeta const& other)
+  : _boost(other._boost),
+    _depth(other._depth),
+    _fields(other._fields),
+    _listValuation(other._listValuation),
+    _locale(other._locale),
+    _tokenizers(other._tokenizers) {
 }
 
 IResearchLinkMeta::IResearchLinkMeta(IResearchLinkMeta&& other) noexcept
@@ -217,7 +216,7 @@ bool IResearchLinkMeta::operator!=(
 }
 
 /*static*/ const IResearchLinkMeta& IResearchLinkMeta::DEFAULT() {
-  static const IResearchLinkMeta meta(nullptr); // internal constructor
+  static const IResearchLinkMeta meta;
 
   return meta;
 }
@@ -225,6 +224,7 @@ bool IResearchLinkMeta::operator!=(
 bool IResearchLinkMeta::init(
   arangodb::velocypack::Slice const& slice,
   std::string& errorField,
+  IResearchLinkMeta const& defaults /*= DEFAULT()*/,
   Mask* mask /*= nullptr*/
 ) noexcept {
   if (!slice.isObject()) {
@@ -236,8 +236,6 @@ bool IResearchLinkMeta::init(
   if (!mask) {
     mask = &tmpMask;
   }
-
-  auto& defaults = DEFAULT();
 
   {
     // optional floating point number
@@ -483,7 +481,7 @@ bool IResearchLinkMeta::init(
 
         std::string childErrorField;
 
-        if (!_fields[name].init(value, errorField, nullptr)) {
+        if (!_fields[name].init(value, errorField, *this)) {
           errorField = fieldName + "=>" + name + "=>" + childErrorField;
 
           return false;
