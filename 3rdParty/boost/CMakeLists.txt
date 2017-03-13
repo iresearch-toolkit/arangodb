@@ -33,7 +33,7 @@ else()
     target_compile_definitions(boost_filesystem PUBLIC  "BOOST_ALL_NO_LIB=1")
 
     if(MSVC)
-      set(BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_POSIX_BACKEND=1")
+      list(APPEND BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_POSIX_BACKEND=1")
       list(APPEND BOOST_LOCALE_PLATFORM_SRC
         ${boost_src}/libs/locale/src/win32/collate.cpp
         ${boost_src}/libs/locale/src/win32/converter.cpp
@@ -42,7 +42,7 @@ else()
         ${boost_src}/libs/locale/src/win32/win_backend.cpp
       )
     else()
-      set(BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_WINAPI_BACKEND=1")
+      list(APPEND BOOST_LOCALE_PLATFORM_DEFINE "BOOST_LOCALE_NO_WINAPI_BACKEND=1" "BOOST_LOCALE_WITH_ICONV=1")
       list(APPEND BOOST_LOCALE_PLATFORM_SRC
         ${boost_src}/libs/locale/src/posix/codecvt.cpp
         ${boost_src}/libs/locale/src/posix/collate.cpp
@@ -87,9 +87,12 @@ else()
     add_dependencies(boost_locale v8_build) # for ICU libs
     target_link_libraries(boost_locale PUBLIC boost_boost) #this will add required includes
     target_include_directories(boost_locale PRIVATE ${ICU_INCLUDE_DIR})
-    target_compile_definitions(boost_locale PRIVATE "${BOOST_LOCALE_PLATFORM_DEFINE}")
     target_compile_definitions(boost_locale PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
     target_compile_definitions(boost_locale PUBLIC  "BOOST_ALL_NO_LIB=1")
+
+    foreach(ELEMENT ${BOOST_LOCALE_PLATFORM_DEFINE})
+      target_compile_definitions(boost_locale PRIVATE "${ELEMENT}")
+    endforeach()
 
     #build boost_system - there seems to be just one cpp file:)
     add_library(boost_system STATIC
