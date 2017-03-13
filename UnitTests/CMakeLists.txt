@@ -82,6 +82,7 @@ if (USE_IRESEARCH)
   add_executable(${TEST_IRESEARCH_SUITE}
     ../lib/Basics/WorkMonitorDummy.cpp # required by LIB_ARANGO
     IResearch/Runner.cpp
+    IResearch/IResearchLinkMeta-test.cpp
   )
 
   target_include_directories(${TEST_IRESEARCH_SUITE}

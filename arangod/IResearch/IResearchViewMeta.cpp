@@ -23,6 +23,7 @@
 
 #include "utils/locale_utils.hpp"
 
+#include "VelocyPackHelper.h"
 #include "Basics/StringUtils.h"
 #include "velocypack/Builder.h"
 #include "velocypack/Iterator.h"
@@ -68,64 +69,6 @@ std::unordered_multimap<std::string, ScorerMeta> const& allKnownScorers() {
   return KNOWN_SCORERS._scorers;
 }
 
-template<typename T>
-bool getNumber(
-  T& buf,
-  arangodb::velocypack::Slice const& slice,
-  std::string const& fieldName,
-  bool& seen,
-  T fallback
-) noexcept  {
-  seen = slice.hasKey(fieldName);
-
-  if (!seen) {
-    buf = fallback;
-
-    return true;
-  }
-
-  auto field = slice.get(fieldName);
-
-  if (!field.isNumber()) {
-    return false;
-  }
-
-  try {
-    buf = field.getNumber<T>();
-  } catch (...) {
-    return false;
-  }
-
-  return true;
-}
-
-bool getString(
-  std::string& buf,
-  arangodb::velocypack::Slice const& slice,
-  std::string const& fieldName,
-  bool& seen,
-  std::string const& fallback
-) noexcept {
-  seen = slice.hasKey(fieldName);
-
-  if (!seen) {
-    buf = fallback;
-
-    return true;
-  }
-
-  auto field = slice.get(fieldName);
-
-  if (!field.isString()) {
-    return false;
-  }
-
-  buf = field.copyString();
-
-  return true;
-}
-
-
 bool initCommitBaseMeta(
   arangodb::iresearch::IResearchViewMeta::CommitBaseMeta& meta,
   arangodb::velocypack::Slice const& slice,
@@ -137,7 +80,7 @@ bool initCommitBaseMeta(
     // optional size_t
     static const std::string fieldName("cleanupIntervalStep");
 
-    if (!getNumber(meta._cleanupIntervalStep, slice, fieldName, tmpSeen, meta._cleanupIntervalStep)) {
+    if (!arangodb::iresearch::getNumber(meta._cleanupIntervalStep, slice, fieldName, tmpSeen, meta._cleanupIntervalStep)) {
       errorField = fieldName;
 
       return false;
@@ -193,7 +136,7 @@ bool initCommitBaseMeta(
           // optional size_t
           static const std::string subFieldName("intervalStep");
 
-          if (!getNumber(meta._consolidate[policyItr->second]._intervalStep, slice, subFieldName, tmpSeen, size_t(0))) {
+          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._intervalStep, slice, subFieldName, tmpSeen, size_t(0))) {
             errorField = fieldName + "=>" + name + "=>" + subFieldName;
 
             return false;
@@ -204,7 +147,7 @@ bool initCommitBaseMeta(
           // optional float
           static const std::string subFieldName("threshold");
 
-          if (!getNumber(meta._consolidate[policyItr->second]._threshold, slice, subFieldName, tmpSeen, std::numeric_limits<float>::infinity())) {
+          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._threshold, slice, subFieldName, tmpSeen, std::numeric_limits<float>::infinity())) {
             errorField = fieldName + "=>" + name + "=>" + subFieldName;
 
             return false;
@@ -218,11 +161,14 @@ bool initCommitBaseMeta(
 }
 
 bool jsonCommitBaseMeta(
-  arangodb::velocypack::Builder& builder,
+  arangodb::velocypack::ObjectBuilder& builder,
   arangodb::iresearch::IResearchViewMeta::CommitBaseMeta const& meta
 ) {
+  if (!builder.builder) {
+    return false;
+  }
 
-  builder.add("cleanupIntervalStep", arangodb::velocypack::Value(meta._cleanupIntervalStep));
+  builder->add("cleanupIntervalStep", arangodb::velocypack::Value(meta._cleanupIntervalStep));
 
   struct DefragmentPolicyHash { size_t operator()(arangodb::iresearch::ConsolidationPolicy::Type const& value) const { return value; } }; // for GCC compatibility
   static const std::unordered_map<arangodb::iresearch::ConsolidationPolicy::Type, std::string, DefragmentPolicyHash> policies = {
@@ -250,7 +196,7 @@ bool jsonCommitBaseMeta(
     }
   }
 
-  builder.add("consolidate", subBuilder.slice());
+  builder->add("consolidate", subBuilder.slice());
 
   return true;
 }
@@ -293,6 +239,22 @@ bool IResearchViewMeta::CommitItemMeta::operator!=(
   return !(*this == other);
 }
 
+IResearchViewMeta::Mask::Mask(bool mask /*=false*/) noexcept
+  : _collections(mask),
+    _commitBulk(mask),
+    _commitItem(mask),
+    _dataPath(mask),
+    _iid(mask),
+    _locale(mask),
+    _name(mask),
+    _nestingDelimiter(mask),
+    _nestingListOffsetPrefix(mask),
+    _nestingListOffsetSuffix(mask),
+    _scorers(mask),
+    _threadsMaxIdle(mask),
+    _threadsMaxTotal(mask) {
+}
+
 IResearchViewMeta::IResearchViewMeta()
   : _dataPath(""),
     _iid(0),
@@ -323,38 +285,54 @@ IResearchViewMeta::IResearchViewMeta()
   }
 }
 
-IResearchViewMeta::IResearchViewMeta(IResearchViewMeta const& defaults)
-  : _collections(defaults._collections),
-    _commitBulk(defaults._commitBulk),
-    _commitItem(defaults._commitItem),
-    _dataPath(defaults._dataPath),
-    _features(defaults._features),
-    //_iid(<unknown>), // leave as unknown
-    _locale(defaults._locale),
-    //_name(<unknown>), // leave as unknown
-    _nestingDelimiter(defaults._nestingDelimiter),
-    _nestingListOffsetPrefix(defaults._nestingListOffsetPrefix),
-    _nestingListOffsetSuffix(defaults._nestingListOffsetSuffix),
-    _scorers(defaults._scorers),
-    _threadsMaxIdle(defaults._threadsMaxIdle),
-    _threadsMaxTotal(defaults._threadsMaxTotal) {
+IResearchViewMeta::IResearchViewMeta(IResearchViewMeta const& defaults) {
+  *this = defaults;
 }
 
-IResearchViewMeta::IResearchViewMeta(IResearchViewMeta&& other) noexcept
-  : _collections(std::move(other._collections)),
-    _commitBulk(std::move(other._commitBulk)),
-    _commitItem(std::move(other._commitItem)),
-    _dataPath(std::move(other._dataPath)),
-    _features(std::move(other._features)),
-    _iid(std::move(other._iid)),
-    _locale(std::move(other._locale)),
-    _name(std::move(other._name)),
-    _nestingDelimiter(std::move(other._nestingDelimiter)),
-    _nestingListOffsetPrefix(std::move(other._nestingListOffsetPrefix)),
-    _nestingListOffsetSuffix(std::move(other._nestingListOffsetSuffix)),
-    _scorers(std::move(other._scorers)),
-    _threadsMaxIdle(std::move(other._threadsMaxIdle)),
-    _threadsMaxTotal(std::move(other._threadsMaxTotal)) {
+IResearchViewMeta::IResearchViewMeta(IResearchViewMeta&& other) noexcept {
+  *this = std::move(other);
+}
+
+IResearchViewMeta& IResearchViewMeta::operator=(IResearchViewMeta&& other) noexcept {
+  if (this != &other) {
+    _collections = std::move(other._collections);
+    _commitBulk = std::move(other._commitBulk);
+    _commitItem = std::move(other._commitItem);
+    _dataPath = std::move(other._dataPath);
+    _features = std::move(other._features);
+    _iid = std::move(other._iid);
+    _locale = std::move(other._locale);
+    _name = std::move(other._name);
+    _nestingDelimiter = std::move(other._nestingDelimiter);
+    _nestingListOffsetPrefix = std::move(other._nestingListOffsetPrefix);
+    _nestingListOffsetSuffix = std::move(other._nestingListOffsetSuffix);
+    _scorers = std::move(other._scorers);
+    _threadsMaxIdle = std::move(other._threadsMaxIdle);
+    _threadsMaxTotal = std::move(other._threadsMaxTotal);
+  }
+
+  return *this;
+}
+
+IResearchViewMeta& IResearchViewMeta::operator=(IResearchViewMeta const& other) {
+  if (this != &other) {
+    _collections = other._collections;
+    _commitBulk = other._commitBulk;
+    _commitItem = other._commitItem;
+    _dataPath = other._dataPath;
+    _features = other._features;
+    _iid = other._iid;
+    _locale = other._locale;
+    _name = other._name;
+    _nestingDelimiter = other._nestingDelimiter;
+    _nestingListOffsetPrefix = other._nestingListOffsetPrefix;
+    _nestingListOffsetSuffix = other._nestingListOffsetSuffix;
+    _scorers = other._scorers;
+    _threadsMaxIdle = other._threadsMaxIdle;
+    _threadsMaxTotal = other._threadsMaxTotal;
+  }
+
+  return *this;
 }
 
 bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcept {
@@ -415,6 +393,12 @@ bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcep
   }
 
   return true;
+}
+
+bool IResearchViewMeta::operator!=(
+  IResearchViewMeta const& other
+  ) const noexcept {
+  return !(*this == other);
 }
 
 /*static*/ const IResearchViewMeta& IResearchViewMeta::DEFAULT() {
@@ -742,10 +726,14 @@ bool IResearchViewMeta::init(
 
 
 bool IResearchViewMeta::json(
-  arangodb::velocypack::Builder& builder,
+  arangodb::velocypack::ObjectBuilder& builder,
   IResearchViewMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {
+  if (!builder.builder) {
+    return false;
+  }
+
   if ((!ignoreEqual || _collections != ignoreEqual->_collections) && (!mask || mask->_collections)) {
     arangodb::velocypack::Builder subBuilder;
 
@@ -753,59 +741,67 @@ bool IResearchViewMeta::json(
       subBuilder.add(arangodb::velocypack::Value(cid));
     }
 
-    builder.add("collections", subBuilder.slice());
+    builder->add("collections", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _commitBulk != ignoreEqual->_commitBulk) && (!mask || mask->_commitBulk)) {
     arangodb::velocypack::Builder subBuilder;
 
-    subBuilder.add("commitIntervalBatchSize", arangodb::velocypack::Value(_commitBulk._commitIntervalBatchSize));
+    {
+      arangodb::velocypack::ObjectBuilder subBuilderWrapper(&subBuilder);
 
-    if (!jsonCommitBaseMeta(subBuilder, _commitBulk)) {
-      return false;
+      subBuilderWrapper->add("commitIntervalBatchSize", arangodb::velocypack::Value(_commitBulk._commitIntervalBatchSize));
+
+      if (!jsonCommitBaseMeta(subBuilderWrapper, _commitBulk)) {
+        return false;
+      }
     }
 
-    builder.add("commitBulk", subBuilder.slice());
+    builder->add("commitBulk", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _commitItem != ignoreEqual->_commitItem) && (!mask || mask->_commitItem)) {
     arangodb::velocypack::Builder subBuilder;
 
-    subBuilder.add("commitIntervalMsec", arangodb::velocypack::Value(_commitItem._commitIntervalMsec));
+    {
+      arangodb::velocypack::ObjectBuilder subBuilderWrapper(&subBuilder);
 
-    if (!jsonCommitBaseMeta(subBuilder, _commitItem)) {
-      return false;
+      subBuilderWrapper->add("commitIntervalMsec", arangodb::velocypack::Value(_commitItem._commitIntervalMsec));
+
+      if (!jsonCommitBaseMeta(subBuilderWrapper, _commitItem)) {
+        return false;
+      }
     }
 
-    builder.add("commitItem", subBuilder.slice());
+    builder->add("commitItem", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _dataPath != ignoreEqual->_dataPath) && (!mask || mask->_dataPath)) {
-    builder.add("dataPath", arangodb::velocypack::Value(_dataPath));
+    builder->add("dataPath", arangodb::velocypack::Value(_dataPath));
   }
 
   if ((!ignoreEqual || _iid != ignoreEqual->_iid) && (!mask || mask->_iid)) {
-    builder.add("id", arangodb::velocypack::Value(_iid));
+    builder->add("id", arangodb::velocypack::Value(_iid));
   }
 
   if ((!ignoreEqual || _locale != ignoreEqual->_locale) && (!mask || mask->_locale)) {
-    builder.add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
+    builder->add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
   }
 
   if ((!ignoreEqual || _name != ignoreEqual->_name) && (!mask || mask->_name)) {
-    builder.add("name", arangodb::velocypack::Value(_name));
+    builder->add("name", arangodb::velocypack::Value(_name));
   }
 
   if ((!ignoreEqual || _nestingDelimiter != ignoreEqual->_nestingDelimiter) && (!mask || mask->_nestingDelimiter)) {
-    builder.add("nestingDelimiter", arangodb::velocypack::Value(_nestingDelimiter));
+    builder->add("nestingDelimiter", arangodb::velocypack::Value(_nestingDelimiter));
   }
 
   if ((!ignoreEqual || _nestingListOffsetPrefix != ignoreEqual->_nestingListOffsetPrefix) && (!mask || mask->_nestingListOffsetPrefix)) {
-    builder.add("nestingListOffsetPrefix", arangodb::velocypack::Value(_nestingListOffsetPrefix));
+    builder->add("nestingListOffsetPrefix", arangodb::velocypack::Value(_nestingListOffsetPrefix));
   }
 
   if ((!ignoreEqual || _nestingListOffsetSuffix != ignoreEqual->_nestingListOffsetSuffix) && (!mask || mask->_nestingListOffsetSuffix)) {
-    builder.add("nestingListOffsetSuffix", arangodb::velocypack::Value(_nestingListOffsetSuffix));
+    builder->add("nestingListOffsetSuffix", arangodb::velocypack::Value(_nestingListOffsetSuffix));
   }
 
   if ((!ignoreEqual || _scorers != ignoreEqual->_scorers) && (!mask || mask->_scorers)) {
@@ -815,15 +811,15 @@ bool IResearchViewMeta::json(
       subBuilder.add(arangodb::velocypack::Value(scorer.first));
     }
 
-    builder.add("scorers", subBuilder.slice());
+    builder->add("scorers", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _threadsMaxIdle != ignoreEqual->_threadsMaxIdle) && (!mask || mask->_threadsMaxIdle)) {
-    builder.add("threadsMaxIdle", arangodb::velocypack::Value(_threadsMaxIdle));
+    builder->add("threadsMaxIdle", arangodb::velocypack::Value(_threadsMaxIdle));
   }
 
   if ((!ignoreEqual || _threadsMaxTotal != ignoreEqual->_threadsMaxTotal) && (!mask || mask->_threadsMaxTotal)) {
-    builder.add("threadsMaxTotal", arangodb::velocypack::Value(_threadsMaxTotal));
+    builder->add("threadsMaxTotal", arangodb::velocypack::Value(_threadsMaxTotal));
   }
 
   return true;

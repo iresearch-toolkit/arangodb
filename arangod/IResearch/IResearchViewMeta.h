@@ -33,13 +33,10 @@
 
 #include "VocBase/voc-types.h"
 
-//#include "velocypack/Slice.h"
-//#include "VocBase/voc-types.h"
-
 NS_BEGIN(arangodb)
 NS_BEGIN(velocypack)
 
-class Builder; // forward declarations
+class ObjectBuilder; // forward declarations
 class Slice; // forward declarations
 
 NS_END // velocypack
@@ -104,6 +101,7 @@ struct IResearchViewMeta {
     bool _scorers;
     bool _threadsMaxIdle;
     bool _threadsMaxTotal;
+    Mask(bool mask = false) noexcept;
   };
 
   std::unordered_set<TRI_voc_cid_t> _collections; // fully indexed collection IDs
@@ -125,15 +123,20 @@ struct IResearchViewMeta {
   // NOTE: if adding fields don't forget to modify the move constructor !!!
   // NOTE: if adding fields don't forget to modify the comparison operator !!!
   // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask !!!
+  // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask constructor !!!
   // NOTE: if adding fields don't forget to modify the init(...) function !!!
   // NOTE: if adding fields don't forget to modify the json(...) function !!!
   // NOTE: if adding fields don't forget to modify the memSize() function !!!
 
   IResearchViewMeta();
-  IResearchViewMeta(IResearchViewMeta const& defaults); // does not copy 'name'
+  IResearchViewMeta(IResearchViewMeta const& other);
   IResearchViewMeta(IResearchViewMeta&& other) noexcept;
 
+  IResearchViewMeta& operator=(IResearchViewMeta&& other) noexcept;
+  IResearchViewMeta& operator=(IResearchViewMeta const& other);
+
   bool operator==(IResearchViewMeta const& other) const noexcept;
+  bool operator!=(IResearchViewMeta const& other) const noexcept;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief return default IResearchViewMeta values
@@ -160,7 +163,7 @@ struct IResearchViewMeta {
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    arangodb::velocypack::Builder& builder,
+    arangodb::velocypack::ObjectBuilder& builder,
     IResearchViewMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;

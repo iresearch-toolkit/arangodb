@@ -34,7 +34,7 @@
 NS_BEGIN(arangodb)
 NS_BEGIN(velocypack)
 
-class Builder; // forward declarations
+class ObjectBuilder; // forward declarations
 class Slice; // forward declarations
 
 NS_END // velocypack
@@ -69,7 +69,11 @@ struct IResearchLinkMeta {
     bool _listValuation;
     bool _locale;
     bool _tokenizers;
+    Mask(bool mask = false) noexcept;
   };
+
+  // name -> {args, ptr}
+  typedef std::multimap<std::string, std::pair<std::string, irs::analysis::analyzer::ptr>> Tokenizers;
 
   float_t _boost;
   size_t _depth;
@@ -77,12 +81,15 @@ struct IResearchLinkMeta {
   ListValuation::Type _listValuation;
   std::mutex _mutex; // for use with _tokenizers
   std::locale _locale;
-  std::multimap<std::string, std::pair<std::string, irs::analysis::analyzer::ptr>> _tokenizers;
+  Tokenizers _tokenizers;
   // NOTE: if adding fields don't forget to modify the default constructor !!!
   // NOTE: if adding fields don't forget to modify the copy constructor !!!
   // NOTE: if adding fields don't forget to modify the move constructor !!!
+  // NOTE: if adding fields don't forget to modify the copy assignment operator !!!
+  // NOTE: if adding fields don't forget to modify the move assignment operator !!!
   // NOTE: if adding fields don't forget to modify the comparison operator !!!
   // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask !!!
+  // NOTE: if adding fields don't forget to modify IResearchLinkMeta::Mask constructor !!!
   // NOTE: if adding fields don't forget to modify the init(...) function !!!
   // NOTE: if adding fields don't forget to modify the json(...) function !!!
   // NOTE: if adding fields don't forget to modify the memSize() function !!!
@@ -92,6 +99,8 @@ struct IResearchLinkMeta {
   IResearchLinkMeta(IResearchLinkMeta&& other) noexcept;
 
   IResearchLinkMeta& operator=(IResearchLinkMeta&& other) noexcept;
+  IResearchLinkMeta& operator=(IResearchLinkMeta const& other);
+
   bool operator==(IResearchLinkMeta const& other) const noexcept;
   bool operator!=(IResearchLinkMeta const& other) const noexcept;
 
@@ -120,7 +129,7 @@ struct IResearchLinkMeta {
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    arangodb::velocypack::Builder& builder,
+    arangodb::velocypack::ObjectBuilder& builder,
     IResearchLinkMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;
