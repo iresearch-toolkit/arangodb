@@ -285,7 +285,7 @@ BOOST_AUTO_TEST_CASE(test_writeDefaults) {
   arangodb::velocypack::Builder builder;
   arangodb::velocypack::Slice tmpSlice;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
+  BOOST_REQUIRE_EQUAL(true, meta.json(builder));
 
   auto slice = builder.slice();
 
@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
   arangodb::velocypack::Builder builder;
   arangodb::velocypack::Slice tmpSlice;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
+  BOOST_REQUIRE_EQUAL(true, meta.json(builder));
 
   auto slice = builder.slice();
 
@@ -535,7 +535,7 @@ BOOST_AUTO_TEST_CASE(test_writeMaskAll) {
   arangodb::iresearch::IResearchLinkMeta::Mask mask(true);
   arangodb::velocypack::Builder builder;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
+  BOOST_REQUIRE_EQUAL(true, meta.json(builder, nullptr, &mask));
 
   auto slice = builder.slice();
 
@@ -553,7 +553,7 @@ BOOST_AUTO_TEST_CASE(test_writeMaskNone) {
   arangodb::iresearch::IResearchLinkMeta::Mask mask(false);
   arangodb::velocypack::Builder builder;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
+  BOOST_REQUIRE_EQUAL(true, meta.json(builder, nullptr, &mask));
 
   auto slice = builder.slice();
 

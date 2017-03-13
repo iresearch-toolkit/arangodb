@@ -28,6 +28,9 @@
 
 #include "Logger/Logger.h"
 
+#include "formats/formats.hpp"
+#include "analysis/analyzers.hpp"
+
 using namespace arangodb::iresearch;
 using namespace arangodb::options;
 
@@ -48,6 +51,12 @@ void IResearchFeature::validateOptions(std::shared_ptr<ProgramOptions> options) 
 }
 
 void IResearchFeature::prepare() {
+  // load all known codecs
+  ::iresearch::formats::init();
+
+  // load all known analyzers
+  ::iresearch::analysis::analyzers::init();
+
   ViewFeature::registerFactory(
     StringRef("iresearch"),
     [](VPackSlice params, VPackBuilder* out) {
