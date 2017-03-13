@@ -28,17 +28,11 @@
 #include <map>
 #include <mutex>
 
+#include <velocypack/Builder.h>
+#include <velocypack/velocypack-aliases.h>
+
 #include "shared.hpp"
 #include "analysis/analyzer.hpp"
-
-NS_BEGIN(arangodb)
-NS_BEGIN(velocypack)
-
-class ObjectBuilder; // forward declarations
-class Slice; // forward declarations
-
-NS_END // velocypack
-NS_END // arangodb
 
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
@@ -116,7 +110,7 @@ struct IResearchLinkMeta {
   /// @param mask if set reflects which fields were initialized from JSON
   ////////////////////////////////////////////////////////////////////////////////
   bool init(
-    arangodb::velocypack::Slice const& slice,
+    VPackSlice const& slice,
     std::string& errorField,
     IResearchLinkMeta const& defaults = DEFAULT(),
     Mask* mask = nullptr
@@ -129,7 +123,7 @@ struct IResearchLinkMeta {
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    arangodb::velocypack::ObjectBuilder& builder,
+    VPackBuilder& builder,
     IResearchLinkMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;

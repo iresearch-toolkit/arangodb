@@ -27,20 +27,14 @@
 #include <locale>
 #include <unordered_set>
 
+#include <velocypack/Builder.h>
+#include <velocypack/velocypack-aliases.h>
+
 #include "shared.hpp"
 #include "iql/parser_common.hpp"
 #include "utils/attributes.hpp"
 
 #include "VocBase/voc-types.h"
-
-NS_BEGIN(arangodb)
-NS_BEGIN(velocypack)
-
-class ObjectBuilder; // forward declarations
-class Slice; // forward declarations
-
-NS_END // velocypack
-NS_END // arangodb
 
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
@@ -150,7 +144,7 @@ struct IResearchViewMeta {
   /// @param mask if set reflects which fields were initialized from JSON
   ////////////////////////////////////////////////////////////////////////////////
   bool init(
-    arangodb::velocypack::Slice const& slice,
+    VPackSlice const& slice,
     std::string& errorField,
     IResearchViewMeta const& defaults = DEFAULT(),
     Mask* mask = nullptr
@@ -163,7 +157,7 @@ struct IResearchViewMeta {
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    arangodb::velocypack::ObjectBuilder& builder,
+    VPackBuilder& builder,
     IResearchViewMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;

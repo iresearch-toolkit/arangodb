@@ -726,10 +726,12 @@ bool IResearchViewMeta::init(
 
 
 bool IResearchViewMeta::json(
-  arangodb::velocypack::ObjectBuilder& builder,
+  VPackBuilder& in,
   IResearchViewMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {
+  arangodb::velocypack::ObjectBuilder builder(&in);
+
   if (!builder.builder) {
     return false;
   }
