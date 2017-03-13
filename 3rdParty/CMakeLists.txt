@@ -94,6 +94,10 @@ endif ()
 ################################################################################
 
 if (USE_IRESEARCH)
+  if (MSVC)
+    set(IRESEARCH_EXCLUDE_STATIC_THIRD_PARTY_LIBS TRUE) # disable linking in of 3rd party libraries automatically
+  endif()
+
   set(LIB_NOOP "--verbose") # a library value that does not require anything and is always successful
   find_package(IResearch REQUIRED) # set IRESEARCH_BUILD_DIR
   list(APPEND CMAKE_MODULE_PATH "${IRESEARCH_ROOT}/cmake") # to find iResearch dependencies
@@ -105,7 +109,6 @@ if (USE_IRESEARCH)
   set(ICU_STATIC_LIBRARY_IN "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
   set(ICU_SHARED_LIBRARY_UC "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
   set(ICU_STATIC_LIBRARY_UC "${LIB_NOOP}") # disable ICU library lookup by iResearch since using static ICU from 3rdParty
-  set(IRESEARCH_EXCLUDE_STATIC_THIRD_PARTY_LIBS TRUE) # disable linking in of 3rd party libraries automatically
   add_subdirectory("${IRESEARCH_ROOT}" "${IRESEARCH_BUILD_DIR}" EXCLUDE_FROM_ALL) # do not build unused targets
 endif()
 
