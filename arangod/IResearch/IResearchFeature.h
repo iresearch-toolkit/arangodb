@@ -21,26 +21,17 @@
 /// @author Vasily Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGOD_IRESEARCH__VIEW_FEATURE_H
-#define ARANGOD_IRESEARCH__VIEW_FEATURE_H 1
+#ifndef ARANGOD_IRESEARCH__IRESEARCH_FEATURE_H
+#define ARANGOD_IRESEARCH__IRESEARCH_FEATURE_H 1
 
 #include "ApplicationFeatures/ApplicationFeature.h"
-#include "Basics/StringRef.h"
 
 namespace arangodb {
-class ViewFeature final : public application_features::ApplicationFeature {
+namespace iresearch {
+
+class IResearchFeature final : public application_features::ApplicationFeature {
  public:
-  typedef std::function<bool( // return code
-    VPackSlice params,        // view parameters
-    VPackBuilder* out         // optional out json representation of the created view
-  )> ViewFactory;
-
-  static void registerFactory(
-    StringRef const& type,
-    ViewFactory const& factory
-  );
-
-  ViewFeature(application_features::ApplicationServer* server);
+  IResearchFeature(application_features::ApplicationServer* server);
 
  public:
   void collectOptions(std::shared_ptr<options::ProgramOptions>) override final;
@@ -48,6 +39,9 @@ class ViewFeature final : public application_features::ApplicationFeature {
   void prepare() override final;
   void start() override final;
 };
-}
+
+} // iresearch
+} // arangodb
 
 #endif
+

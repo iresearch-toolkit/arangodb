@@ -1,3 +1,4 @@
+
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -42,14 +43,7 @@ using namespace arangodb::options;
 
 namespace {
 
-typedef std::function<bool( // return code
-  VPackSlice params,        // view parameters
-  VPackBuilder* out         // optional out json representation of the created view
-)> ViewFactory;
-
-std::unordered_map<arangodb::StringRef, ViewFactory> VIEW_FACTORIES {
-  { StringRef("iresearch"), [](VPackSlice params, VPackBuilder* out) { return false; } }
-};
+std::unordered_map<arangodb::StringRef, ViewFeature::ViewFactory> VIEW_FACTORIES;
 
 RestViewHandler::ViewFactory localViewFactory = [] (
     StringRef const& type,
@@ -75,6 +69,12 @@ inline RestViewHandler::ViewFactory* viewFactory() {
     : &localViewFactory;
 }
 
+}
+
+/*static*/ void ViewFeature::registerFactory(
+    StringRef const& type,
+    ViewFactory const& factory) {
+  VIEW_FACTORIES.emplace(type, factory);
 }
 
 ViewFeature::ViewFeature(application_features::ApplicationServer* server)

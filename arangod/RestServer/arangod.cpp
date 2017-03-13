@@ -99,6 +99,7 @@
 
 #ifdef USE_IRESEARCH
 #include "IResearch/ViewFeature.h"
+#include "IResearch/IResearchFeature.h"
 #endif
 
 using namespace arangodb;
@@ -199,6 +200,7 @@ static int runServer(int argc, char** argv) {
 
 #ifdef USE_IRESEARCH
     server.addFeature(new ViewFeature(&server));
+    server.addFeature(new iresearch::IResearchFeature(&server));
 #endif
 
     try {

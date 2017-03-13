@@ -39,6 +39,8 @@
 #include "MMFiles/MMFilesSkiplistIndex.h"
 #include "VocBase/voc-types.h"
 
+#include "IResearch/IResearchLink.h"
+
 #include <velocypack/Builder.h>
 #include <velocypack/Iterator.h>
 #include <velocypack/Slice.h>
@@ -326,6 +328,9 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
       case Index::TRI_IDX_TYPE_FULLTEXT_INDEX:
         res = EnhanceJsonIndexFulltext(definition, enhanced, create);
         break;
+      case Index::TRI_IDX_TYPE_IRESEARCH_LINK:
+        res = iresearch::EnhanceJsonIResearchLink(definition, enhanced, create);
+        break;
     }
 
   } catch (...) {
@@ -426,6 +431,10 @@ std::shared_ptr<Index> MMFilesIndexFactory::prepareIndexFromSlice(
     }
     case arangodb::Index::TRI_IDX_TYPE_FULLTEXT_INDEX: {
       newIdx.reset(new arangodb::MMFilesFulltextIndex(iid, col, info));
+      break;
+    }
+    case arangodb::Index::TRI_IDX_TYPE_IRESEARCH_LINK: {
+      newIdx = iresearch::createIResearchLink(iid, col, info);
       break;
     }
   }
