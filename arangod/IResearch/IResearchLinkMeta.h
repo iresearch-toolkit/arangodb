@@ -28,11 +28,18 @@
 #include <map>
 #include <mutex>
 
-#include <velocypack/Builder.h>
-#include <velocypack/velocypack-aliases.h>
-
 #include "shared.hpp"
 #include "analysis/analyzer.hpp"
+
+NS_BEGIN(arangodb)
+NS_BEGIN(velocypack)
+
+class Builder; // forward declarations
+class ObjectBuilder; // forward declarations
+class Slice; // forward declarations
+
+NS_END // velocypack
+NS_END // arangodb
 
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
@@ -110,7 +117,7 @@ struct IResearchLinkMeta {
   /// @param mask if set reflects which fields were initialized from JSON
   ////////////////////////////////////////////////////////////////////////////////
   bool init(
-    VPackSlice const& slice,
+    arangodb::velocypack::Slice const& slice,
     std::string& errorField,
     IResearchLinkMeta const& defaults = DEFAULT(),
     Mask* mask = nullptr
@@ -120,10 +127,24 @@ struct IResearchLinkMeta {
   /// @brief fill and return a JSON description of a IResearchLinkMeta object
   ///        do not fill values identical to ones available in 'ignoreEqual'
   ///        or (if 'mask' != nullptr) values in 'mask' that are set to false
+  ///        elements are appended to an existing object
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    VPackBuilder& builder,
+    arangodb::velocypack::Builder& builder,
+    IResearchLinkMeta const* ignoreEqual = nullptr,
+    Mask const* mask = nullptr
+  ) const;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief fill and return a JSON description of a IResearchLinkMeta object
+  ///        do not fill values identical to ones available in 'ignoreEqual'
+  ///        or (if 'mask' != nullptr) values in 'mask' that are set to false
+  ///        elements are appended to an existing object
+  ///        return success or set TRI_set_errno(...) and return false
+  ////////////////////////////////////////////////////////////////////////////////
+  bool json(
+    arangodb::velocypack::ObjectBuilder& builder,
     IResearchLinkMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;

@@ -161,14 +161,14 @@ bool initCommitBaseMeta(
 }
 
 bool jsonCommitBaseMeta(
-  arangodb::velocypack::ObjectBuilder& builder,
+  arangodb::velocypack::Builder& builder,
   arangodb::iresearch::IResearchViewMeta::CommitBaseMeta const& meta
 ) {
-  if (!builder.builder) {
+  if (!builder.isOpenObject()) {
     return false;
   }
 
-  builder->add("cleanupIntervalStep", arangodb::velocypack::Value(meta._cleanupIntervalStep));
+  builder.add("cleanupIntervalStep", arangodb::velocypack::Value(meta._cleanupIntervalStep));
 
   struct DefragmentPolicyHash { size_t operator()(arangodb::iresearch::ConsolidationPolicy::Type const& value) const { return value; } }; // for GCC compatibility
   static const std::unordered_map<arangodb::iresearch::ConsolidationPolicy::Type, std::string, DefragmentPolicyHash> policies = {
@@ -196,7 +196,7 @@ bool jsonCommitBaseMeta(
     }
   }
 
-  builder->add("consolidate", subBuilder.slice());
+  builder.add("consolidate", subBuilder.slice());
 
   return true;
 }
@@ -210,7 +210,7 @@ bool IResearchViewMeta::CommitBaseMeta::operator==(
   CommitBaseMeta const& other
 ) const noexcept {
   return _cleanupIntervalStep == other._cleanupIntervalStep
-    && memcmp(_consolidate, other._consolidate, sizeof(_consolidate) * sizeof(decltype(_consolidate))) == 0;
+    && memcmp(_consolidate, other._consolidate, arangodb::iresearch::ConsolidationPolicy::eLast * sizeof(decltype(_consolidate))) == 0;
 }
 
 bool IResearchViewMeta::CommitBulkMeta::operator==(
@@ -270,7 +270,7 @@ IResearchViewMeta::IResearchViewMeta()
   _commitItem._cleanupIntervalStep = 10;
   _commitItem._commitIntervalMsec = 60 * 1000;
 
-  for (size_t i = 0, count = sizeof(_commitBulk._consolidate); i < count; ++i) {
+  for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
     _commitBulk._consolidate[i]._intervalStep = 10;
     _commitBulk._consolidate[i]._threshold = 0.85f;
     _commitItem._consolidate[i]._intervalStep = 10;
@@ -481,16 +481,12 @@ bool IResearchViewMeta::init(
       {
         // optional size_t
         static const std::string subFieldName("commitIntervalBatchSize");
-        bool tmpSeen;
+        bool tmpBool;
 
-        if (field.hasKey(subFieldName)) {
-          auto subField = field.get(subFieldName);
+        if (!getNumber(_commitBulk._commitIntervalBatchSize, field, subFieldName, tmpBool, defaults._commitBulk._commitIntervalBatchSize)) {
+          errorField = fieldName + "=>" + subFieldName;
 
-          if (!getNumber(_commitBulk._commitIntervalBatchSize, slice, subFieldName, tmpSeen, defaults._commitBulk._commitIntervalBatchSize)) {
-            errorField = fieldName + "=>" + subFieldName;
-
-            return false;
-          }
+          return false;
         }
       }
 
@@ -523,16 +519,12 @@ bool IResearchViewMeta::init(
       {
         // optional size_t
         static const std::string subFieldName("commitIntervalMsec");
+        bool tmpBool;
 
-        if (field.hasKey(subFieldName)) {
-          auto subField = field.get(subFieldName);
-          bool tmpSeen;
+        if (!getNumber(_commitItem._commitIntervalMsec, field, subFieldName, tmpBool, defaults._commitItem._commitIntervalMsec)) {
+          errorField = fieldName + "=>" + subFieldName;
 
-          if (!getNumber(_commitItem._commitIntervalMsec, slice, subFieldName, tmpSeen, defaults._commitItem._commitIntervalMsec)) {
-            errorField = fieldName + "=>" + subFieldName;
-
-            return false;
-          }
+          return false;
         }
       }
 
@@ -724,15 +716,12 @@ bool IResearchViewMeta::init(
   return true;
 }
 
-
 bool IResearchViewMeta::json(
-  VPackBuilder& in,
+  arangodb::velocypack::Builder& builder,
   IResearchViewMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {
-  arangodb::velocypack::ObjectBuilder builder(&in);
-
-  if (!builder.builder) {
+  if (!builder.isOpenObject()) {
     return false;
   }
 
@@ -743,7 +732,7 @@ bool IResearchViewMeta::json(
       subBuilder.add(arangodb::velocypack::Value(cid));
     }
 
-    builder->add("collections", subBuilder.slice());
+    builder.add("collections", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _commitBulk != ignoreEqual->_commitBulk) && (!mask || mask->_commitBulk)) {
@@ -754,12 +743,12 @@ bool IResearchViewMeta::json(
 
       subBuilderWrapper->add("commitIntervalBatchSize", arangodb::velocypack::Value(_commitBulk._commitIntervalBatchSize));
 
-      if (!jsonCommitBaseMeta(subBuilderWrapper, _commitBulk)) {
+      if (!jsonCommitBaseMeta(*(subBuilderWrapper.builder), _commitBulk)) {
         return false;
       }
     }
 
-    builder->add("commitBulk", subBuilder.slice());
+    builder.add("commitBulk", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _commitItem != ignoreEqual->_commitItem) && (!mask || mask->_commitItem)) {
@@ -770,40 +759,40 @@ bool IResearchViewMeta::json(
 
       subBuilderWrapper->add("commitIntervalMsec", arangodb::velocypack::Value(_commitItem._commitIntervalMsec));
 
-      if (!jsonCommitBaseMeta(subBuilderWrapper, _commitItem)) {
+      if (!jsonCommitBaseMeta(*(subBuilderWrapper.builder), _commitItem)) {
         return false;
       }
     }
 
-    builder->add("commitItem", subBuilder.slice());
+    builder.add("commitItem", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _dataPath != ignoreEqual->_dataPath) && (!mask || mask->_dataPath)) {
-    builder->add("dataPath", arangodb::velocypack::Value(_dataPath));
+    builder.add("dataPath", arangodb::velocypack::Value(_dataPath));
   }
 
   if ((!ignoreEqual || _iid != ignoreEqual->_iid) && (!mask || mask->_iid)) {
-    builder->add("id", arangodb::velocypack::Value(_iid));
+    builder.add("id", arangodb::velocypack::Value(_iid));
   }
 
   if ((!ignoreEqual || _locale != ignoreEqual->_locale) && (!mask || mask->_locale)) {
-    builder->add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
+    builder.add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
   }
 
   if ((!ignoreEqual || _name != ignoreEqual->_name) && (!mask || mask->_name)) {
-    builder->add("name", arangodb::velocypack::Value(_name));
+    builder.add("name", arangodb::velocypack::Value(_name));
   }
 
   if ((!ignoreEqual || _nestingDelimiter != ignoreEqual->_nestingDelimiter) && (!mask || mask->_nestingDelimiter)) {
-    builder->add("nestingDelimiter", arangodb::velocypack::Value(_nestingDelimiter));
+    builder.add("nestingDelimiter", arangodb::velocypack::Value(_nestingDelimiter));
   }
 
   if ((!ignoreEqual || _nestingListOffsetPrefix != ignoreEqual->_nestingListOffsetPrefix) && (!mask || mask->_nestingListOffsetPrefix)) {
-    builder->add("nestingListOffsetPrefix", arangodb::velocypack::Value(_nestingListOffsetPrefix));
+    builder.add("nestingListOffsetPrefix", arangodb::velocypack::Value(_nestingListOffsetPrefix));
   }
 
   if ((!ignoreEqual || _nestingListOffsetSuffix != ignoreEqual->_nestingListOffsetSuffix) && (!mask || mask->_nestingListOffsetSuffix)) {
-    builder->add("nestingListOffsetSuffix", arangodb::velocypack::Value(_nestingListOffsetSuffix));
+    builder.add("nestingListOffsetSuffix", arangodb::velocypack::Value(_nestingListOffsetSuffix));
   }
 
   if ((!ignoreEqual || _scorers != ignoreEqual->_scorers) && (!mask || mask->_scorers)) {
@@ -813,18 +802,26 @@ bool IResearchViewMeta::json(
       subBuilder.add(arangodb::velocypack::Value(scorer.first));
     }
 
-    builder->add("scorers", subBuilder.slice());
+    builder.add("scorers", subBuilder.slice());
   }
 
   if ((!ignoreEqual || _threadsMaxIdle != ignoreEqual->_threadsMaxIdle) && (!mask || mask->_threadsMaxIdle)) {
-    builder->add("threadsMaxIdle", arangodb::velocypack::Value(_threadsMaxIdle));
+    builder.add("threadsMaxIdle", arangodb::velocypack::Value(_threadsMaxIdle));
   }
 
   if ((!ignoreEqual || _threadsMaxTotal != ignoreEqual->_threadsMaxTotal) && (!mask || mask->_threadsMaxTotal)) {
-    builder->add("threadsMaxTotal", arangodb::velocypack::Value(_threadsMaxTotal));
+    builder.add("threadsMaxTotal", arangodb::velocypack::Value(_threadsMaxTotal));
   }
 
   return true;
+}
+
+bool IResearchViewMeta::json(
+  arangodb::velocypack::ObjectBuilder& builder,
+  IResearchViewMeta const* ignoreEqual /*= nullptr*/,
+  Mask const* mask /*= nullptr*/
+) const {
+  return builder.builder && json(*(builder.builder), ignoreEqual, mask);
 }
 
 size_t IResearchViewMeta::memSize() const {
