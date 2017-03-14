@@ -42,18 +42,21 @@ inline bool getNumber(
     return false;
   }
 
+  typedef typename std::conditional<
+    std::is_floating_point<T>::value, T, double
+  >::type NumType;
+
   try {
-    typedef std::conditional<std::is_floating_point<T>::value, T, double>::type NumType;
     auto value = slice.getNumber<NumType>();
 
     buf = static_cast<T>(value);
 
     return value == static_cast<decltype(value)>(buf);
   } catch (...) {
-      // NOOP
-    }
+    // NOOP
+  }
 
-    return false;
+  return false;
 }
 
 //////////////////////////////////////////////////////////////////////////////
