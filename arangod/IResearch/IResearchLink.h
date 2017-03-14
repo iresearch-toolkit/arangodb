@@ -41,7 +41,8 @@ class IResearchLink final : public Index {
   IResearchLink(
     TRI_idx_iid_t iid,
     arangodb::LogicalCollection* collection,
-    VPackSlice const& info
+    VPackSlice const& info,
+    IResearchLinkMeta&& meta
   );
 
   IndexType type() const override {

@@ -239,10 +239,10 @@ bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) 
     return false;
   }
 
-  static std::string const COLLECTIONS = "collections1";
+  static std::string const LINKS = "links";
   static std::string const PROPERTIES = "properties";
 
-  auto const collections = props.get(COLLECTIONS);
+  auto const collections = props.get(LINKS);
 
   if (!collections.isArray()) {
     return false;
@@ -275,15 +275,20 @@ bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) 
     auto const res = trx.begin();
 
     if (TRI_ERROR_NO_ERROR != res) {
+      // can't start a transaction
       return false;
     }
 
     auto created = false;
-    auto* col = trx.documentCollection();
-    auto index = col->createIndex(&trx, linkProp, created); // TODO
+    auto index = trx.documentCollection()->createIndex(&trx, linkProp, created);
 
     if (!index) {
+      // something went wrong
       return false;
+    }
+
+    if (created) {
+      _links.insert(std::static_pointer_cast<IResearchLink>(index));
     }
   }
 
