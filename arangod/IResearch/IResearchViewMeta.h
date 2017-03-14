@@ -37,7 +37,7 @@ NS_BEGIN(arangodb)
 NS_BEGIN(velocypack)
 
 class Builder; // forward declarations
-class ObjectBuilder; // forward declarations
+struct ObjectBuilder; // forward declarations
 class Slice; // forward declarations
 
 NS_END // velocypack
@@ -178,7 +178,7 @@ struct IResearchViewMeta {
   ///        return success or set TRI_set_errno(...) and return false
   ////////////////////////////////////////////////////////////////////////////////
   bool json(
-    arangodb::velocypack::ObjectBuilder& builder,
+    arangodb::velocypack::ObjectBuilder const& builder,
     IResearchViewMeta const* ignoreEqual = nullptr,
     Mask const* mask = nullptr
   ) const;
