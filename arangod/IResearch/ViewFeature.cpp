@@ -48,18 +48,18 @@ std::unordered_map<arangodb::StringRef, ViewFeature::ViewFactory> VIEW_FACTORIES
 RestViewHandler::ViewFactory localViewFactory = [] (
     StringRef const& type,
     VPackSlice params,
-    VPackBuilder* out) -> bool {
+    TRI_vocbase_t* vocbase) -> bool {
   const auto it = VIEW_FACTORIES.find(type);
 
   return it == VIEW_FACTORIES.end()
     ? false
-    : it->second(params, out);
+    : it->second(params, vocbase);
 };
 
 RestViewHandler::ViewFactory coordinatorViewFactory = [] (
     StringRef const& type,
     VPackSlice params,
-    VPackBuilder* out) -> bool {
+    TRI_vocbase_t* vocbase) -> bool {
   return false;
 };
 

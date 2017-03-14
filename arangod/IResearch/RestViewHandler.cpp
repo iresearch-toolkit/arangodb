@@ -281,8 +281,7 @@ bool RestViewHandler::createView() {
     return false;
   }
 
-  VPackBuilder view;
-  if (!_viewFactory(arangodb::StringRef(viewType), body, &view)) {
+  if (!_viewFactory(arangodb::StringRef(viewType), body, _vocbase)) {
     generateError(
       rest::ResponseCode::BAD,
       TRI_ERROR_HTTP_BAD_PARAMETER,

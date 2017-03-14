@@ -27,12 +27,15 @@
 #include "ApplicationFeatures/ApplicationFeature.h"
 #include "Basics/StringRef.h"
 
+struct TRI_vocbase_t;
+
 namespace arangodb {
+
 class ViewFeature final : public application_features::ApplicationFeature {
  public:
   typedef std::function<bool( // return code
     VPackSlice params,        // view parameters
-    VPackBuilder* out         // optional out json representation of the created view
+    TRI_vocbase_t* vocbase
   )> ViewFactory;
 
   static void registerFactory(

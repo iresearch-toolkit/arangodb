@@ -26,6 +26,8 @@
 
 #include "VocBase/LogicalCollection.h"
 
+#include "Basics/VelocyPackHelper.h"
+
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 
@@ -229,63 +231,56 @@ void IndexStore::close() noexcept {
   _dir->close();
 }
 
-bool IResearchView::properties(VPackSlice const& props) {
-  std::string error;
+bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) {
+  std::string error; // TODO: should somehow push it to the caller
   IResearchViewMeta meta;
 
   if (!meta.init(props, error)) {
     return false;
   }
 
-  static std::string const COLLECTIONS = "collections";
-  static std::string const COLLECTION = "collection";
+  static std::string const COLLECTIONS = "collections1";
   static std::string const PROPERTIES = "properties";
 
-  auto collections = props.get(COLLECTIONS);
+  auto const collections = props.get(COLLECTIONS);
+
   if (!collections.isArray()) {
     return false;
   }
 
   for (auto const& collection : VPackArrayIterator(collections)) {
-    if (collection.isObject()) {
+    if (!collection.isObject()) {
       return false;
     }
 
-    auto cid = collection.get(COLLECTION);
+    auto const cid = basics::VelocyPackHelper::extractIdValue(collection);
 
-    if (cid.isNone()) {
+    if (0 == cid) {
+      // can't extract cid
       return false;
     }
 
-    auto linkProp = collection.get(PROPERTIES);
+    auto const linkProp = collection.get(PROPERTIES);
 
     if (linkProp.isNone()) {
       return false;
     }
 
-    TRI_voc_cid_t cidValue;
-    try {
-      cidValue = cid.getNumber<TRI_voc_cid_t>();
-    } catch (...) {
-      return false;
-    }
-
-    TRI_vocbase_t* vocbase{};
-
     SingleCollectionTransaction trx(
       StandaloneTransactionContext::Create(vocbase),
-      cidValue,
+      cid,
       AccessMode::Type::WRITE
     );
 
     auto const res = trx.begin();
+
     if (TRI_ERROR_NO_ERROR != res) {
       return false;
     }
 
     auto created = false;
     auto* col = trx.documentCollection();
-    auto index = col->createIndex(&trx, props, created); // TODO
+    auto index = col->createIndex(&trx, linkProp, created); // TODO
 
     if (!index) {
       return false;
@@ -293,9 +288,7 @@ bool IResearchView::properties(VPackSlice const& props) {
   }
 
   // noexcept
-
-  // TODO: use move
-  //_meta = std::move(meta);
+  _meta = std::move(meta);
 
   return true;
 }

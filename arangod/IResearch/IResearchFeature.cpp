@@ -59,8 +59,8 @@ void IResearchFeature::prepare() {
 
   ViewFeature::registerFactory(
     StringRef("iresearch"),
-    [](VPackSlice params, VPackBuilder* out) {
-      if (!s_view.properties(params)) {
+    [](VPackSlice params, TRI_vocbase_t* vocbase) {
+      if (!s_view.properties(params, vocbase)) {
         LOG_TOPIC(WARN, arangodb::Logger::DEVEL) << "failed to create a view";
         return false;
       }

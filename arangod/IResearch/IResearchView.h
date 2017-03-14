@@ -91,7 +91,7 @@ class IResearchView /* : public ViewImpl */ {
  public:
   IResearchView() = default;
 
-  bool properties(VPackSlice const& props);
+  bool properties(VPackSlice const& props, TRI_vocbase_t* vocbase);
   bool properties(VPackBuilder& props) const;
   bool drop();
 

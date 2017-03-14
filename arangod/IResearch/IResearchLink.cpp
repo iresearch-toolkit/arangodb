@@ -34,16 +34,12 @@ namespace iresearch {
 IResearchLink::IResearchLink(
     TRI_idx_iid_t iid,
     arangodb::LogicalCollection* collection,
-    VPackSlice const& info)
-  : Index(iid, collection, info) {
+    VPackSlice const& info,
+    IResearchLinkMeta&& meta)
+  : Index(iid, collection, info),
+    _meta(std::move(meta)) {
   _unique = false; // always non unique
   _sparse = true;  // always sparse
-
-  // initialize link meta
-  std::string error;
-  if (!_meta.init(info, error)) {
-
-  }
 }
 
 char const* IResearchLink::typeName() const { 
@@ -51,6 +47,7 @@ char const* IResearchLink::typeName() const {
 }
 
 size_t IResearchLink::memory() const {
+  // TODO
   return 0;
 }
 
@@ -58,6 +55,7 @@ void IResearchLink::toVelocyPack(VPackBuilder& builder, bool withFigures) const 
   Index::toVelocyPack(builder, withFigures);
   builder.add("unique", VPackValue(_unique));
   builder.add("sparse", VPackValue(_sparse));
+  _meta.json(builder);
 }
 
 void IResearchLink::toVelocyPackFigures(VPackBuilder& builder) const {
@@ -74,18 +72,7 @@ int IResearchLink::insert(
     TRI_voc_rid_t rid,
     arangodb::velocypack::Slice const& doc,
     bool isRollback) {
-  const auto cid = collection()->cid();
-
-  if (fields().empty()) {
-    // index all fields
-  } else {
-    // index specified fields
-  }
-
-  StoredPrimaryKey pk(rid, cid);
-  Field fld;
-
-  return 0; //_view->insert(&fld, &fld + 1, &pk, &pk + 1);
+  return TRI_ERROR_NO_ERROR; //_view->insert(&fld, &fld + 1, &pk, &pk + 1);
 }
 
 int IResearchLink::remove(
@@ -169,8 +156,17 @@ IResearchLink::ptr createIResearchLink(
     TRI_idx_iid_t iid,
     arangodb::LogicalCollection* collection,
     VPackSlice const& info) noexcept {
+  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
+
+  std::string error;
+  IResearchLinkMeta meta;
+
   try {
-    return std::make_shared<IResearchLink>(iid, collection, info);
+    if (!meta.init(info, error)) {
+      return nullptr;
+    }
+
+    return std::make_shared<IResearchLink>(iid, collection, info, std::move(meta));
   } catch (std::exception const& e) {
     LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
   } catch (...) {
