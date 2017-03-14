@@ -511,22 +511,20 @@ bool IResearchLinkMeta::init(
 }
 
 bool IResearchLinkMeta::json(
-  VPackBuilder& in,
+  arangodb::velocypack::Builder& builder,
   IResearchLinkMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {
-  arangodb::velocypack::ObjectBuilder builder(&in);
-
-  if (!builder.builder) {
+  if (!builder.isOpenObject()) {
     return false;
   }
 
   if ((!ignoreEqual || _boost != ignoreEqual->_boost) && (!mask || mask->_boost)) {
-    builder->add("boost", arangodb::velocypack::Value(_boost));
+    builder.add("boost", arangodb::velocypack::Value(_boost));
   }
 
   if ((!ignoreEqual || _depth != ignoreEqual->_depth) && (!mask || mask->_depth)) {
-    builder->add("depth", arangodb::velocypack::Value(_depth));
+    builder.add("depth", arangodb::velocypack::Value(_depth));
   }
 
   if (!mask || mask->_fields) { // fields are not inherited from parent
@@ -543,7 +541,7 @@ bool IResearchLinkMeta::json(
       for(auto& entry: _fields) {
         mask._fields = !entry.second._fields.empty(); // do not output empty fields on subobjects
 
-        if (!entry.second.json(fieldBuilder, &subDefaults, &mask)) {
+        if (!entry.second.json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
           return false;
         }
 
@@ -552,7 +550,7 @@ bool IResearchLinkMeta::json(
       }
     }
 
-    builder->add("fields", fieldsBuilder.slice());
+    builder.add("fields", fieldsBuilder.slice());
   }
 
   if ((!ignoreEqual || _listValuation != ignoreEqual->_listValuation) && (!mask || mask->_listValuation)) {
@@ -566,12 +564,12 @@ bool IResearchLinkMeta::json(
     auto itr = listValuation.find(_listValuation);
 
     if (itr != listValuation.end()) {
-      builder->add("listValuation", arangodb::velocypack::Value(itr->second));
+      builder.add("listValuation", arangodb::velocypack::Value(itr->second));
     }
   }
 
   if ((!ignoreEqual || _locale != ignoreEqual->_locale) && (!mask || mask->_locale)) {
-    builder->add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
+    builder.add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
   }
 
   if ((!ignoreEqual || !equalTokenizers(_tokenizers, ignoreEqual->_tokenizers)) && (!mask || mask->_tokenizers)) {
@@ -603,10 +601,18 @@ bool IResearchLinkMeta::json(
       }
     }
 
-    builder->add("tokenizers", tokenizersBuilder.slice());
+    builder.add("tokenizers", tokenizersBuilder.slice());
   }
 
   return true;
+}
+
+bool IResearchLinkMeta::json(
+  arangodb::velocypack::ObjectBuilder& builder,
+  IResearchLinkMeta const* ignoreEqual /*= nullptr*/,
+  Mask const* mask /*= nullptr*/
+) const {
+  return builder.builder && json(*(builder.builder), ignoreEqual, mask);
 }
 
 size_t IResearchLinkMeta::memSize() const {
