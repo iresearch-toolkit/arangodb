@@ -30,6 +30,33 @@ NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
 //////////////////////////////////////////////////////////////////////////////
+/// @brief parses a numeric sub-element
+/// @return success
+//////////////////////////////////////////////////////////////////////////////
+template<typename T>
+inline bool getNumber(
+  T& buf,
+  arangodb::velocypack::Slice const& slice
+) noexcept {
+  if (!slice.isNumber()) {
+    return false;
+  }
+
+  try {
+    typedef std::conditional<std::is_floating_point<T>::value, T, double>::type NumType;
+    auto value = slice.getNumber<NumType>();
+
+    buf = static_cast<T>(value);
+
+    return value == static_cast<decltype(value)>(buf);
+  } catch (...) {
+      // NOOP
+    }
+
+    return false;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 /// @brief parses a numeric sub-element, or uses a default if it does not exist
 /// @return success
 //////////////////////////////////////////////////////////////////////////////
@@ -49,19 +76,7 @@ inline bool getNumber(
     return true;
   }
 
-  auto field = slice.get(fieldName);
-
-  if (!field.isNumber()) {
-    return false;
-  }
-
-  try {
-    buf = field.getNumber<T>();
-  } catch (...) {
-    return false;
-  }
-
-  return true;
+  return getNumber(buf, slice.get(fieldName));
 }
 
 //////////////////////////////////////////////////////////////////////////////

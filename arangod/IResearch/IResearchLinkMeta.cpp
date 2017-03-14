@@ -541,8 +541,7 @@ bool IResearchLinkMeta::json(
       for(auto& entry: _fields) {
         mask._fields = !entry.second._fields.empty(); // do not output empty fields on subobjects
 
-        arangodb::velocypack::ObjectBuilder objBuilder(&fieldBuilder);
-        if (!entry.second.json(objBuilder, &subDefaults, &mask)) {
+        if (!entry.second.json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
           return false;
         }
 
@@ -609,7 +608,7 @@ bool IResearchLinkMeta::json(
 }
 
 bool IResearchLinkMeta::json(
-  arangodb::velocypack::ObjectBuilder& builder,
+  arangodb::velocypack::ObjectBuilder const& builder,
   IResearchLinkMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {

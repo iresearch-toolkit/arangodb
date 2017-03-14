@@ -21,6 +21,7 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "search/scorers.hpp"
 #include "utils/locale_utils.hpp"
 
 #include "VelocyPackHelper.h"
@@ -37,15 +38,15 @@ NS_LOCAL
 ////////////////////////////////////////////////////////////////////////////////
 struct ScorerMeta {
   // @return success
-  typedef std::function<bool(iresearch::flags& flags)> fnFeatures_f;
-  typedef iresearch::iql::order_function fnScorer_t;
+  typedef std::function<bool(irs::flags& flags)> fnFeatures_f;
+  typedef irs::iql::order_function fnScorer_t;
   typedef fnScorer_t::contextual_function_t fnScorer_f;
   typedef fnScorer_t::contextual_function_args_t fnScoreArgs_t;
   bool _isDefault;
-  iresearch::flags _features;
+  irs::flags _features;
   fnScorer_t const& _scorer;
   ScorerMeta(
-    iresearch::flags const& features, fnScorer_t const& scorer, bool isDefault = false
+    irs::flags const& features, fnScorer_t const& scorer, bool isDefault = false
   ) : _isDefault(isDefault), _features(features), _scorer(scorer) {}
 };
 
@@ -62,6 +63,20 @@ std::unordered_multimap<std::string, ScorerMeta> const& allKnownScorers() {
         _scorers.emplace(name, ScorerMeta(features, builder, isDefault));
         return true;
       };
+      static ScorerMeta::fnScorer_f FIXME_SCORER = [](
+        iresearch::order& order,
+        const std::locale&,
+        void* cookie,
+        bool ascending,
+        const ScorerMeta::fnScoreArgs_t& args
+        )->bool {
+        return false;
+      };
+
+      irs::scorers::visit([this](const irs::string_ref& name)->bool{
+        _scorers.emplace(name, ScorerMeta(irs::flags::empty_instance(), FIXME_SCORER));
+        return true;
+      });
       //iResearchDocumentAdapter::visitScorers(visitor); FIXME TODO
     }
   } KNOWN_SCORERS;
@@ -72,7 +87,8 @@ std::unordered_multimap<std::string, ScorerMeta> const& allKnownScorers() {
 bool initCommitBaseMeta(
   arangodb::iresearch::IResearchViewMeta::CommitBaseMeta& meta,
   arangodb::velocypack::Slice const& slice,
-  std::string& errorField
+  std::string& errorField,
+  arangodb::iresearch::IResearchViewMeta::CommitBaseMeta const& defaults
 ) noexcept {
   bool tmpSeen;
 
@@ -136,7 +152,7 @@ bool initCommitBaseMeta(
           // optional size_t
           static const std::string subFieldName("intervalStep");
 
-          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._intervalStep, slice, subFieldName, tmpSeen, size_t(0))) {
+          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._intervalStep, value, subFieldName, tmpSeen, defaults._consolidate[policyItr->second]._intervalStep)) {
             errorField = fieldName + "=>" + name + "=>" + subFieldName;
 
             return false;
@@ -147,7 +163,8 @@ bool initCommitBaseMeta(
           // optional float
           static const std::string subFieldName("threshold");
 
-          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._threshold, slice, subFieldName, tmpSeen, std::numeric_limits<float>::infinity())) {
+          if (!arangodb::iresearch::getNumber(meta._consolidate[policyItr->second]._threshold, value, subFieldName, tmpSeen, defaults._consolidate[policyItr->second]._threshold) ||
+              meta._consolidate[policyItr->second]._threshold < 0. || meta._consolidate[policyItr->second]._threshold > 1.) {
             errorField = fieldName + "=>" + name + "=>" + subFieldName;
 
             return false;
@@ -180,18 +197,27 @@ bool jsonCommitBaseMeta(
 
   arangodb::velocypack::Builder subBuilder;
 
-  for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
-    auto& policy = meta._consolidate[i];
+  {
+    arangodb::velocypack::ObjectBuilder subBuilderWrapper(&subBuilder);
 
-    if (policy._intervalStep) {
-      auto itr = policies.find(static_cast<arangodb::iresearch::ConsolidationPolicy::Type>(i));
+    for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
+      auto& policy = meta._consolidate[i];
 
-      if (itr != policies.end()) {
-        arangodb::velocypack::Builder policyBuilder;
+      if (policy._intervalStep) {
+        auto itr = policies.find(static_cast<arangodb::iresearch::ConsolidationPolicy::Type>(i));
 
-        policyBuilder.add("intervalStep", arangodb::velocypack::Value(policy._intervalStep));
-        policyBuilder.add("threshold", arangodb::velocypack::Value(policy._threshold));
-        subBuilder.add(itr->second, policyBuilder.slice());
+        if (itr != policies.end()) {
+          arangodb::velocypack::Builder policyBuilder;
+
+          {
+            arangodb::velocypack::ObjectBuilder policyBuilderWrapper(&policyBuilder);
+
+            policyBuilderWrapper->add("intervalStep", arangodb::velocypack::Value(policy._intervalStep));
+            policyBuilderWrapper->add("threshold", arangodb::velocypack::Value(policy._threshold));
+          }
+
+          subBuilderWrapper->add(itr->second, policyBuilder.slice());
+        }
       }
     }
   }
@@ -443,21 +469,15 @@ bool IResearchViewMeta::init(
       _collections.clear(); // reset to match read values exactly
 
       for (arangodb::velocypack::ArrayIterator itr(field); itr.valid(); ++itr) {
-        auto entry = itr.value();
+        decltype(_collections)::key_type value;
 
-        if (!entry.isUInt()) { // [ <collectionId 1> ... <collectionId N> ]
+        if (!getNumber(value, itr.value())) { // [ <collectionId 1> ... <collectionId N> ]
           errorField = fieldName + "=>[" + arangodb::basics::StringUtils::itoa(itr.index()) + "]";
 
           return false;
         }
 
-        try {
-          _collections.emplace(entry.getNumber<decltype(_collections)::key_type>());
-        } catch (...) {
-          errorField = fieldName + "=>[" + arangodb::basics::StringUtils::itoa(itr.index()) + "]";
-
-          return false;
-        }
+        _collections.emplace(value);
       }
     }
   }
@@ -467,9 +487,10 @@ bool IResearchViewMeta::init(
     static const std::string fieldName("commitBulk");
 
     mask->_commitBulk = slice.hasKey(fieldName);
-    _commitBulk = defaults._commitBulk; // initially set to defaults
 
-    if (mask->_commitBulk) {
+    if (!mask->_commitBulk) {
+      _commitBulk = defaults._commitBulk;
+    } else {
       auto field = slice.get(fieldName);
 
       if (!field.isObject()) {
@@ -492,7 +513,7 @@ bool IResearchViewMeta::init(
 
       std::string errorSubField;
 
-      if (!initCommitBaseMeta(_commitBulk, field, errorSubField)) {
+      if (!initCommitBaseMeta(_commitBulk, field, errorSubField, defaults._commitBulk)) {
         errorField = fieldName + "=>" + errorSubField;
 
         return false;
@@ -504,10 +525,11 @@ bool IResearchViewMeta::init(
     // optional jSON object
     static const std::string fieldName("commitItem");
 
-    mask->_commitBulk = slice.hasKey(fieldName);
-    _commitItem = defaults._commitItem; // initially set to defaults
+    mask->_commitItem = slice.hasKey(fieldName);
 
-    if (mask->_commitItem) {
+    if (!mask->_commitItem) {
+      _commitItem = defaults._commitItem;
+    } else {
       auto field = slice.get(fieldName);
 
       if (!field.isObject()) {
@@ -530,7 +552,7 @@ bool IResearchViewMeta::init(
 
       std::string errorSubField;
 
-      if (!initCommitBaseMeta(_commitItem, field, errorSubField)) {
+      if (!initCommitBaseMeta(_commitItem, field, errorSubField, defaults._commitItem)) {
         errorField = fieldName + "=>" + errorSubField;
 
         return false;
@@ -706,7 +728,7 @@ bool IResearchViewMeta::init(
     // optional size_t
     static const std::string fieldName("threadsMaxTotal");
 
-    if (!getNumber(_threadsMaxTotal, slice, fieldName, mask->_threadsMaxTotal, defaults._threadsMaxTotal)) {
+    if (!getNumber(_threadsMaxTotal, slice, fieldName, mask->_threadsMaxTotal, defaults._threadsMaxTotal) || !_threadsMaxTotal) {
       errorField = fieldName;
 
       return false;
@@ -728,8 +750,12 @@ bool IResearchViewMeta::json(
   if ((!ignoreEqual || _collections != ignoreEqual->_collections) && (!mask || mask->_collections)) {
     arangodb::velocypack::Builder subBuilder;
 
-    for (auto& cid: _collections) {
-      subBuilder.add(arangodb::velocypack::Value(cid));
+    {
+      arangodb::velocypack::ArrayBuilder subBuilderWrapper(&subBuilder);
+
+      for (auto& cid: _collections) {
+        subBuilderWrapper->add(arangodb::velocypack::Value(cid));
+      }
     }
 
     builder.add("collections", subBuilder.slice());
@@ -767,7 +793,7 @@ bool IResearchViewMeta::json(
     builder.add("commitItem", subBuilder.slice());
   }
 
-  if ((!ignoreEqual || _dataPath != ignoreEqual->_dataPath) && (!mask || mask->_dataPath)) {
+  if ((!ignoreEqual || _dataPath != ignoreEqual->_dataPath) && (!mask || mask->_dataPath) && !_dataPath.empty()) {
     builder.add("dataPath", arangodb::velocypack::Value(_dataPath));
   }
 
@@ -798,8 +824,12 @@ bool IResearchViewMeta::json(
   if ((!ignoreEqual || _scorers != ignoreEqual->_scorers) && (!mask || mask->_scorers)) {
     arangodb::velocypack::Builder subBuilder;
 
-    for (auto& scorer: _scorers) {
-      subBuilder.add(arangodb::velocypack::Value(scorer.first));
+    {
+      arangodb::velocypack::ArrayBuilder subBuilderWrapper(&subBuilder);
+
+      for (auto& scorer: _scorers) {
+        subBuilderWrapper->add(arangodb::velocypack::Value(scorer.first));
+      }
     }
 
     builder.add("scorers", subBuilder.slice());
@@ -817,7 +847,7 @@ bool IResearchViewMeta::json(
 }
 
 bool IResearchViewMeta::json(
-  arangodb::velocypack::ObjectBuilder& builder,
+  arangodb::velocypack::ObjectBuilder const& builder,
   IResearchViewMeta const* ignoreEqual /*= nullptr*/,
   Mask const* mask /*= nullptr*/
 ) const {
