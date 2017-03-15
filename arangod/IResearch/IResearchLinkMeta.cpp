@@ -615,14 +615,14 @@ bool IResearchLinkMeta::json(
   return builder.builder && json(*(builder.builder), ignoreEqual, mask);
 }
 
-size_t IResearchLinkMeta::memSize() const {
+size_t IResearchLinkMeta::memory() const {
   auto size = sizeof(IResearchLinkMeta);
 
   size += _fields.size() * sizeof(decltype(_fields)::value_type);
 
   for (auto& entry: _fields) {
     size += entry.first.size();
-    size += entry.second.memSize();
+    size += entry.second.memory();
   }
 
   size += _tokenizers.size() * sizeof(decltype(_tokenizers)::value_type);

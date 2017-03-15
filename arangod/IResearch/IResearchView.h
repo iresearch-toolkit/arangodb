@@ -25,7 +25,6 @@
 #ifndef ARANGOD_IRESEARCH__IRESEARCH_VIEW_H
 #define ARANGOD_IRESEARCH__IRESEARCH_VIEW_H 1
 
-#include "IResearchLink.h"
 #include "IResearchViewMeta.h"
 #include "IResearchDocument.h"
 
@@ -39,8 +38,11 @@
 #include "index/index_writer.hpp"
 #include "index/directory_reader.hpp"
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
+
+class IResearchLink; // forward declaration
+class IResearchLinkMeta; // forward declaration
 
 class IndexStore {
  public:
@@ -89,19 +91,66 @@ class IndexStore {
 
 class IResearchView /* : public ViewImpl */ {
  public:
+  typedef std::shared_ptr<IResearchView> ptr;
   IResearchView() = default;
 
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief drop this iResearch View
+  ///////////////////////////////////////////////////////////////////////////////
+  int drop();
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief drop collection matching 'cid' from the iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
+  int drop(TRI_voc_cid_t cid);
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief find an iResearch collection matching 'cid' from the iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
+  static ptr find(irs::string_ref name) noexcept;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief the name identifying the current iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
+  std::string const& name() const noexcept;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief insert a document into the iResearch View
+  ///        to be done in the scope of transaction 'tid' and 'meta'
+  ////////////////////////////////////////////////////////////////////////////////
+  int insert(
+    TRI_voc_tid_t tid,
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid,
+    arangodb::velocypack::Slice const& doc,
+    IResearchLinkMeta const& meta
+  );
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief count of known links registered with this view
+  ////////////////////////////////////////////////////////////////////////////////
+  size_t linkCount() const noexcept;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief amount of memory in bytes occupied by this iResearch Link
+  ////////////////////////////////////////////////////////////////////////////////
+  size_t memory() const;
+
   bool properties(VPackSlice const& props, TRI_vocbase_t* vocbase);
-  bool properties(VPackBuilder& props) const;
-  bool drop();
+  bool properties(arangodb::velocypack::Builder& props) const;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief remove documents matching 'cid' and 'rid' from the iResearch View
+  ///        to be done in the scope of transaction 'tid'
+  ////////////////////////////////////////////////////////////////////////////////
+  int remove(TRI_voc_tid_t tid, TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
  private:
   IResearchViewMeta _meta;
   IndexStore _store;
-  std::unordered_set<IResearchLink::ptr> _links;
+  std::unordered_set<std::shared_ptr<IResearchLink>> _links;
 };
 
-} // iresearch
-} // arangodb
-
+NS_END // iresearch
+NS_END // arangodb
 #endif

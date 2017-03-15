@@ -28,7 +28,6 @@
 #include <map>
 #include <mutex>
 
-#include "shared.hpp"
 #include "analysis/analyzer.hpp"
 
 NS_BEGIN(arangodb)
@@ -150,9 +149,9 @@ struct IResearchLinkMeta {
   ) const;
 
   ////////////////////////////////////////////////////////////////////////////////
-  /// @brief amount of memory in bytes occupied by this index
+  /// @brief amount of memory in bytes occupied by this iResearch Link meta
   ////////////////////////////////////////////////////////////////////////////////
-  size_t memSize() const;
+  size_t memory() const;
 };
 
 NS_END // iresearch

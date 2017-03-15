@@ -854,7 +854,7 @@ bool IResearchViewMeta::json(
   return builder.builder && json(*(builder.builder), ignoreEqual, mask);
 }
 
-size_t IResearchViewMeta::memSize() const {
+size_t IResearchViewMeta::memory() const {
   auto size = sizeof(IResearchViewMeta);
 
   size += sizeof(TRI_voc_cid_t) * _collections.size();

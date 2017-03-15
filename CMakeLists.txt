@@ -855,6 +855,7 @@ endif()
 
 include(ArangoDBInstall)
 if (NOT(SKIP_PACKAGING))
+  set(CLIENT_BUILD_DIR "${CMAKE_BINARY_DIR}/client") # required by cmake/packages/nsis.cmake
   include(packages/packages)
 endif()
 

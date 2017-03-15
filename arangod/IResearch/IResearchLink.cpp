@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -22,100 +21,207 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "IResearchLink.h"
-#include "IResearchView.h"
-#include "IResearchDocument.h"
-
+#include "StorageEngine/TransactionState.h"
+#include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
 
-namespace arangodb {
-namespace iresearch {
+#include "IResearchLink.h"
+
+NS_LOCAL
+
+static const std::string VIEW_NAME_FIELD("name");
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief return a reference to a static VPackSlice of an empty index definition
+////////////////////////////////////////////////////////////////////////////////
+VPackSlice const& emptyParentSlice() {
+  static const struct EmptySlice {
+    VPackBuilder _builder;
+    VPackSlice _slice;
+    EmptySlice() {
+      VPackBuilder fieldsBuilder;
+
+      fieldsBuilder.openArray();
+      fieldsBuilder.close(); // empty array
+      _builder.openObject();
+      _builder.add("fields", fieldsBuilder.slice()); // empty array
+      _builder.close(); // object with just one field required by the Index constructor
+      _slice = _builder.slice();
+    }
+  } emptySlice;
+
+  return emptySlice._slice;
+}
+
+NS_END
+
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 IResearchLink::IResearchLink(
-    TRI_idx_iid_t iid,
-    arangodb::LogicalCollection* collection,
-    VPackSlice const& info,
-    IResearchLinkMeta&& meta)
-  : Index(iid, collection, info),
-    _meta(std::move(meta)) {
-  _unique = false; // always non unique
+  TRI_idx_iid_t iid,
+  arangodb::LogicalCollection* collection,
+  IResearchLinkMeta&& meta,
+  IResearchView::ptr view
+) : Index(iid, collection, emptyParentSlice()),
+    _meta(std::move(meta)),
+    _view(std::move(view)) {
+  _unique = false; // cannot be unique since multiple fields are indexed
   _sparse = true;  // always sparse
 }
 
-char const* IResearchLink::typeName() const { 
-  return "IResearch";
+bool IResearchLink::allowExpansion() const {
+  return true; // maps to multivalued
 }
 
-size_t IResearchLink::memory() const {
-  // TODO
-  return 0;
+bool IResearchLink::canBeDropped() const {
+  return true; // valid for a link to be dropped from an iResearch view
 }
 
-void IResearchLink::toVelocyPack(VPackBuilder& builder, bool withFigures) const {
-  Index::toVelocyPack(builder, withFigures);
-  builder.add("unique", VPackValue(_unique));
-  builder.add("sparse", VPackValue(_sparse));
-  _meta.json(builder);
+int IResearchLink::drop() {
+  if (!_collection || !_view) {
+    return TRI_ERROR_ARANGO_COLLECTION_NOT_LOADED; // '_collection' and '_view' required
+  }
+
+  return _view->drop(_collection->cid());
 }
 
-void IResearchLink::toVelocyPackFigures(VPackBuilder& builder) const {
-  TRI_ASSERT(builder.isOpenObject());
-  builder.add("memory", VPackValue(this->memory()));
-}
-
-bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
+bool IResearchLink::hasBatchInsert() const {
+  // TODO: should be true, need to implement such functionality in IResearch
   return false;
+}
+
+bool IResearchLink::hasSelectivityEstimate() const {
+  return false; // selectivity can only be determined per query since multiple fields are indexed
 }
 
 int IResearchLink::insert(
-    transaction::Methods* trx,
-    TRI_voc_rid_t rid,
-    arangodb::velocypack::Slice const& doc,
-    bool isRollback) {
-  return TRI_ERROR_NO_ERROR; //_view->insert(&fld, &fld + 1, &pk, &pk + 1);
+  transaction::Methods* trx,
+  TRI_voc_rid_t rid,
+  VPackSlice const& doc,
+  bool isRollback
+) {
+  if (!_collection || !_view) {
+    return TRI_ERROR_ARANGO_COLLECTION_NOT_LOADED; // '_collection' and '_view' required
+  }
+
+  if (!trx || !trx->state()) {
+    return TRI_ERROR_BAD_PARAMETER; // 'trx' and transaction state required
+  }
+
+  auto trxState = trx->state();
+
+  if (!trxState) {
+    return TRI_ERROR_BAD_PARAMETER; // transaction state required
+  }
+
+  return _view->insert(trxState->id(), _collection->cid(), rid, doc, _meta);
+}
+
+bool IResearchLink::isPersistent() const {
+  return true; // records persisted into the iResearch view
+}
+
+bool IResearchLink::isSorted() const {
+  return false; // iResearch does not provide a fixed default sort order
+}
+
+bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
+  if (slice.hasKey(VIEW_NAME_FIELD)) {
+    if (!_view) {
+      return false; // slice has 'name' but the current object does not
+    }
+
+    auto name = slice.get(VIEW_NAME_FIELD);
+    VPackValueLength nameLength;
+    auto nameValue = slice.getString(nameLength);
+    irs::string_ref sliceName(nameValue, nameLength);
+
+    if (sliceName != _view->name()) {
+      return false; // iResearch View names of current object and slice do nto match
+    }
+  } else if (_view) {
+    return false; // slice has no 'name' but the current object does
+  }
+
+  IResearchLinkMeta other;
+  std::string errorField;
+
+  return other.init(slice, errorField) && _meta == other;
+}
+
+size_t IResearchLink::memory() const {
+  auto size = sizeof(IResearchLink); // includes empty members from parent
+
+  size += _meta.memory();
+
+  if (_view) {
+    // <iResearch View size> / <number of link instances>
+    size += _view->memory() / std::max(size_t(1), _view->linkCount());
+  }
+
+  return size;
 }
 
 int IResearchLink::remove(
-    transaction::Methods* trx,
-    TRI_voc_rid_t revId,
-    arangodb::velocypack::Slice const& doc,
-    bool isRollback) {
-  return TRI_ERROR_NO_ERROR;
+  transaction::Methods* trx,
+  TRI_voc_rid_t rid,
+  VPackSlice const& doc,
+  bool isRollback
+) {
+  if (!_collection || !_view) {
+    return TRI_ERROR_ARANGO_COLLECTION_NOT_LOADED; // '_collection' and '_view' required
+  }
+
+  if (!trx || !trx->state()) {
+    return TRI_ERROR_BAD_PARAMETER; // 'trx' and transaction state required
+  }
+
+  auto trxState = trx->state();
+
+  if (!trxState) {
+    return TRI_ERROR_BAD_PARAMETER; // transaction state required
+  }
+
+  // remove documents matching on cid and rid
+  return _view->remove(trx->state()->id(), _collection->cid(), rid);
+}
+
+void IResearchLink::toVelocyPack(VPackBuilder& builder, bool withFigures) const {
+  TRI_ASSERT(builder.isOpenObject());
+  bool success = _meta.json(builder);
+  TRI_ASSERT(success);
+
+  builder.add("id", VPackValue(std::to_string(_iid)));
+  builder.add("type", VPackValue(typeName()));
+
+  if (_view) {
+    builder.add(VIEW_NAME_FIELD, VPackValue(_view->name()));
+  }
+
+  if (withFigures) {
+    VPackBuilder figuresBuilder;
+
+    figuresBuilder.openObject();
+    toVelocyPackFigures(figuresBuilder);
+    figuresBuilder.close();
+    figuresBuilder.add("figures", figuresBuilder.slice());
+  }
+}
+
+Index::IndexType IResearchLink::type() const {
+  // TODO: don't use enum
+  return Index::TRI_IDX_TYPE_IRESEARCH_LINK;
+}
+
+char const* IResearchLink::typeName() const {
+  return "iresearch";
 }
 
 int IResearchLink::unload() {
-  // does nothing
+  _view.reset(); // release reference to the iresearch View
+
   return TRI_ERROR_NO_ERROR;
-}
-
-int IResearchLink::cleanup() {
-  return TRI_ERROR_NO_ERROR;
-}
-
-/// @brief checks whether the index supports the condition
-bool IResearchLink::supportsFilterCondition(
-    arangodb::aql::AstNode const* node,
-    arangodb::aql::Variable const* reference,
-    size_t itemsInIndex,
-    size_t& estimatedItems,
-    double& estimatedCost) const {
-  return false;
-}
-
-/// @brief creates an IndexIterator for the given Condition
-IndexIterator* IResearchLink::iteratorForCondition(
-    transaction::Methods* trx,
-    ManagedDocumentResult* mmdr,
-    arangodb::aql::AstNode const* node,
-    arangodb::aql::Variable const* reference, bool) const {
-  return nullptr;
-}
-
-/// @brief specializes the condition for use with the index
-arangodb::aql::AstNode* IResearchLink::specializeCondition(
-    arangodb::aql::AstNode* node,
-    arangodb::aql::Variable const* reference) const {
-  return nullptr;
 }
 
 int EnhanceJsonIResearchLink(
@@ -153,20 +259,40 @@ int EnhanceJsonIResearchLink(
 }
 
 IResearchLink::ptr createIResearchLink(
-    TRI_idx_iid_t iid,
-    arangodb::LogicalCollection* collection,
-    VPackSlice const& info) noexcept {
+  TRI_idx_iid_t iid,
+  arangodb::LogicalCollection* collection,
+  VPackSlice const& info
+) noexcept {
   // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
+
+  IResearchView::ptr view;
+
+  if (info.hasKey(VIEW_NAME_FIELD)) {
+    auto name = info.get(VIEW_NAME_FIELD);
+    VPackValueLength nameLength;
+    auto nameValue = info.getString(nameLength);
+    irs::string_ref viewName(nameValue, nameLength);
+
+    view = IResearchView::find(viewName);
+  }
+
+  if (!view) {
+    TRI_set_errno(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+
+    return nullptr; // no view to link with
+  }
 
   std::string error;
   IResearchLinkMeta meta;
 
   try {
     if (!meta.init(info, error)) {
-      return nullptr;
+      TRI_set_errno(TRI_ERROR_BAD_PARAMETER);
+
+      return nullptr; // failed to parse metadata
     }
 
-    return std::make_shared<IResearchLink>(iid, collection, info, std::move(meta));
+    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), view);
   } catch (std::exception const& e) {
     LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
   } catch (...) {
@@ -176,5 +302,9 @@ IResearchLink::ptr createIResearchLink(
   return nullptr;
 }
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
+
+// -----------------------------------------------------------------------------
+// --SECTION--                                                       END-OF-FILE
+// -----------------------------------------------------------------------------
