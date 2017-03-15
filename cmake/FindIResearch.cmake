@@ -31,7 +31,7 @@ endif()
 
 if (NOT EXISTS "${CMAKE_SOURCE_DIR}/3rdParty/iresearch/README.md" AND NOT EXISTS "${IRESEARCH_ROOT}")
   execute_process(
-    COMMAND git submodule update --init --recursive -- "3rdParty/iresearch"
+    COMMAND git submodule update --init --remote --recursive -- "3rdParty/iresearch"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   )
 endif()
