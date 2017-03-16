@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -26,111 +25,107 @@
 #define ARANGOD_IRESEARCH__IRESEARCH_LINK_H 1
 
 #include "IResearchLinkMeta.h"
+#include "IResearchView.h"
 
 #include "Indexes/Index.h"
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
-class IResearchView;
-
-class IResearchLink final : public Index {
+class IResearchLink final: public Index {
  public:
   typedef std::shared_ptr<IResearchLink> ptr;
 
   IResearchLink(
     TRI_idx_iid_t iid,
     arangodb::LogicalCollection* collection,
-    VPackSlice const& info,
-    IResearchLinkMeta&& meta
+    IResearchLinkMeta&& meta,
+    IResearchView::ptr view
   );
 
-  IndexType type() const override {
-    // TODO: don't use enum
-    return Index::TRI_IDX_TYPE_IRESEARCH_LINK;
-  }
+  bool allowExpansion() const override;
+  bool canBeDropped() const override;
 
-  char const* typeName() const;
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called when the iResearch Link is dropped
+  ////////////////////////////////////////////////////////////////////////////////
+  int drop() override;
 
-  bool isPersistent() const override { return true; }
+  bool hasBatchInsert() const override;
+  bool hasSelectivityEstimate() const override;
 
-  // maps to multivalued
-  bool allowExpansion() const override { return true; }
-
-  bool canBeDropped() const override { return true; }
-
-  bool isSorted() const override { return false; }
-
-  bool hasSelectivityEstimate() const override { return false; }
-
-  bool hasBatchInsert() const override {
-    // TODO: should be true, need to implement such functionality in IResearch
-    return false;
-  }
-
-  size_t memory() const override;
-
-  void toVelocyPack(VPackBuilder& builder, bool withFigures) const override;
-  void toVelocyPackFigures(VPackBuilder& builder) const override;
-
-  bool matchesDefinition(VPackSlice const& slice) const override;
-
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief insert an ArangoDB document into an iResearch View using '_meta' params
+  ////////////////////////////////////////////////////////////////////////////////
   int insert(
     transaction::Methods* trx,
-    TRI_voc_rid_t revId,
-    arangodb::velocypack::Slice const& doc,
+    TRI_voc_rid_t rid,
+    VPackSlice const& doc,
     bool isRollback
   ) override;
 
+  bool isPersistent() const override;
+  bool isSorted() const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief index comparator, used by the coordinator to detect if the specified
+  ///        definition is the same as this link
+  ////////////////////////////////////////////////////////////////////////////////
+  bool matchesDefinition(VPackSlice const& slice) const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief amount of memory in bytes occupied by this iResearch Link
+  ////////////////////////////////////////////////////////////////////////////////
+  size_t memory() const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief remove an ArangoDB document from an iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
   int remove(
     transaction::Methods* trx,
-    TRI_voc_rid_t revId,
-    arangodb::velocypack::Slice const& doc,
+    TRI_voc_rid_t rid,
+    VPackSlice const& doc,
     bool isRollback
   ) override;
 
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief fill and return a JSON description of a IResearchLink object
+  /// @param withFigures output 'figures' section with e.g. memory size
+  ////////////////////////////////////////////////////////////////////////////////
+  void toVelocyPack(VPackBuilder& builder, bool withFigures) const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief iResearch Link index type enum value
+  ////////////////////////////////////////////////////////////////////////////////
+  IndexType type() const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief iResearch Link index type string value
+  ////////////////////////////////////////////////////////////////////////////////
+  char const* typeName() const;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called when the iResearch Link is unloaded from memory
+  ////////////////////////////////////////////////////////////////////////////////
   int unload() override;
 
-  int cleanup() override;
-
-  bool supportsFilterCondition(
-    arangodb::aql::AstNode const* node,
-    arangodb::aql::Variable const* reference,
-    size_t itemsInIndex,
-    size_t& estimatedItems,
-    double& estimatedCost
-  ) const override;
-
-  virtual IndexIterator* iteratorForCondition(
-    transaction::Methods* trx,
-    ManagedDocumentResult* mmdr,
-    arangodb::aql::AstNode const* node,
-    arangodb::aql::Variable const* reference,
-    bool
-  ) const override;
-
-  /// @brief specializes the condition for use with the index
-  arangodb::aql::AstNode* specializeCondition(
-      arangodb::aql::AstNode* node,
-      arangodb::aql::Variable const* reference
-  ) const override;
-
  private:
-  IResearchLinkMeta _meta;
-  IResearchView* _view;
+  IResearchLinkMeta _meta; // how this collection should be indexed
+  IResearchView::ptr _view; // effectively the index itself
 }; // IResearchLink
 
 int EnhanceJsonIResearchLink(
   VPackSlice const definition,
   VPackBuilder& builder,
-  bool create) noexcept;
+  bool create
+) noexcept;
 
 IResearchLink::ptr createIResearchLink(
   TRI_idx_iid_t iid,
   arangodb::LogicalCollection* collection,
-  VPackSlice const& info) noexcept;
+  VPackSlice const& info
+) noexcept;
 
-} // iresearch
-} // arangodb
-
+NS_END // iresearch
+NS_END // arangodb
 #endif

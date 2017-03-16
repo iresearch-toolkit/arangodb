@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -22,7 +21,11 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "IResearchView.h"
+#include "formats/formats.hpp"
+
+//#include "IResearchAttributeIterator.h"
+//#include "IResearchFieldIterator.h"
+#include "IResearchLink.h"
 
 #include "VocBase/LogicalCollection.h"
 
@@ -38,7 +41,7 @@
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
 
-#include "formats/formats.hpp"
+#include "IResearchView.h"
 
 using namespace arangodb::iresearch;
 
@@ -231,6 +234,52 @@ void IndexStore::close() noexcept {
   _dir->close();
 }
 
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
+
+int IResearchView::drop() {
+  return 0; // FIXME TODO
+}
+
+int IResearchView::drop(TRI_voc_cid_t cid) {
+  //auto filter = IResearchFieldIterator::filter(cid);
+  // remove link from known links
+  return 0; // FIXME TODO
+}
+
+/*static*/ IResearchView::ptr IResearchView::find(
+  irs::string_ref name
+) noexcept {
+  return nullptr; // FIXME TODO
+}
+
+std::string const& IResearchView::name() const noexcept {
+  return ""; // FIXME TODO
+}
+
+int IResearchView::insert(
+  TRI_voc_tid_t tid,
+  TRI_voc_cid_t cid,
+  TRI_voc_rid_t rid,
+  arangodb::velocypack::Slice const& doc,
+  IResearchLinkMeta const& meta
+) {
+  //IResearchAttributeIterator attrBegin(cid, rid, doc, meta);
+  //IResearchAttributeIterator attrEnd();
+  //IResearchFieldIterator fieldsBegin(doc, meta);
+  //IResearchFieldIterator fieldsEnd();
+
+  return 0; // FIXME TODO
+}
+
+size_t IResearchView::linkCount() const noexcept {
+  return _links.size(); // FIXME TODO lock too
+}
+
+size_t IResearchView::memory() const {
+  return 0;  // FIXME TODO
+}
+
 bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) {
   std::string error; // TODO: should somehow push it to the caller
   IResearchViewMeta meta;
@@ -302,7 +351,18 @@ bool IResearchView::properties(VPackBuilder& props) const {
   return _meta.json(props);
 }
 
-bool IResearchView::drop() {
-  return false;
+int IResearchView::remove(
+  TRI_voc_tid_t tid,
+  TRI_voc_cid_t cid,
+  TRI_voc_rid_t rid
+) {
+  //auto filter = IResearchFieldIterator::filter(cid, rid);
+  return 0; // FIXME TODO
 }
 
+NS_END // iresearch
+NS_END // arangodb
+
+// -----------------------------------------------------------------------------
+// --SECTION--                                                       END-OF-FILE
+// -----------------------------------------------------------------------------
