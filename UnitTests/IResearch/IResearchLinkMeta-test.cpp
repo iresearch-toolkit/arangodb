@@ -83,7 +83,7 @@ BOOST_AUTO_TEST_CASE(test_defaults) {
   BOOST_CHECK_EQUAL(true, meta._fields.empty());
   BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::MULTIVALUED, meta._listValuation);
   BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(meta._locale));
-  BOOST_CHECK_EQUAL(1, meta._tokenizers.size());
+  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
   BOOST_CHECK_EQUAL("identity", meta._tokenizers.begin()->first);
   BOOST_CHECK_EQUAL("", meta._tokenizers.begin()->second.first);
   BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->second.second);
@@ -112,24 +112,24 @@ BOOST_AUTO_TEST_CASE(test_inheritDefaults) {
   auto json = arangodb::velocypack::Parser::fromJson("{}");
   BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString, defaults));
   BOOST_CHECK_EQUAL(3.14f, meta._boost);
-  BOOST_CHECK_EQUAL(42, meta._depth);
-  BOOST_CHECK_EQUAL(1, meta._fields.size());
+  BOOST_CHECK_EQUAL(42U, meta._depth);
+  BOOST_CHECK_EQUAL(1U, meta._fields.size());
 
   for (auto& field: meta._fields) {
-    BOOST_CHECK_EQUAL(1, expectedFields.erase(field.first));
-    BOOST_CHECK_EQUAL(1, field.second._fields.size());
+    BOOST_CHECK_EQUAL(1U, expectedFields.erase(field.first));
+    BOOST_CHECK_EQUAL(1U, field.second._fields.size());
 
     for (auto& fieldOverride: field.second._fields) {
       auto& actual = fieldOverride.second;
-      BOOST_CHECK_EQUAL(1, expectedOverrides.erase(fieldOverride.first));
+      BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.first));
 
       if ("xyz" == fieldOverride.first) {
-        BOOST_CHECK_EQUAL(1., actual._boost);
+        BOOST_CHECK_EQUAL(1.f, actual._boost);
         BOOST_CHECK_EQUAL(std::numeric_limits<size_t>::max(), actual._depth);
         BOOST_CHECK_EQUAL(true, actual._fields.empty());
         BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::MULTIVALUED, actual._listValuation);
         BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(actual._locale));
-        BOOST_CHECK_EQUAL(1, actual._tokenizers.size());
+        BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
         BOOST_CHECK_EQUAL("identity", actual._tokenizers.begin()->first);
         BOOST_CHECK_EQUAL("", actual._tokenizers.begin()->second.first);
         BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->second.second);
@@ -142,7 +142,7 @@ BOOST_AUTO_TEST_CASE(test_inheritDefaults) {
   BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::ORDERED, meta._listValuation);
   BOOST_CHECK_EQUAL(std::string("ru"), irs::locale_utils::name(meta._locale));
 
-  BOOST_CHECK_EQUAL(1, meta._tokenizers.size());
+  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
   BOOST_CHECK_EQUAL("empty", meta._tokenizers.begin()->first);
   BOOST_CHECK_EQUAL("en", meta._tokenizers.begin()->second.first);
   BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->second.second);
@@ -154,12 +154,12 @@ BOOST_AUTO_TEST_CASE(test_readDefaults) {
   std::string tmpString;
 
   BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString));
-  BOOST_CHECK_EQUAL(1., meta._boost);
+  BOOST_CHECK_EQUAL(1.f, meta._boost);
   BOOST_CHECK_EQUAL(std::numeric_limits<size_t>::max(), meta._depth);
   BOOST_CHECK_EQUAL(true, meta._fields.empty());
   BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::MULTIVALUED, meta._listValuation);
   BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(meta._locale));
-  BOOST_CHECK_EQUAL(1, meta._tokenizers.size());
+  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
   BOOST_CHECK_EQUAL("identity", meta._tokenizers.begin()->first);
   BOOST_CHECK_EQUAL("", meta._tokenizers.begin()->second.first);
   BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->second.second);
@@ -198,47 +198,47 @@ BOOST_AUTO_TEST_CASE(test_readCustomizedValues) {
       \"tokenizers\": { \"empty\": [\"en\"], \"identity\": [\"\"] } \
     }");
     BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString));
-    BOOST_CHECK_EQUAL(10., meta._boost);
-    BOOST_CHECK_EQUAL(20, meta._depth);
-    BOOST_CHECK_EQUAL(3, meta._fields.size());
+    BOOST_CHECK_EQUAL(10.f, meta._boost);
+    BOOST_CHECK_EQUAL(20U, meta._depth);
+    BOOST_CHECK_EQUAL(3U, meta._fields.size());
 
     for (auto& field: meta._fields) {
-      BOOST_CHECK_EQUAL(1, expectedFields.erase(field.first));
+      BOOST_CHECK_EQUAL(1U, expectedFields.erase(field.first));
 
       for (auto& fieldOverride: field.second._fields) {
         auto& actual = fieldOverride.second;
 
-        BOOST_CHECK_EQUAL(1, expectedOverrides.erase(fieldOverride.first));
+        BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.first));
 
         if ("default" == fieldOverride.first) {
-          BOOST_CHECK_EQUAL(1., actual._boost);
-          BOOST_CHECK_EQUAL(0, actual._depth);
+          BOOST_CHECK_EQUAL(1.f, actual._boost);
+          BOOST_CHECK_EQUAL(0U, actual._depth);
           BOOST_CHECK_EQUAL(true, actual._fields.empty());
           BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::MULTIVALUED, actual._listValuation);
           BOOST_CHECK_EQUAL(std::string("C"), iresearch::locale_utils::name(actual._locale));
-          BOOST_CHECK_EQUAL(1, actual._tokenizers.size());
+          BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
           BOOST_CHECK_EQUAL("identity", actual._tokenizers.begin()->first);
           BOOST_CHECK_EQUAL("", actual._tokenizers.begin()->second.first);
           BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->second.second);
         } else if ("all" == fieldOverride.first) {
           BOOST_CHECK_EQUAL(11., actual._boost);
-          BOOST_CHECK_EQUAL(21, actual._depth);
-          BOOST_CHECK_EQUAL(2, actual._fields.size());
+          BOOST_CHECK_EQUAL(21U, actual._depth);
+          BOOST_CHECK_EQUAL(2U, actual._fields.size());
           BOOST_CHECK_EQUAL(true, actual._fields.find("d") != actual._fields.end());
           BOOST_CHECK_EQUAL(true, actual._fields.find("e") != actual._fields.end());
           BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::IGNORED, actual._listValuation);
           BOOST_CHECK_EQUAL(std::string("en_US.UTF-8"), irs::locale_utils::name(actual._locale));
-          BOOST_CHECK_EQUAL(1, actual._tokenizers.size());
+          BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
           BOOST_CHECK_EQUAL("empty", actual._tokenizers.begin()->first);
           BOOST_CHECK_EQUAL("en", actual._tokenizers.begin()->second.first);
           BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->second.second);
         } else if ("some" == fieldOverride.first) {
           BOOST_CHECK_EQUAL(12., actual._boost);
-          BOOST_CHECK_EQUAL(20, actual._depth); // inherited
+          BOOST_CHECK_EQUAL(20U, actual._depth); // inherited
           BOOST_CHECK_EQUAL(true, actual._fields.empty()); // not inherited
           BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::ORDERED, actual._listValuation);
           BOOST_CHECK_EQUAL(std::string("ru_RU.UTF-8"), irs::locale_utils::name(actual._locale)); // inherited
-          BOOST_CHECK_EQUAL(2, actual._tokenizers.size());
+          BOOST_CHECK_EQUAL(2U, actual._tokenizers.size());
           auto itr = actual._tokenizers.begin();
           BOOST_CHECK_EQUAL("empty", itr->first);
           BOOST_CHECK_EQUAL("en", itr->second.first);
@@ -249,7 +249,7 @@ BOOST_AUTO_TEST_CASE(test_readCustomizedValues) {
           BOOST_CHECK_EQUAL(false, !itr->second.second);
         } else if ("none" == fieldOverride.first) {
           BOOST_CHECK_EQUAL(10., actual._boost); // inherited
-          BOOST_CHECK_EQUAL(20, actual._depth); // inherited
+          BOOST_CHECK_EQUAL(20U, actual._depth); // inherited
           BOOST_CHECK_EQUAL(true, actual._fields.empty()); // not inherited
           BOOST_CHECK_EQUAL(arangodb::iresearch::ListValuation::IGNORED, actual._listValuation); // inherited
           BOOST_CHECK_EQUAL(std::string("ru_RU.UTF-8"), irs::locale_utils::name(actual._locale)); // inherited
@@ -289,7 +289,7 @@ BOOST_AUTO_TEST_CASE(test_writeDefaults) {
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6, slice.length());
+  BOOST_CHECK_EQUAL(6U, slice.length());
   tmpSlice = slice.get("boost");
   BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 1. == tmpSlice.getDouble());
   tmpSlice = slice.get("depth");
@@ -343,7 +343,7 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
   meta._fields["c"]._fields["some"] = meta._fields["c"]; // initialize with parent, override below
   meta._fields["c"]._fields["none"] = meta._fields["c"]; // initialize with parent
 
-  auto& overrideDefault = meta._fields["c"]._fields["default"];
+  //auto& overrideDefault = meta._fields["c"]._fields["default"];
   auto& overrideAll = meta._fields["c"]._fields["all"];
   auto& overrideSome = meta._fields["c"]._fields["some"];
   auto& overrideNone = meta._fields["c"]._fields["none"];
@@ -376,7 +376,7 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6, slice.length());
+  BOOST_CHECK_EQUAL(6U, slice.length());
   tmpSlice = slice.get("boost");
   BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 10. == tmpSlice.getDouble());
   tmpSlice = slice.get("depth");
@@ -400,10 +400,10 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
       auto fieldOverride = overrideItr.key();
       auto sliceOverride = overrideItr.value();
       BOOST_CHECK_EQUAL(true, fieldOverride.isString() && sliceOverride.isObject());
-      BOOST_CHECK_EQUAL(1, expectedOverrides.erase(fieldOverride.copyString()));
+      BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.copyString()));
 
       if ("default" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(5, sliceOverride.length());
+        BOOST_CHECK_EQUAL(5U, sliceOverride.length());
         tmpSlice = sliceOverride.get("boost");
         BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 1. == tmpSlice.getDouble());
         tmpSlice = sliceOverride.get("depth");
@@ -426,7 +426,7 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
         );
       } else if ("all" == fieldOverride.copyString()) {
         std::unordered_set<std::string> expectedFields = { "x", "y" };
-        BOOST_CHECK_EQUAL(6, sliceOverride.length());
+        BOOST_CHECK_EQUAL(6U, sliceOverride.length());
         tmpSlice = sliceOverride.get("boost");
         BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 11. == tmpSlice.getDouble());
         tmpSlice = sliceOverride.get("depth");
@@ -454,13 +454,13 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
           std::string("en") == tmpSlice.valueAt(0).at(0).copyString()
         );
       } else if ("some" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(2, sliceOverride.length());
+        BOOST_CHECK_EQUAL(2U, sliceOverride.length());
         tmpSlice = sliceOverride.get("depth");
         BOOST_CHECK_EQUAL(true, tmpSlice.isUInt() && 22 == tmpSlice.getUInt());
         tmpSlice = sliceOverride.get("listValuation");
         BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("multivalued") == tmpSlice.copyString());
       } else if ("none" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(0, sliceOverride.length());
+        BOOST_CHECK_EQUAL(0U, sliceOverride.length());
       }
     }
   }
@@ -539,7 +539,7 @@ BOOST_AUTO_TEST_CASE(test_writeMaskAll) {
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6, slice.length());
+  BOOST_CHECK_EQUAL(6U, slice.length());
   BOOST_CHECK_EQUAL(true, slice.hasKey("boost"));
   BOOST_CHECK_EQUAL(true, slice.hasKey("depth"));
   BOOST_CHECK_EQUAL(true, slice.hasKey("fields"));
@@ -557,7 +557,7 @@ BOOST_AUTO_TEST_CASE(test_writeMaskNone) {
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(0, slice.length());
+  BOOST_CHECK_EQUAL(0U, slice.length());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -53,6 +53,7 @@ if (USE_IRESEARCH)
     IResearch/IResearchFeature.cpp IResearch/IResearchFeature.h
     IResearch/IResearchDocument.cpp IResearch/IResearchDocument.h
     IResearch/ViewFeature.cpp IResearch/ViewFeature.h
+    IResearch/VelocyPackHelper.cpp IResearch/VelocyPackHelper.h
     IResearch/RestViewHandler.cpp
   )
 

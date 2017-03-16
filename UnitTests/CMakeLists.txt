@@ -84,6 +84,7 @@ if (USE_IRESEARCH)
     IResearch/Runner.cpp
     IResearch/IResearchLinkMeta-test.cpp
     IResearch/IResearchViewMeta-test.cpp
+    IResearch/VelocyPackHelper-test.cpp
   )
 
   target_include_directories(${TEST_IRESEARCH_SUITE}
@@ -95,6 +96,7 @@ if (USE_IRESEARCH)
     ${LIB_ARANGO_IRESEARCH}
     ${LIB_ARANGO}
     ${OPENSSL_LIBRARIES} # required by LIB_ARANGO
+    ${SYSTEM_LIBRARIES}
     zlibstatic # required by LIB_ARANGO
   )
 
