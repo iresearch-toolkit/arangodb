@@ -102,6 +102,30 @@ else()
     target_compile_definitions(boost_system PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
     target_compile_definitions(boost_system PUBLIC  "BOOST_ALL_NO_LIB=1")
 
+    if(MSVC)
+      list(APPEND BOOST_THREAD_PLATFORM_SRC
+        ${boost_src}/libs/thread/src/win32/thread.cpp
+        ${boost_src}/libs/thread/src/win32/tss_dll.cpp
+        ${boost_src}/libs/thread/src/win32/tss_pe.cpp
+      )
+    else()
+      list(APPEND BOOST_THREAD_PLATFORM_SRC
+        ${boost_src}/libs/thread/src/pthread/once.cpp
+        ${boost_src}/libs/thread/src/pthread/once_atomic.cpp
+        ${boost_src}/libs/thread/src/pthread/thread.cpp
+      )
+    endif()
+
+    #build boost_thread - add more source files as needed
+    add_library(boost_thread STATIC
+        ${boost_src}/libs/thread/src/future.cpp
+        ${boost_src}/libs/thread/src/tss_null.cpp
+        ${BOOST_THREAD_PLATFORM_SRC}
+    )
+    target_link_libraries(boost_thread PUBLIC boost_boost) #this will add required includes
+    target_compile_definitions(boost_thread PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_thread PUBLIC  "BOOST_ALL_NO_LIB=1")
+
     #set boost include path and add libraries to Boost_LIBRARIES variable
     #set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/1.61.0)
     #set(Boost_LIBRARIES boost_system)

@@ -94,6 +94,7 @@ if (USE_IRESEARCH)
   target_link_libraries(${TEST_IRESEARCH_SUITE}
     ${LIB_ARANGO_IRESEARCH}
     ${LIB_ARANGO}
+    ${CMAKE_THREAD_LIBS_INIT} # required by LIB_ARANGO
     ${OPENSSL_LIBRARIES} # required by LIB_ARANGO
     zlibstatic # required by LIB_ARANGO
   )
