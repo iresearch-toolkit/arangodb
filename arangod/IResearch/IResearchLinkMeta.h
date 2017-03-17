@@ -81,8 +81,6 @@ struct IResearchLinkMeta {
     };
 
     TokenizerPool(std::string const& name, std::string const& args);
-    TokenizerPool(TokenizerPool const& other);
-    TokenizerPool(TokenizerPool&& other) noexcept;
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
     std::string const& name() const noexcept;
@@ -97,7 +95,7 @@ struct IResearchLinkMeta {
 
     std::string const _args;
     std::string const _name;
-    mutable irs::unbounded_object_pool<Builder> _pool;
+    //mutable irs::unbounded_object_pool<Builder> _pool;
   };
 
   typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;

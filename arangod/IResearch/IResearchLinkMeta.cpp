@@ -176,17 +176,7 @@ size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& v
 
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
   std::string const& name, std::string const& args
-): _args(args), _name(name), _pool(DEFAULT_POOL_SIZE) {
-}
-
-IResearchLinkMeta::TokenizerPool::TokenizerPool(TokenizerPool const& other)
-  : _args(other._args), _name(other._name), _pool(other._pool.size()) {
-}
-
-IResearchLinkMeta::TokenizerPool::TokenizerPool(TokenizerPool&& other) noexcept
-  : _args(std::move(other._args)),
-    _name(std::move(other._name)),
-    _pool(std::move(other._pool)) {
+): _args(args), _name(name) { //, _pool(DEFAULT_POOL_SIZE) { FIXME
 }
 
 bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) const noexcept {
@@ -202,7 +192,8 @@ std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
 }
 
 irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::tokenizer() const {
-  return _pool.emplace(_name, _args);
+  return nullptr; // FIXME
+  //return _pool.emplace(_name, _args);
 }
 
 IResearchLinkMeta::IResearchLinkMeta()
