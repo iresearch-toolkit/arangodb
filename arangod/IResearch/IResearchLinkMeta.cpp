@@ -169,9 +169,24 @@ IResearchLinkMeta::Mask::Mask(bool mask /*= false*/) noexcept
   return irs::analysis::analyzers::get(name, args);
 }
 
+size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& value) const {
+  static irs::string_ref_hash_t hasher;
+  return hasher(value._name) ^ hasher(value._args);
+}
+
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
   std::string const& name, std::string const& args
 ): _args(args), _name(name), _pool(DEFAULT_POOL_SIZE) {
+}
+
+IResearchLinkMeta::TokenizerPool::TokenizerPool(TokenizerPool const& other)
+  : _args(other._args), _name(other._name), _pool(other._pool.size()) {
+}
+
+IResearchLinkMeta::TokenizerPool::TokenizerPool(TokenizerPool&& other) noexcept
+  : _args(std::move(other._args)),
+    _name(std::move(other._name)),
+    _pool(std::move(other._pool)) {
 }
 
 bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) const noexcept {
@@ -188,11 +203,6 @@ std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
 
 irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::tokenizer() const {
   return _pool.emplace(_name, _args);
-}
-
-size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& value) const {
-  static irs::string_ref_hash_t hasher;
-  return hasher(value._name) ^ hasher(value._args);
 }
 
 IResearchLinkMeta::IResearchLinkMeta()
