@@ -270,7 +270,9 @@ class ObjectIterator {
     return _stack.back();
   }
 
-  VPackSlice const& topValue() noexcept {
+  // it's important to return by value here
+  // since stack may grow
+  VPackSlice topValue() noexcept {
     return top().value().value;
   }
 
