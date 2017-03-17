@@ -418,6 +418,8 @@ if (USE_SSL)
   target_compile_definitions(${BIN_ARANGOD} PUBLIC "ARANGODB_SSL_ENABLED=1")
 endif()
 
+target_compile_definitions(${BIN_ARANGOD} PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
+
 target_link_libraries(${BIN_ARANGOD}
   ${LIB_ARANGO_FE}
   ${LIB_ARANGO_V8}
