@@ -17,6 +17,7 @@ else()
     message(STATUS "using 3rdParty BOOST")
     add_library(boost_boost INTERFACE)
     target_include_directories(boost_boost SYSTEM INTERFACE "${boost_src}")
+    target_compile_definitions(boost_boost PUBLIC "BOOST_ASIO_HEADER_ONLY=1")
 
     add_library(boost_filesystem STATIC
         ${boost_src}/libs/filesystem/src/codecvt_error_category.cpp
