@@ -28,7 +28,7 @@
 
 #include "search/filter.hpp"
 
-#include "Vocbase/voc-types.h"
+#include "VocBase/voc-types.h"
 
 NS_BEGIN(iresearch)
 

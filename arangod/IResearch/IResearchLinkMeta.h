@@ -81,6 +81,8 @@ struct IResearchLinkMeta {
     };
 
     TokenizerPool(std::string const& name, std::string const& args);
+    TokenizerPool(TokenizerPool const& other);
+    TokenizerPool(TokenizerPool&& other) noexcept;
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
     std::string const& name() const noexcept;
