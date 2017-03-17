@@ -29,6 +29,7 @@
 #include <mutex>
 
 #include "analysis/analyzer.hpp"
+#include "utils/object_pool.hpp"
 
 NS_BEGIN(arangodb)
 NS_BEGIN(velocypack)
@@ -64,27 +65,48 @@ namespace ListValuation {
 struct IResearchLinkMeta {
   struct Mask {
     bool _boost;
-    bool _depth;
     bool _fields;
+    bool _includeAllFields;
     bool _listValuation;
     bool _locale;
     bool _tokenizers;
     Mask(bool mask = false) noexcept;
   };
 
-  // name -> {args, ptr}
-  typedef std::multimap<std::string, std::pair<std::string, irs::analysis::analyzer::ptr>> Tokenizers;
+  // a thread-safe tokenizer pool
+  class TokenizerPool {
+   public:
+    struct Hash {
+      size_t operator()(TokenizerPool const& value) const;
+    };
+
+    TokenizerPool(std::string const& name, std::string const& args);
+    bool operator==(TokenizerPool const& other) const noexcept;
+    std::string const& args() const noexcept;
+    std::string const& name() const noexcept;
+    irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
+
+   private:
+    // wrapper for iResearch analyzer lookup, for use with irs::unbounded_object_pool
+    struct Builder {
+      typedef irs::analysis::analyzer::ptr ptr;
+      static ptr make(irs::string_ref const& name, irs::string_ref const& args);
+    };
+
+    std::string const _args;
+    std::string const _name;
+    mutable irs::unbounded_object_pool<Builder> _pool;
+  };
+
+  typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
 
   float_t _boost;
-  size_t _depth;
   std::map<std::string, IResearchLinkMeta> _fields;
+  bool _includeAllFields; // include all fields or only fields listed in '_fields'
   ListValuation::Type _listValuation;
-  std::mutex _mutex; // for use with _tokenizers
   std::locale _locale;
-  Tokenizers _tokenizers;
+  Tokenizers _tokenizers; // tokenizers to apply to every field
   // NOTE: if adding fields don't forget to modify the default constructor !!!
-  // NOTE: if adding fields don't forget to modify the copy constructor !!!
-  // NOTE: if adding fields don't forget to modify the move constructor !!!
   // NOTE: if adding fields don't forget to modify the copy assignment operator !!!
   // NOTE: if adding fields don't forget to modify the move assignment operator !!!
   // NOTE: if adding fields don't forget to modify the comparison operator !!!

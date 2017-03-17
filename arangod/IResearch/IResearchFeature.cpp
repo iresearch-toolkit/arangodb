@@ -36,7 +36,7 @@ using namespace arangodb::options;
 
 IResearchView s_view;
 
-IResearchFeature::IResearchFeature(application_features::ApplicationServer* server)
+IResearchFeature::IResearchFeature(arangodb::application_features::ApplicationServer* server)
     : ApplicationFeature(server, "IResearch") {
   setOptional(true);
   requiresElevatedPrivileges(false);
