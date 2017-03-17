@@ -440,7 +440,7 @@ std::shared_ptr<Index> MMFilesIndexFactory::prepareIndexFromSlice(
     }
 #ifdef USE_IRESEARCH
     case arangodb::Index::TRI_IDX_TYPE_IRESEARCH_LINK: {
-      newIdx = arangodb::iresearch::createIResearchLink(iid, col, info);
+      newIdx = arangodb::iresearch::IResearchLink::make(iid, col, info);
       break;
     }
 #endif
