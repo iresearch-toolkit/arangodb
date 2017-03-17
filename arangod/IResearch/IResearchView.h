@@ -28,21 +28,24 @@
 #include "IResearchViewMeta.h"
 #include "IResearchDocument.h"
 
-#include "Logger/LogMacros.h"
-#include "Logger/Logger.h"
-#include "Logger/LogLevel.h"
-
-#include "velocypack/velocypack-aliases.h"
-
 #include "store/memory_directory.hpp"
 #include "index/index_writer.hpp"
 #include "index/directory_reader.hpp"
+#include "utils/async_utils.hpp"
+
+NS_BEGIN(arangodb)
+NS_BEGIN(transaction)
+
+class Methods; // forward declaration
+
+NS_END // transaction
+NS_END // arangodb
 
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
 class IResearchLink; // forward declaration
-class IResearchLinkMeta; // forward declaration
+struct IResearchLinkMeta; // forward declaration
 
 class IndexStore {
  public:
@@ -94,7 +97,7 @@ class IResearchView /* : public ViewImpl */ {
   typedef std::shared_ptr<IResearchView> ptr;
   IResearchView() = default;
 
-  ////////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////
   /// @brief drop this iResearch View
   ///////////////////////////////////////////////////////////////////////////////
   int drop();
@@ -103,11 +106,6 @@ class IResearchView /* : public ViewImpl */ {
   /// @brief drop collection matching 'cid' from the iResearch View
   ////////////////////////////////////////////////////////////////////////////////
   int drop(TRI_voc_cid_t cid);
-
-  ////////////////////////////////////////////////////////////////////////////////
-  /// @brief find an iResearch collection matching 'cid' from the iResearch View
-  ////////////////////////////////////////////////////////////////////////////////
-  static ptr find(irs::string_ref name) noexcept;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief the name identifying the current iResearch View
@@ -119,6 +117,7 @@ class IResearchView /* : public ViewImpl */ {
   ///        to be done in the scope of transaction 'tid' and 'meta'
   ////////////////////////////////////////////////////////////////////////////////
   int insert(
+    TRI_voc_fid_t fid,
     TRI_voc_tid_t tid,
     TRI_voc_cid_t cid,
     TRI_voc_rid_t rid,
@@ -136,8 +135,25 @@ class IResearchView /* : public ViewImpl */ {
   ////////////////////////////////////////////////////////////////////////////////
   size_t memory() const;
 
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief Modify configuration parameters of the iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
+  bool modify(VPackSlice const& definition);
+
   bool properties(VPackSlice const& props, TRI_vocbase_t* vocbase);
   bool properties(arangodb::velocypack::Builder& props) const;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief query the iResearch View and return error code
+  ///        visitor: returns TRI_ERROR_NO_ERROR if no error, else stops iteration
+  /// @return error code and optionally write message to non-nullptr 'error'
+  ////////////////////////////////////////////////////////////////////////////////
+  int query(
+    std::function<int(arangodb::transaction::Methods const&, VPackSlice const&)> const& visitor,
+    arangodb::transaction::Methods& trx,
+    std::string const& query,
+    std::ostream* error = nullptr
+  );
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief remove documents matching 'cid' and 'rid' from the iResearch View
@@ -145,10 +161,44 @@ class IResearchView /* : public ViewImpl */ {
   ////////////////////////////////////////////////////////////////////////////////
   int remove(TRI_voc_tid_t tid, TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief wait for a flush of all index data to its respective stores
+  ////////////////////////////////////////////////////////////////////////////////
+  bool sync();
+
  private:
-  IResearchViewMeta _meta;
-  IndexStore _store;
+  template<typename Directory>
+  struct DataStore {
+    Directory _directory;
+    //irs::unbounded_object_pool<irs::directory_reader> _readerPool;
+    irs::index_writer::ptr _writer;
+
+    template<typename... Args>
+    DataStore(Args&&... args): _directory(std::forward<Args>(args)...) {
+      auto format = irs::formats::get("1_0");
+
+      // create writer before reader to ensure data directory is present
+      _writer = irs::index_writer::make(_directory, format, irs::OM_CREATE_APPEND);
+      _writer->commit(); // initialize 'store'
+    }
+  };
+
+  struct FidStore {
+    std::unordered_map<TRI_voc_fid_t, DataStore<irs::memory_directory>> _storeByFid;
+  };
+
+  struct TidStore: public FidStore {
+    std::mutex _mutex; // for use with '_removals'
+    std::vector<std::shared_ptr<irs::filter>> _removals; // removal filters to be applied to during merge
+  };
+
   std::unordered_set<std::shared_ptr<IResearchLink>> _links;
+  IResearchViewMeta _meta;
+  mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets
+  std::unordered_map<TRI_voc_tid_t, TidStore> _storeByTid;
+  FidStore _storeByWalFid;
+  DataStore<irs::memory_directory> _storePersisted;
+  irs::async_utils::thread_pool _threadPool;
 };
 
 NS_END // iresearch
