@@ -17,7 +17,6 @@ else()
     message(STATUS "using 3rdParty BOOST")
     add_library(boost_boost INTERFACE)
     target_include_directories(boost_boost SYSTEM INTERFACE "${boost_src}")
-    target_compile_definitions(boost_boost PUBLIC "BOOST_ASIO_HEADER_ONLY=1")
 
     add_library(boost_filesystem STATIC
         ${boost_src}/libs/filesystem/src/codecvt_error_category.cpp
@@ -31,6 +30,7 @@ else()
     )
     target_link_libraries(boost_filesystem PUBLIC boost_boost) #this will add required includes
     target_compile_definitions(boost_filesystem PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_filesystem PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
     target_compile_definitions(boost_filesystem PUBLIC  "BOOST_ALL_NO_LIB=1")
 
     if(MSVC)
@@ -89,6 +89,7 @@ else()
     target_link_libraries(boost_locale PUBLIC boost_boost) #this will add required includes
     target_include_directories(boost_locale PRIVATE ${ICU_INCLUDE_DIR})
     target_compile_definitions(boost_locale PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_locale PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
     target_compile_definitions(boost_locale PUBLIC  "BOOST_ALL_NO_LIB=1")
 
     foreach(ELEMENT ${BOOST_LOCALE_PLATFORM_DEFINE})
@@ -101,6 +102,7 @@ else()
     )
     target_link_libraries(boost_system PUBLIC boost_boost) #this will add required includes
     target_compile_definitions(boost_system PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_system PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
     target_compile_definitions(boost_system PUBLIC  "BOOST_ALL_NO_LIB=1")
 
     if(MSVC)
@@ -125,6 +127,7 @@ else()
     )
     target_link_libraries(boost_thread PUBLIC boost_boost) #this will add required includes
     target_compile_definitions(boost_thread PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_thread PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
     target_compile_definitions(boost_thread PUBLIC  "BOOST_ALL_NO_LIB=1")
 
     #set boost include path and add libraries to Boost_LIBRARIES variable
