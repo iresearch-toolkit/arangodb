@@ -21,14 +21,23 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "Logger/Logger.h"
+#include "Logger/LogMacros.h"
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
+#include "Utils/SingleCollectionTransaction.h"
+#include "Utils/StandaloneTransactionContext.h"
 #include "VocBase/LogicalCollection.h"
+#include "VocBase/PhysicalCollection.h"
 
 #include "IResearchLink.h"
 
 NS_LOCAL
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the name of the field in the iResearch Link definition denoting the
+///        corresponding iResearch View
+////////////////////////////////////////////////////////////////////////////////
 static const std::string VIEW_NAME_FIELD("name");
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -115,7 +124,9 @@ int IResearchLink::insert(
     return TRI_ERROR_BAD_PARAMETER; // transaction state required
   }
 
-  return _view->insert(trxState->id(), _collection->cid(), rid, doc, _meta);
+  TRI_voc_fid_t fid = 0; // FIXME TODO find proper fid
+
+  return _view->insert(fid, trxState->id(), _collection->cid(), rid, doc, _meta);
 }
 
 bool IResearchLink::isPersistent() const {
@@ -124,6 +135,65 @@ bool IResearchLink::isPersistent() const {
 
 bool IResearchLink::isSorted() const {
   return false; // iResearch does not provide a fixed default sort order
+}
+
+/*static*/ IResearchLink::ptr IResearchLink::make(
+  TRI_idx_iid_t iid,
+  arangodb::LogicalCollection* collection,
+  VPackSlice const& definition
+) noexcept {  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
+  try {
+    IResearchView::ptr view;
+    std::string viewName;
+
+    if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
+      auto name = definition.get(VIEW_NAME_FIELD);
+      auto vocbase = collection->vocbase();
+
+      if (vocbase && name.isString()) {
+        viewName = definition.copyString();
+
+        auto logicalView = vocbase->lookupCollection(viewName); // search for view in same vocbase
+
+        if (logicalView) {
+          auto physicalView = logicalView->getPhysical();
+
+          if (physicalView && typeid(physicalView) == typeid(IResearchView)) {
+            // TODO FIXME find a better way to look up an iResearch View
+            view.reset(
+              reinterpret_cast<IResearchView*>(physicalView),
+              [](IResearchView*)->void{}
+            );
+          }
+        }
+      }
+    }
+
+    if (!view) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "error finding view: " << viewName;
+      TRI_set_errno(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+
+      return nullptr; // no view to link with
+    }
+
+    std::string error;
+    IResearchLinkMeta meta;
+
+    if (!meta.init(definition, error)) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "error parsing view link parameters from json: " << error;
+      TRI_set_errno(TRI_ERROR_BAD_PARAMETER);
+
+      return nullptr; // failed to parse metadata
+    }
+
+    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), view);
+  } catch (std::exception const& e) {
+    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link";
+  }
+
+  return nullptr;
 }
 
 bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
@@ -219,87 +289,38 @@ char const* IResearchLink::typeName() const {
 }
 
 int IResearchLink::unload() {
-  _view.reset(); // release reference to the iresearch View
+  _view.reset(); // release reference to the iResearch View
 
   return TRI_ERROR_NO_ERROR;
 }
 
 int EnhanceJsonIResearchLink(
-    VPackSlice const definition,
-    VPackBuilder& builder,
-    bool create) noexcept {
-  if (definition.isNone()) {
-    return TRI_ERROR_BAD_PARAMETER;
-  }
-
-  std::string error;
-  IResearchLinkMeta meta;
-
-  if (!meta.init(definition, error)) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error parsing view link parameters from json: " << error;
-
-    return TRI_ERROR_BAD_PARAMETER;
-  }
-
-  int res = TRI_ERROR_NO_ERROR;
-
-  try {
-    res = meta.json(builder) ? TRI_ERROR_NO_ERROR : TRI_ERROR_BAD_PARAMETER;
-  } catch (std::exception const& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error serializaing view link parameters to json: " << e.what();
-
-    return TRI_ERROR_BAD_PARAMETER;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error serializaing view link parameters to json";
-
-    return TRI_ERROR_BAD_PARAMETER;
-  }
-
-  return res;
-}
-
-IResearchLink::ptr createIResearchLink(
-  TRI_idx_iid_t iid,
-  arangodb::LogicalCollection* collection,
-  VPackSlice const& info
+  VPackSlice const definition,
+  VPackBuilder& builder,
+  bool create
 ) noexcept {
-  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
-
-  IResearchView::ptr view;
-
-  if (info.hasKey(VIEW_NAME_FIELD)) {
-    auto name = info.get(VIEW_NAME_FIELD);
-    VPackValueLength nameLength;
-    auto nameValue = info.getString(nameLength);
-    irs::string_ref viewName(nameValue, nameLength);
-
-    view = IResearchView::find(viewName);
-  }
-
-  if (!view) {
-    TRI_set_errno(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
-
-    return nullptr; // no view to link with
-  }
-
-  std::string error;
-  IResearchLinkMeta meta;
-
   try {
-    if (!meta.init(info, error)) {
-      TRI_set_errno(TRI_ERROR_BAD_PARAMETER);
+    std::string error;
+    IResearchLinkMeta meta;
 
-      return nullptr; // failed to parse metadata
+    if (!meta.init(definition, error)) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "error parsing view link parameters from json: " << error;
+
+      return TRI_ERROR_BAD_PARAMETER;
     }
 
-    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), view);
+    if (definition.hasKey(VIEW_NAME_FIELD)) {
+      builder.add(VIEW_NAME_FIELD, definition.get(VIEW_NAME_FIELD)); // copy over iResearch View name
+    }
+
+    return meta.json(builder) ? TRI_ERROR_NO_ERROR : TRI_ERROR_BAD_PARAMETER;
   } catch (std::exception const& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "error serializaing view link parameters to json: " << e.what();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link";
+    LOG_TOPIC(WARN, Logger::FIXME) << "error serializaing view link parameters to json";
   }
 
-  return nullptr;
+  return TRI_ERROR_INTERNAL;
 }
 
 NS_END // iresearch

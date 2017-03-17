@@ -68,6 +68,16 @@ class IResearchLink final: public Index {
   bool isSorted() const override;
 
   ////////////////////////////////////////////////////////////////////////////////
+  /// @brief create and initialize an iResearch View Link instance
+  /// @return nullptr on failure
+  ////////////////////////////////////////////////////////////////////////////////
+  static ptr make(
+    TRI_idx_iid_t iid,
+    arangodb::LogicalCollection* collection,
+    VPackSlice const& definition
+  ) noexcept;
+
+  ////////////////////////////////////////////////////////////////////////////////
   /// @brief index comparator, used by the coordinator to detect if the specified
   ///        definition is the same as this link
   ////////////////////////////////////////////////////////////////////////////////
@@ -114,16 +124,13 @@ class IResearchLink final: public Index {
   IResearchView::ptr _view; // effectively the index itself
 }; // IResearchLink
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief copy required fields from the 'definition' into the 'builder'
+////////////////////////////////////////////////////////////////////////////////
 int EnhanceJsonIResearchLink(
   VPackSlice const definition,
   VPackBuilder& builder,
   bool create
-) noexcept;
-
-IResearchLink::ptr createIResearchLink(
-  TRI_idx_iid_t iid,
-  arangodb::LogicalCollection* collection,
-  VPackSlice const& info
 ) noexcept;
 
 NS_END // iresearch
