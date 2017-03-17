@@ -23,12 +23,11 @@
 
 #include "formats/formats.hpp"
 
-//#include "IResearchAttributeIterator.h"
-//#include "IResearchFieldIterator.h"
+#include "IResearchFieldIterator.h"
 #include "IResearchLink.h"
 
 #include "VocBase/LogicalCollection.h"
-
+#include "Basics/files.h"
 #include "Basics/VelocyPackHelper.h"
 
 #include "Logger/Logger.h"
@@ -42,6 +41,47 @@
 #include <velocypack/velocypack-aliases.h>
 
 #include "IResearchView.h"
+
+NS_LOCAL
+
+typedef irs::async_utils::read_write_mutex::read_mutex ReadMutex;
+typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
+
+// stored ArangoDB document primary key
+class DocumentPrimaryKey {
+public:
+  DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
+
+  irs::string_ref const& name() const noexcept;
+  bool write(irs::data_output& out) const;
+
+private:
+  static irs::string_ref const _name; // stored column name
+  uint64_t _keys[2]; // TRI_voc_cid_t + TRI_voc_rid_t
+};
+
+irs::string_ref const DocumentPrimaryKey::_name("_pk");
+
+DocumentPrimaryKey::DocumentPrimaryKey(
+  TRI_voc_cid_t cid, TRI_voc_rid_t rid
+) noexcept: _keys{ cid, rid } {
+  static_assert(sizeof(_keys) == sizeof(cid) + sizeof(rid), "Invalid size");
+}
+
+irs::string_ref const& DocumentPrimaryKey::name() const noexcept {
+  return _name;
+}
+
+bool DocumentPrimaryKey::write(irs::data_output& out) const {
+  out.write_bytes(
+    reinterpret_cast<const irs::byte_type*>(_keys),
+    sizeof(_keys)
+  );
+
+  return true;
+}
+
+NS_END
 
 using namespace arangodb::iresearch;
 
@@ -238,46 +278,135 @@ NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
 int IResearchView::drop() {
-  return 0; // FIXME TODO
+  _threadPool.stop();
+
+  WriteMutex mutex(_mutex);
+
+  // ...........................................................................
+  // if an exception occurs below than a drop retry would most likely happen
+  // ...........................................................................
+  try {
+    for (auto& tidStore: _storeByTid) {
+      for (auto& fidStore: tidStore.second._storeByFid) {
+        fidStore.second._writer->close();
+        fidStore.second._directory.close();
+      }
+
+      SCOPED_LOCK(tidStore.second._mutex);
+      tidStore.second._removals.clear();
+    }
+
+    _storeByTid.clear();
+
+    for (auto& fidStore: _storeByWalFid._storeByFid) {
+      fidStore.second._writer->close();
+      fidStore.second._directory.close();
+    }
+
+    _storeByWalFid._storeByFid.clear();
+    _storePersisted._writer->close();
+    _storePersisted._directory.close();
+
+    return TRI_RemoveDirectory(_meta._dataPath.c_str());
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
 }
 
 int IResearchView::drop(TRI_voc_cid_t cid) {
-  //auto filter = IResearchFieldIterator::filter(cid);
-  // remove link from known links
-  return 0; // FIXME TODO
-}
+  auto filter = IResearchFieldIterator::filter(cid);
+  std::shared_ptr<irs::filter> shared_filter(std::move(filter));
+  ReadMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
+  SCOPED_LOCK(mutex);
 
-/*static*/ IResearchView::ptr IResearchView::find(
-  irs::string_ref name
-) noexcept {
-  return nullptr; // FIXME TODO
+  // ...........................................................................
+  // if an exception occurs below than a drop retry would most likely happen
+  // ...........................................................................
+  try {
+    for (auto& tidStore: _storeByTid) {
+      for (auto& fidStore : tidStore.second._storeByFid) {
+        fidStore.second._writer->remove(shared_filter);
+      }
+    }
+
+    for (auto& fidStore: _storeByWalFid._storeByFid) {
+      fidStore.second._writer->remove(shared_filter);
+    }
+
+    _storePersisted._writer->remove(shared_filter);
+
+    return TRI_ERROR_NO_ERROR;
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
 }
 
 std::string const& IResearchView::name() const noexcept {
-  return ""; // FIXME TODO
+  ReadMutex mutex(_mutex); // '_meta' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+
+  return _meta._name;
 }
 
 int IResearchView::insert(
+  TRI_voc_fid_t fid,
   TRI_voc_tid_t tid,
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid,
   arangodb::velocypack::Slice const& doc,
   IResearchLinkMeta const& meta
 ) {
-  //IResearchAttributeIterator attrBegin(cid, rid, doc, meta);
-  //IResearchAttributeIterator attrEnd();
-  //IResearchFieldIterator fieldsBegin(doc, meta);
-  //IResearchFieldIterator fieldsEnd();
+  DocumentPrimaryKey attribute(cid, rid);
+  auto begin = IResearchFieldIterator(cid, rid, doc, meta);
+  auto end = IResearchFieldIterator();
+  WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  auto& store = _storeByTid[tid]._storeByFid[fid];
 
-  return 0; // FIXME TODO
+  mutex.unlock(true); // downgrade to a read-lock
+
+  try {
+    if (store._writer->insert(end, end, &attribute, &attribute + 1)) {
+      return TRI_ERROR_NO_ERROR;
+    }
+
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
 }
 
 size_t IResearchView::linkCount() const noexcept {
-  return _links.size(); // FIXME TODO lock too
+  ReadMutex mutex(_mutex); // '_links' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+
+  return _links.size();
 }
 
 size_t IResearchView::memory() const {
   return 0;  // FIXME TODO
+}
+
+bool IResearchView::modify(VPackSlice const& definition) {
+  return false; // FIXME TODO
 }
 
 bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) {
@@ -351,13 +480,78 @@ bool IResearchView::properties(VPackBuilder& props) const {
   return _meta.json(props);
 }
 
+int IResearchView::query(
+  std::function<int(arangodb::transaction::Methods const&, VPackSlice const&)> const& visitor,
+  arangodb::transaction::Methods& trx,
+  std::string const& query,
+  std::ostream* error /*= nullptr*/
+) {
+  return 0; // FIXME TODO
+}
+
 int IResearchView::remove(
   TRI_voc_tid_t tid,
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  //auto filter = IResearchFieldIterator::filter(cid, rid);
-  return 0; // FIXME TODO
+  auto filter = IResearchFieldIterator::filter(cid, rid);
+  std::shared_ptr<irs::filter> shared_filter(std::move(filter));
+  WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  auto& store = _storeByTid[tid];
+
+  mutex.unlock(true); // downgrade to a read-lock
+
+  // ...........................................................................
+  // if an exception occurs below than the transaction is droped including all
+  // all of its fid stores, no impact to iResearch View data integrity
+  // ...........................................................................
+  try {
+    for (auto& fidStore: store._storeByFid) {
+      fidStore.second._writer->remove(shared_filter);
+    }
+
+    SCOPED_LOCK(store._mutex); // '_removals' can be asynchronously updated
+    store._removals.emplace_back(shared_filter);
+
+    return TRI_ERROR_NO_ERROR;
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
+}
+
+bool IResearchView::sync() {
+  ReadMutex mutex(_mutex);
+
+  try {
+    for (auto& tidStore: _storeByTid) {
+      for (auto& fidStore: tidStore.second._storeByFid) {
+        fidStore.second._writer->commit();
+      }
+    }
+
+    for (auto& fidStore: _storeByWalFid._storeByFid) {
+      fidStore.second._writer->commit();
+    }
+
+    _storePersisted._writer->commit();
+
+    return true;
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch '" << name() << "'";
+    IR_EXCEPTION();
+  }
+
+  return false;
 }
 
 NS_END // iresearch
