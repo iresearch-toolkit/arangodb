@@ -56,21 +56,21 @@ NS_END
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
-irs::string_ref const& Field::name() const {
+irs::string_ref const& Field1::name() const {
   static irs::string_ref rr = "ttt";
   return rr;
 }
 
-irs::flags const Field::features() const {
+irs::flags const Field1::features() const {
   return irs::flags::empty_instance();
 }
 
-irs::token_stream& Field::get_tokens() const {
+irs::token_stream& Field1::get_tokens() const {
   static irs::null_token_stream stream;
   return stream;
 }
 
-float_t Field::boost() const {
+float_t Field1::boost() const {
   return 1.f;
 }
 

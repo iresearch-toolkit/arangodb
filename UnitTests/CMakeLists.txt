@@ -84,6 +84,7 @@ if (USE_IRESEARCH)
     IResearch/Runner.cpp
     IResearch/IResearchLinkMeta-test.cpp
     IResearch/IResearchViewMeta-test.cpp
+    IResearch/IResearchDocument-test.cpp
     IResearch/VelocyPackHelper-test.cpp
   )
 

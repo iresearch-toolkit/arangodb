@@ -138,27 +138,27 @@ IndexStore& IndexStore::operator=(IndexStore&& rhs) {
   return *this;
 }
 
-int IndexStore::insert(StoredPrimaryKey const& pk) noexcept {
-  Field fld;
-  try {
-    if (!_writer->insert(&fld, &fld + 1, &pk, &pk + 1)) {
-      LOG_TOPIC(WARN, Logger::DEVEL) << "failed to insert into index!";
-
-      return TRI_ERROR_INTERNAL;
-    }
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_NO_ERROR;
-}
+//int IndexStore::insert(StoredPrimaryKey const& pk) noexcept {
+//  Field fld;
+//  try {
+//    if (!_writer->insert(&fld, &fld + 1, &pk, &pk + 1)) {
+//      LOG_TOPIC(WARN, Logger::DEVEL) << "failed to insert into index!";
+//
+//      return TRI_ERROR_INTERNAL;
+//    }
+//  } catch (std::exception& e) {
+//    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index: " << e.what();
+//
+//    return TRI_ERROR_INTERNAL;
+//  } catch (...) {
+//    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index";
+//    IR_EXCEPTION();
+//
+//    return TRI_ERROR_INTERNAL;
+//  }
+//
+//  return TRI_ERROR_NO_ERROR;
+//}
 
 int IndexStore::remove(std::shared_ptr<irs::filter> const& filter) noexcept {
   try {

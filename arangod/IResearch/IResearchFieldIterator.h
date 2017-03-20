@@ -50,7 +50,7 @@ NS_BEGIN(iresearch)
 struct IResearchLinkMeta; // forward declaration
 struct IResearchViewMeta; // forward declaration
 
-class Field {
+class Field1 {
  public:
   irs::string_ref const& name() const;
   irs::flags const features() const;
@@ -58,7 +58,7 @@ class Field {
   float_t boost() const;
 };
 
-class IResearchFieldIterator: public std::iterator<std::input_iterator_tag, Field> {
+class IResearchFieldIterator: public std::iterator<std::input_iterator_tag, Field1> {
  public:
   IResearchFieldIterator() noexcept; // denotes end()
   IResearchFieldIterator(

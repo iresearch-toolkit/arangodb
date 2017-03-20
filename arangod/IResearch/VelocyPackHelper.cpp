@@ -26,28 +26,8 @@
 namespace arangodb {
 namespace iresearch {
 
-namespace {
-
-// according to Slice.h:330
-uint8_t const COMPACT_ARRAY = 0x13;
-uint8_t const COMPACT_OBJECT = 0x14;
-
-inline bool isArrayOrObject(VPackSlice const& slice) {
-  auto const type = slice.type();
-  return VPackValueType::Array == type || VPackValueType::Object == type;
-}
-
-inline bool isCompactArrayOrObject(VPackSlice const& slice) {
-  TRI_ASSERT(isArrayOrObject(slice));
-
-  auto const head = slice.head();
-  return COMPACT_ARRAY == head || COMPACT_OBJECT == head;
-}
-
-}
-
 // can't make it noexcept since VPackSlice::getNthOffset is not noexcept
-void ObjectIterator::Iterator::reset() {
+void Iterator::reset() {
   TRI_ASSERT(isArrayOrObject(_slice));
 
   if (!_size) {
@@ -62,11 +42,13 @@ void ObjectIterator::Iterator::reset() {
   _value.reset(_slice.start() + offset);
 }
 
-void ObjectIterator::Iterator::next() noexcept {
+bool Iterator::next() noexcept {
   if (++_value.pos < _size) {
     auto const& value = _value.value;
     _value.reset(value.start() + value.byteSize());
+    return true;
   }
+  return false;
 }
 
 ObjectIterator::ObjectIterator(VPackSlice const& slice) {

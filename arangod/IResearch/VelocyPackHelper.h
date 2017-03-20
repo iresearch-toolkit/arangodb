@@ -32,6 +32,22 @@
 namespace arangodb {
 namespace iresearch {
 
+// according to Slice.h:330
+uint8_t const COMPACT_ARRAY = 0x13;
+uint8_t const COMPACT_OBJECT = 0x14;
+
+inline bool isArrayOrObject(VPackSlice const& slice) {
+  auto const type = slice.type();
+  return VPackValueType::Array == type || VPackValueType::Object == type;
+}
+
+inline bool isCompactArrayOrObject(VPackSlice const& slice) {
+  TRI_ASSERT(isArrayOrObject(slice));
+
+  auto const head = slice.head();
+  return COMPACT_ARRAY == head || COMPACT_OBJECT == head;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 /// @brief parses a numeric sub-element
 /// @return success
@@ -115,51 +131,91 @@ inline bool getString(
   return true;
 }
 
+////////////////////////////////////////////////////////////////////////////
+/// @struct IteratorValue
+/// @brief represents of value of the iterator
+////////////////////////////////////////////////////////////////////////////
+struct IteratorValue {
+  explicit IteratorValue(VPackValueType type) noexcept
+    : type(type) {
+  }
+
+  void reset(uint8_t const* start) noexcept {
+    // whether or not we're in the context of array or object
+    VPackValueLength const isArray = VPackValueType::Array != type;
+
+    key = VPackSlice(start);
+    value = VPackSlice(start + isArray*key.byteSize());
+  }
+
+  ///////////////////////////////////////////////////////////////////////////
+  /// @brief type of the current level (Array or Object)
+  ///////////////////////////////////////////////////////////////////////////
+  VPackValueType type;
+
+  ///////////////////////////////////////////////////////////////////////////
+  /// @brief position at the current level
+  ///////////////////////////////////////////////////////////////////////////
+  VPackValueLength pos{};
+
+  ///////////////////////////////////////////////////////////////////////////
+  /// @brief current key at the current level
+  ///          type == Array --> key == value;
+  ///////////////////////////////////////////////////////////////////////////
+  VPackSlice key;
+
+  ///////////////////////////////////////////////////////////////////////////
+  /// @brief current value at the current level
+  ///////////////////////////////////////////////////////////////////////////
+  VPackSlice value;
+}; // IteratorValue
+
+class Iterator {
+ public:
+  explicit Iterator(VPackSlice const& slice)
+      : _slice(slice),
+        _size(slice.length()),
+        _value(slice.type()) {
+      reset();
+    }
+
+  // returns true if iterator exhausted
+  bool next() noexcept;
+  void reset();
+
+  IteratorValue const& value() const noexcept {
+    return operator*();
+  }
+
+  IteratorValue const& operator*() const noexcept {
+    return _value;
+  }
+
+  bool valid() const noexcept {
+    return _value.pos < _size;
+  }
+
+  bool operator==(Iterator const& rhs) const noexcept {
+    return _slice.start() == rhs._slice.start()
+        && _value.pos == rhs._value.pos;
+  }
+
+  bool operator!=(Iterator const& rhs) const noexcept {
+    return !(*this == rhs);
+  }
+
+ private:
+  VPackSlice _slice;
+  VPackValueLength const _size;
+  IteratorValue _value;
+}; // Iterator
+
 //////////////////////////////////////////////////////////////////////////////
 /// @class ObjectIterator
 /// @return allows to traverse VPack objects in a unified way
 //////////////////////////////////////////////////////////////////////////////
 class ObjectIterator {
  public:
-  ////////////////////////////////////////////////////////////////////////////
-  /// @struct Value
-  /// @brief represents of value of the iterator
-  ////////////////////////////////////////////////////////////////////////////
-  struct Value {
-    explicit Value(VPackValueType type) noexcept
-      : type(type) {
-    }
-
-    void reset(uint8_t const* start) noexcept {
-      // whether or not we're in the context of array or object
-      VPackValueLength const isArray = VPackValueType::Array != type;
-
-      key = VPackSlice(start);
-      value = VPackSlice(start + isArray*key.byteSize());
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    /// @brief type of the current level (Array or Object)
-    ///////////////////////////////////////////////////////////////////////////
-    VPackValueType type;
-
-    ///////////////////////////////////////////////////////////////////////////
-    /// @brief position at the current level
-    ///////////////////////////////////////////////////////////////////////////
-    VPackValueLength pos{};
-
-    ///////////////////////////////////////////////////////////////////////////
-    /// @brief current key at the current level
-    ///          type == Array --> key == value;
-    ///////////////////////////////////////////////////////////////////////////
-    VPackSlice key;
-
-    ///////////////////////////////////////////////////////////////////////////
-    /// @brief current value at the current level
-    ///////////////////////////////////////////////////////////////////////////
-    VPackSlice value;
-  }; // Value
-
   ObjectIterator() = default;
   explicit ObjectIterator(VPackSlice const& slice);
 
@@ -180,7 +236,7 @@ class ObjectIterator {
   /////////////////////////////////////////////////////////////////////////////
   /// @return reference to the value at the topmost level of the hierarchy
   /////////////////////////////////////////////////////////////////////////////
-  Value const& operator*() const noexcept {
+  IteratorValue const& operator*() const noexcept {
     TRI_ASSERT(valid());
     return *_stack.back();
   }
@@ -202,7 +258,7 @@ class ObjectIterator {
   /////////////////////////////////////////////////////////////////////////////
   /// @return value at the specified hierarchy depth
   /////////////////////////////////////////////////////////////////////////////
-  Value const& value(size_t depth) const noexcept {
+  IteratorValue const& value(size_t depth) const noexcept {
     TRI_ASSERT(depth < _stack.size());
     return *_stack[depth];
   }
@@ -226,45 +282,6 @@ class ObjectIterator {
   }
 
  private:
-  class Iterator {
-   public:
-    explicit Iterator(VPackSlice const& slice)
-      : _slice(slice),
-        _size(slice.length()),
-        _value(slice.type()) {
-      reset();
-    }
-
-    void next() noexcept;
-    void reset();
-
-    Value const& value() const noexcept {
-      return operator*();
-    }
-
-    Value const& operator*() const noexcept {
-      return _value;
-    }
-
-    bool valid() const noexcept {
-      return _value.pos < _size;
-    }
-
-    bool operator==(Iterator const& rhs) const noexcept {
-      return _slice.start() == rhs._slice.start()
-        && _value.pos == rhs._value.pos;
-    }
-
-    bool operator!=(Iterator const& rhs) const noexcept {
-      return !(*this == rhs);
-    }
-
-  private:
-    VPackSlice _slice;
-    VPackValueLength const _size;
-    Value _value;
-  }; // Iterator
-
   Iterator& top() noexcept {
     TRI_ASSERT(_stack.empty());
     return _stack.back();

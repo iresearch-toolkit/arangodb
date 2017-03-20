@@ -62,7 +62,7 @@ class IndexStore {
   IndexStore(IndexStore&& rhs);
   IndexStore& operator=(IndexStore&& rhs);
 
-  int insert(StoredPrimaryKey const& pk) noexcept;
+//  int insert(StoredPrimaryKey const& pk) noexcept;
   int remove(std::shared_ptr<irs::filter> const& filter) noexcept;
   int merge(IndexStore& src) noexcept;
   int consolidate(irs::index_writer::consolidation_policy_t const& policy) noexcept;

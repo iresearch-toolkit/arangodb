@@ -27,15 +27,31 @@
 
 #include "VocBase/voc-types.h"
 
+#include "IResearchLinkMeta.h"
+#include "VelocyPackHelper.h"
+
 #include "store/data_output.hpp"
 #include "utils/attributes.hpp"
 #include "analysis/token_streams.hpp"
 
+namespace arangodb {
+namespace iresearch {
+
+struct IResearchViewMeta;
+
 class Field {
  public:
-  irs::string_ref const& name() const {
-    static irs::string_ref rr = "ttt";
-    return rr;
+  Field(std::shared_ptr<std::string> const& name)
+    : _name(name) {
+  }
+  Field(Field&& rhs);
+  Field(Field const& rhs);
+  Field& operator=(Field const& rhs);
+  Field& operator=(Field&& rhs);
+
+  irs::string_ref name() const noexcept {
+    TRI_ASSERT(_name);
+    return *_name;
   }
 
   irs::flags const features() const {
@@ -48,31 +64,81 @@ class Field {
   }
 
   float_t boost() const {
-    return 1.f;
+    TRI_ASSERT(_meta);
+    return _meta->_boost;
   }
-};
-
-// stored arangodb document primary key
-class StoredPrimaryKey {
- public:
-  static irs::string_ref const NAME;
-
-  StoredPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept
-    : _keys{ rid, cid } {
-    static_assert(
-      sizeof(_keys) == sizeof(cid) + sizeof(rid),
-      "Invalid size"
-    );
-  }
-
-  irs::string_ref const& name() const noexcept {
-    return NAME;
-  }
-
-  bool write(irs::data_output& out) const;
 
  private:
-  uint64_t _keys[2]; // revisionId + collectionId
-}; // StoredPrimaryKey
+  friend class FieldIterator;
+
+  std::shared_ptr<std::string> _name; // buffer for field name
+  IResearchLinkMeta const* _meta;
+}; // Field
+
+class FieldIterator {
+ public:
+  FieldIterator() noexcept;
+  FieldIterator(
+    VPackSlice const& doc,
+    IResearchLinkMeta const& linkMeta,
+    IResearchViewMeta const& viewMeta
+  );
+
+  Field const& operator*() const noexcept {
+    return _value;
+  }
+
+  FieldIterator& operator++() {
+    next();
+    return *this;
+  }
+
+  FieldIterator operator++(int) {
+    FieldIterator tmp = *this;
+    next();
+    return std::move(tmp);
+  }
+
+  bool valid() const noexcept {
+    return !_stack.empty();
+  }
+
+ private:
+  struct Level {
+    Level(VPackSlice slice, size_t name, IResearchLinkMeta const& meta)
+      : it(slice), name(name), meta(&meta) {
+    }
+
+    Iterator it;
+    size_t name; // length of the name at the current level
+    IResearchLinkMeta const* meta; // metadata
+  };
+
+  Level& top() noexcept {
+    TRI_ASSERT(!_stack.empty());
+    return _stack.back();
+  }
+
+  Iterator& topIter() noexcept {
+    return top().it;
+  }
+
+  std::string& nameBuffer() noexcept {
+    TRI_ASSERT(_value._name);
+    return *_value._name;
+  }
+
+  void next();
+  void nextTop();
+  bool push(VPackSlice slice, IResearchLinkMeta const* topMeta);
+  void appendName(irs::string_ref const& name, IteratorValue const& value);
+
+  std::vector<Level> _stack;
+  IResearchViewMeta const* _meta;
+  Field _value;
+}; // FieldIterator
+
+} // iresearch
+} // arangodb
 
 #endif

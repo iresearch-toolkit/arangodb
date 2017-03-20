@@ -53,7 +53,7 @@ BOOST_AUTO_TEST_CASE(test_defaults) {
   BOOST_CHECK(arangodb::iresearch::ObjectIterator() == it);
 
   size_t calls_count = 0;
-  auto visitor = [&calls_count](arangodb::iresearch::ObjectIterator::Value const&) {
+  auto visitor = [&calls_count](arangodb::iresearch::IteratorValue const&) {
     ++calls_count;
   };
   it.visit(visitor);
@@ -211,7 +211,7 @@ BOOST_AUTO_TEST_CASE(test_empty_subarray) {
   {
     bool result = true;
     size_t level = 0;
-    auto check_levels = [&it, level, &result](arangodb::iresearch::ObjectIterator::Value const& value) mutable {
+    auto check_levels = [&it, level, &result](arangodb::iresearch::IteratorValue const& value) mutable {
       result &= (&(it.value(level++)) == &value);
     };
     it.visit(check_levels);
@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE(test_empty_subobject) {
   {
     bool result = true;
     size_t level = 0;
-    auto check_levels = [&it, level, &result](arangodb::iresearch::ObjectIterator::Value const& value) mutable {
+    auto check_levels = [&it, level, &result](arangodb::iresearch::IteratorValue const& value) mutable {
       result &= (&(it.value(level++)) == &value);
     };
     it.visit(check_levels);
@@ -388,7 +388,7 @@ BOOST_AUTO_TEST_CASE(test_complex_object) {
   auto slice = json->slice();
 
   std::string name;
-  auto visitor = [&name](arangodb::iresearch::ObjectIterator::Value const& value) {
+  auto visitor = [&name](arangodb::iresearch::IteratorValue const& value) {
     if (value.type == VPackValueType::Array) {
       name += '[';
       name += std::to_string(value.pos);
