@@ -31,6 +31,18 @@
 #include "analysis/analyzer.hpp"
 #include "utils/object_pool.hpp"
 
+NS_LOCAL
+
+struct TokenizerBuilder; // forward declaration
+
+NS_END
+
+NS_BEGIN(iresearch)
+
+template<typename> class unbounded_object_pool; // forward declaration
+
+NS_END // iresearch
+
 NS_BEGIN(arangodb)
 NS_BEGIN(velocypack)
 
@@ -67,8 +79,8 @@ struct IResearchLinkMeta {
     bool _boost;
     bool _fields;
     bool _includeAllFields;
-    bool _listValuation;
     bool _locale;
+    bool _nestListValues;
     bool _tokenizers;
     Mask(bool mask = false) noexcept;
   };
@@ -87,15 +99,9 @@ struct IResearchLinkMeta {
     irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
 
    private:
-    // wrapper for iResearch analyzer lookup, for use with irs::unbounded_object_pool
-    struct Builder {
-      typedef irs::analysis::analyzer::ptr ptr;
-      static ptr make(irs::string_ref const& name, irs::string_ref const& args);
-    };
-
     std::string const _args;
     std::string const _name;
-    //mutable irs::unbounded_object_pool<Builder> _pool;
+    mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };
 
   typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
@@ -103,8 +109,8 @@ struct IResearchLinkMeta {
   float_t _boost;
   std::map<std::string, IResearchLinkMeta> _fields;
   bool _includeAllFields; // include all fields or only fields listed in '_fields'
-  ListValuation::Type _listValuation;
   std::locale _locale;
+  bool _nestListValues; // append relative offset in list to attribute name (as opposed to without offset)
   Tokenizers _tokenizers; // tokenizers to apply to every field
   // NOTE: if adding fields don't forget to modify the default constructor !!!
   // NOTE: if adding fields don't forget to modify the copy assignment operator !!!

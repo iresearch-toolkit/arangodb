@@ -369,7 +369,7 @@ int IResearchView::insert(
   IResearchLinkMeta const& meta
 ) {
   DocumentPrimaryKey attribute(cid, rid);
-  auto begin = IResearchFieldIterator(cid, rid, doc, meta);
+  auto begin = IResearchFieldIterator(cid, rid, doc, _meta, meta);
   auto end = IResearchFieldIterator();
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);

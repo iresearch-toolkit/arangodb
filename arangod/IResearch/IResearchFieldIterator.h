@@ -48,6 +48,7 @@ NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
 struct IResearchLinkMeta; // forward declaration
+struct IResearchViewMeta; // forward declaration
 
 class Field {
  public:
@@ -64,7 +65,8 @@ class IResearchFieldIterator: public std::iterator<std::input_iterator_tag, Fiel
     TRI_voc_cid_t cid,
     TRI_voc_rid_t rid,
     arangodb::velocypack::Slice const& slice,
-    IResearchLinkMeta const& meta
+    IResearchViewMeta const& viewMeta,
+    IResearchLinkMeta const& linkMeta
   );
   IResearchFieldIterator(IResearchFieldIterator const& other);
   IResearchFieldIterator(IResearchFieldIterator&& other) noexcept;

@@ -82,7 +82,8 @@ IResearchFieldIterator::IResearchFieldIterator(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid,
   arangodb::velocypack::Slice const& slice,
-  IResearchLinkMeta const& meta
+  IResearchViewMeta const& viewMeta,
+  IResearchLinkMeta const& linkMeta
 ) {
   // FIXME TODO
 }

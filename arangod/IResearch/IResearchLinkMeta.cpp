@@ -21,7 +21,6 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -116,6 +115,35 @@ bool IdentityTokenizer::reset(irs::string_ref const& data) {
   return !_empty;
 }
 
+struct PairHash {
+  template<typename First, typename Second>
+  size_t operator()(std::pair<First, Second> const& value) const;
+};
+
+template<>
+size_t PairHash::operator()<std::string, std::string>(std::pair<std::string, std::string> const& value) const {
+  static irs::string_ref_hash_t hasher;
+  return hasher(value.first) ^ hasher(value.second);
+}
+
+template<>
+size_t PairHash::operator()<irs::string_ref, irs::string_ref>(std::pair<irs::string_ref, irs::string_ref> const& value) const {
+  static irs::string_ref_hash_t hasher;
+  return hasher(value.first) ^ hasher(value.second);
+}
+
+// wrapper for iResearch analyzer lookup, for use with irs::unbounded_object_pool
+struct TokenizerBuilder {
+  typedef irs::analysis::analyzer::ptr ptr;
+  static ptr make(irs::string_ref const& name, irs::string_ref const& args);
+};
+
+/*static*/ irs::analysis::analyzer::ptr TokenizerBuilder::make(
+  irs::string_ref const& name, irs::string_ref const& args
+) {
+  return irs::analysis::analyzers::get(name, args);
+}
+
 bool equalTokenizers(
   arangodb::iresearch::IResearchLinkMeta::Tokenizers const& lhs,
   arangodb::iresearch::IResearchLinkMeta::Tokenizers const& rhs
@@ -124,13 +152,7 @@ bool equalTokenizers(
     return false;
   }
 
-  struct Hash {
-    size_t operator()(std::pair<irs::string_ref, irs::string_ref> const& value) const {
-      static irs::string_ref_hash_t hasher;
-      return hasher(value.first) ^ hasher(value.second);
-    }
-  };
-  std::unordered_multiset<std::pair<irs::string_ref, irs::string_ref>, Hash> expected;
+  std::unordered_multiset<std::pair<irs::string_ref, irs::string_ref>, PairHash> expected;
 
   for (auto& entry: lhs) {
     expected.emplace(entry.name(), entry.args());
@@ -149,6 +171,25 @@ bool equalTokenizers(
   return true;
 }
 
+typedef irs::unbounded_object_pool<TokenizerBuilder> TokenizerBuilderPool;
+
+std::shared_ptr<TokenizerBuilderPool> getTokenizerPool(
+  std::string const& name, std::string const& args
+) {
+  static std::unordered_map<std::pair<std::string, std::string>, std::weak_ptr<TokenizerBuilderPool>, PairHash> cache;
+  std::mutex mutex;
+  SCOPED_LOCK(mutex);
+  auto& poolPtr = cache[std::make_pair(name, args)];
+  auto pool = poolPtr.lock();
+
+  if (!pool) {
+    pool = irs::memory::make_unique<TokenizerBuilderPool>(DEFAULT_POOL_SIZE);
+    poolPtr = pool;
+  }
+
+  return pool;
+}
+
 NS_END
 
 NS_BEGIN(arangodb)
@@ -158,15 +199,9 @@ IResearchLinkMeta::Mask::Mask(bool mask /*= false*/) noexcept
   : _boost(mask),
     _fields(mask),
     _includeAllFields(mask),
-    _listValuation(mask),
     _locale(mask),
+    _nestListValues(mask),
     _tokenizers(mask) {
-}
-
-/*static*/ irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::Builder::make(
-  irs::string_ref const& name, irs::string_ref const& args
-) {
-  return irs::analysis::analyzers::get(name, args);
 }
 
 size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& value) const {
@@ -176,7 +211,7 @@ size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& v
 
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
   std::string const& name, std::string const& args
-): _args(args), _name(name) { //, _pool(DEFAULT_POOL_SIZE) { FIXME
+): _args(args), _name(name), _pool(getTokenizerPool(name, args)) {
 }
 
 bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) const noexcept {
@@ -192,16 +227,15 @@ std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
 }
 
 irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::tokenizer() const {
-  return nullptr; // FIXME
-  //return _pool.emplace(_name, _args);
+  return _pool->emplace(_name, _args);
 }
 
 IResearchLinkMeta::IResearchLinkMeta()
   : _boost(1.0), // no boosting of field preference in view ordering
     //_fields(<empty>), // empty map to match all encounteredfields
     _includeAllFields(false), // true to match all encountered fields, false match only fields in '_fields'
-    _listValuation(ListValuation::MULTIVALUED), // treat as SQL-IN
-    _locale(std::locale::classic()) {
+    _locale(std::locale::classic()),
+    _nestListValues(false) { // treat '_nestListValues' as SQL-IN
   _tokenizers.emplace(IDENTITY_TOKENIZER_NAME, ""); // identity-only tokenization
 }
 
@@ -218,8 +252,8 @@ IResearchLinkMeta& IResearchLinkMeta::operator=(IResearchLinkMeta&& other) noexc
     _boost = std::move(other._boost);
     _fields = std::move(other._fields);
     _includeAllFields = std::move(other._includeAllFields);
-    _listValuation = std::move(other._listValuation);
     _locale = std::move(other._locale);
+    _nestListValues = std::move(other._nestListValues);
     _tokenizers = std::move(other._tokenizers);
   }
 
@@ -231,8 +265,8 @@ IResearchLinkMeta& IResearchLinkMeta::operator=(IResearchLinkMeta const& other) 
     _boost = other._boost;
     _fields = other._fields;
     _includeAllFields = other._includeAllFields;
-    _listValuation = other._listValuation;
     _locale = other._locale;
+    _nestListValues = other._nestListValues;
     _tokenizers = other._tokenizers;
   }
 
@@ -264,11 +298,11 @@ bool IResearchLinkMeta::operator==(
     return false; // values do not match
   }
 
-  if (_listValuation != other._listValuation) {
+  if (_locale != other._locale) {
     return false; // values do not match
   }
 
-  if (_locale != other._locale) {
+  if (_nestListValues != other._nestListValues) {
     return false; // values do not match
   }
 
@@ -340,41 +374,6 @@ bool IResearchLinkMeta::init(
   }
 
   {
-    // optional enum string
-    static const std::string fieldName("listValuation");
-
-    mask->_listValuation = slice.hasKey(fieldName);
-
-    if (!mask->_listValuation) {
-      _listValuation = defaults._listValuation;
-    } else {
-      auto field = slice.get(fieldName);
-
-      if (!field.isString()) {
-        errorField = fieldName;
-
-        return false;
-      }
-
-      static const std::unordered_map<std::string, ListValuation::Type> listValuation = {
-        { "ignored", ListValuation::IGNORED },
-        { "ordered", ListValuation::ORDERED },
-        { "multivalued", ListValuation::MULTIVALUED },
-      };
-
-      auto itr = listValuation.find(field.copyString());
-
-      if (itr == listValuation.end()) {
-        errorField = fieldName;
-
-        return false;
-      }
-
-      _listValuation = itr->second;
-    }
-  }
-
-  {
     // optional locale name
     static const std::string fieldName("locale");
 
@@ -397,6 +396,27 @@ bool IResearchLinkMeta::init(
       _locale = std::locale::classic().name() == locale
         ? std::locale::classic()
         : irs::locale_utils::locale(locale, true);
+    }
+  }
+
+  {
+    // optional bool
+    static const std::string fieldName("nestListValues");
+
+    mask->_nestListValues = slice.hasKey(fieldName);
+
+    if (!mask->_nestListValues) {
+      _nestListValues = defaults._nestListValues;
+    } else {
+      auto field = slice.get(fieldName);
+
+      if (!field.isBool()) {
+        errorField = fieldName;
+
+        return false;
+      }
+
+      _nestListValues = field.getBool();
     }
   }
 
@@ -556,23 +576,12 @@ bool IResearchLinkMeta::json(
     builder.add("includeAllFields", arangodb::velocypack::Value(_includeAllFields));
   }
 
-  if ((!ignoreEqual || _listValuation != ignoreEqual->_listValuation) && (!mask || mask->_listValuation)) {
-    struct ListValuationHash { size_t operator()(ListValuation::Type const& value) const { return value; } }; // for GCC compatibility
-    static const std::unordered_map<ListValuation::Type, std::string, ListValuationHash> listValuation = {
-      { ListValuation::IGNORED, "ignored" },
-      { ListValuation::ORDERED, "ordered" },
-      { ListValuation::MULTIVALUED, "multivalued" },
-    };
-
-    auto itr = listValuation.find(_listValuation);
-
-    if (itr != listValuation.end()) {
-      builder.add("listValuation", arangodb::velocypack::Value(itr->second));
-    }
-  }
-
   if ((!ignoreEqual || _locale != ignoreEqual->_locale) && (!mask || mask->_locale)) {
     builder.add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
+  }
+
+  if ((!ignoreEqual || _nestListValues != ignoreEqual->_nestListValues) && (!mask || mask->_nestListValues)) {
+    builder.add("nestListValues", arangodb::velocypack::Value(_nestListValues));
   }
 
   if ((!ignoreEqual || !equalTokenizers(_tokenizers, ignoreEqual->_tokenizers)) && (!mask || mask->_tokenizers)) {
