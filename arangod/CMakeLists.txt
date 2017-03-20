@@ -418,7 +418,8 @@ if (USE_SSL)
   target_compile_definitions(${BIN_ARANGOD} PUBLIC "ARANGODB_SSL_ENABLED=1")
 endif()
 
-target_compile_definitions(${BIN_ARANGOD} PRIVATE "BOOST_ASIO_HEADER_ONLY=1")
+# otherwise GCC reports lib/Basics/asio-helper.h:66:25: error: 'boost::asio::ssl::error' has not been declared
+target_compile_definitions(${BIN_ARANGOD} PRIVATE "ARANGODB_BASICS_ASIO_HELPER_H_2=1")
 
 target_link_libraries(${BIN_ARANGOD}
   ${LIB_ARANGO_FE}
