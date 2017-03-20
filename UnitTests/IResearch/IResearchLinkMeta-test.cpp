@@ -177,7 +177,7 @@ BOOST_AUTO_TEST_CASE(test_readCustomizedValues) {
         \"c\": { \
           \"fields\": { \
             \"default\": { \"boost\": 1, \"fields\": {}, \"includeAllFields\": false, \"locale\": \"C\", \"nestListValues\": false, \"tokenizers\": { \"identity\": [\"\"] } }, \
-            \"all\": { \"boost\": 11, \"fields\": {\"d\": {}, \"e\": {}}, \"includeAllFields\": true, \"locale\": \"en_US.UTF-8\", \"nestListValues\": false, \"tokenizers\": { \"empty\": [\"en\"] } }, \
+            \"all\": { \"boost\": 11, \"fields\": {\"d\": {}, \"e\": {}}, \"includeAllFields\": true, \"locale\": \"en_US.UTF-8\", \"nestListValues\": true, \"tokenizers\": { \"empty\": [\"en\"] } }, \
             \"some\": { \"boost\": 12, \"nestListValues\": true }, \
             \"none\": {} \
           } \
@@ -449,7 +449,7 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
   tmpSlice = slice.get("locale");
   BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("en_UK.UTF-8") == tmpSlice.copyString());
   tmpSlice = slice.get("nestListValues");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && true == tmpSlice.getBool());
   tmpSlice = slice.get("tokenizers");
   BOOST_CHECK_EQUAL(true, tmpSlice.isObject() && 2 == tmpSlice.length());
 
