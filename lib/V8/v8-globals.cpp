@@ -25,7 +25,7 @@
 
 TRI_v8_global_s::TRI_v8_global_s(v8::Isolate* isolate)
     : JSCollections(),
-      JSVPack(),
+      JSViews(),
 
       AgencyTempl(),
       AgentTempl(),
@@ -35,6 +35,7 @@ TRI_v8_global_s::TRI_v8_global_s(v8::Isolate* isolate)
       ArangoErrorTempl(),
       VPackTempl(),
       VocbaseColTempl(),
+      VocbaseViewTempl(),
       VocbaseTempl(),
 
       BufferTempl(),
@@ -250,16 +251,16 @@ void TRI_AddMethodVocbase(
 
 /// @brief adds a global function to the given context
 void TRI_AddGlobalFunctionVocbase(
-    v8::Isolate* isolate, v8::Handle<v8::Context> context,
+    v8::Isolate* isolate, 
     v8::Handle<v8::String> name,
     void (*func)(v8::FunctionCallbackInfo<v8::Value> const&), bool isHidden) {
   // all global functions are read-only
   if (isHidden) {
-    context->Global()->ForceSet(
+    isolate->GetCurrentContext()->Global()->ForceSet(
         name, v8::FunctionTemplate::New(isolate, func)->GetFunction(),
         static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontEnum));
   } else {
-    context->Global()->ForceSet(
+    isolate->GetCurrentContext()->Global()->ForceSet(
         name, v8::FunctionTemplate::New(isolate, func)->GetFunction(),
         v8::ReadOnly);
   }
@@ -267,24 +268,22 @@ void TRI_AddGlobalFunctionVocbase(
 
 /// @brief adds a global function to the given context
 void TRI_AddGlobalFunctionVocbase(v8::Isolate* isolate,
-                                  v8::Handle<v8::Context> context,
                                   v8::Handle<v8::String> name,
                                   v8::Handle<v8::Function> func,
                                   bool isHidden) {
   // all global functions are read-only
   if (isHidden) {
-    context->Global()->ForceSet(name, func, static_cast<v8::PropertyAttribute>(
+    isolate->GetCurrentContext()->Global()->ForceSet(name, func, static_cast<v8::PropertyAttribute>(
                                                 v8::ReadOnly | v8::DontEnum));
   } else {
-    context->Global()->ForceSet(name, func, v8::ReadOnly);
+    isolate->GetCurrentContext()->Global()->ForceSet(name, func, v8::ReadOnly);
   }
 }
 
 /// @brief adds a global read-only variable to the given context
 void TRI_AddGlobalVariableVocbase(v8::Isolate* isolate,
-                                  v8::Handle<v8::Context> context,
                                   v8::Handle<v8::String> name,
                                   v8::Handle<v8::Value> value) {
   // all global variables are read-only
-  context->Global()->ForceSet(name, value, v8::ReadOnly);
+  isolate->GetCurrentContext()->Global()->ForceSet(name, value, v8::ReadOnly);
 }

@@ -21,12 +21,12 @@
 /// @author Jan Steemann
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGOD_MMFILES_COLLECTOR_CACHE_H
-#define ARANGOD_MMFILES_COLLECTOR_CACHE_H 1
+#ifndef ARANGOD_MMFILES_MMFILES_COLLECTOR_CACHE_H
+#define ARANGOD_MMFILES_MMFILES_COLLECTOR_CACHE_H 1
 
 #include "Basics/Common.h"
-#include "VocBase/DatafileStatisticsContainer.h"
-#include "VocBase/Ditch.h"
+#include "MMFiles/MMFilesDitch.h"
+#include "MMFiles/MMFilesDatafileStatisticsContainer.h"
 #include "VocBase/voc-types.h"
 
 struct MMFilesDatafile;
@@ -76,38 +76,38 @@ struct MMFilesCollectorCache {
 
   ~MMFilesCollectorCache() {
     delete operations;
-    freeDitches();
+    freeMMFilesDitches();
   }
 
   /// @brief return a reference to an existing datafile statistics struct
-  DatafileStatisticsContainer& getDfi(TRI_voc_fid_t fid) {
+  MMFilesDatafileStatisticsContainer& getDfi(TRI_voc_fid_t fid) {
     return dfi[fid];
   }
 
   /// @brief return a reference to an existing datafile statistics struct,
   /// create it if it does not exist
-  DatafileStatisticsContainer& createDfi(TRI_voc_fid_t fid) {
+  MMFilesDatafileStatisticsContainer& createDfi(TRI_voc_fid_t fid) {
     auto it = dfi.find(fid);
 
     if (it != dfi.end()) {
       return (*it).second;
     }
 
-    dfi.emplace(fid, DatafileStatisticsContainer());
+    dfi.emplace(fid, MMFilesDatafileStatisticsContainer());
 
     return dfi[fid];
   }
 
   /// @brief add a ditch
-  void addDitch(arangodb::DocumentDitch* ditch) {
+  void addDitch(arangodb::MMFilesDocumentDitch* ditch) {
     TRI_ASSERT(ditch != nullptr);
     ditches.emplace_back(ditch);
   }
 
   /// @brief free all ditches
-  void freeDitches() {
+  void freeMMFilesDitches() {
     for (auto& it : ditches) {
-      it->ditches()->freeDocumentDitch(it, false);
+      it->ditches()->freeMMFilesDocumentDitch(it, false);
     }
 
     ditches.clear();
@@ -129,10 +129,10 @@ struct MMFilesCollectorCache {
   std::vector<MMFilesCollectorOperation>* operations;
 
   /// @brief ditches held by the operations
-  std::vector<arangodb::DocumentDitch*> ditches;
+  std::vector<arangodb::MMFilesDocumentDitch*> ditches;
 
   /// @brief datafile info cache, updated when the collector transfers markers
-  std::unordered_map<TRI_voc_fid_t, DatafileStatisticsContainer> dfi;
+  std::unordered_map<TRI_voc_fid_t, MMFilesDatafileStatisticsContainer> dfi;
 
   /// @brief id of last datafile handled
   TRI_voc_fid_t lastFid;

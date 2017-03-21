@@ -22,18 +22,19 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "RestVocbaseBaseHandler.h"
-#include "Basics/conversions.h"
 #include "Basics/StaticStrings.h"
 #include "Basics/StringBuffer.h"
 #include "Basics/StringUtils.h"
-#include "Basics/tri-strings.h"
-#include "Basics/VelocyPackHelper.h"
 #include "Basics/VPackStringBufferAdapter.h"
-#include "Meta/conversion.h"
+#include "Basics/VelocyPackHelper.h"
+#include "Basics/conversions.h"
+#include "Basics/tri-strings.h"
+#include "Cluster/CollectionLockState.h"
 #include "Cluster/ServerState.h"
+#include "Meta/conversion.h"
 #include "Rest/HttpRequest.h"
-#include "Utils/StandaloneTransactionContext.h"
 #include "Transaction/Methods.h"
+#include "Transaction/StandaloneContext.h"
 
 #include <velocypack/Builder.h>
 #include <velocypack/Dumper.h>
@@ -137,14 +138,15 @@ std::string const RestVocbaseBaseHandler::SIMPLE_REMOVE_PATH =
 std::string const RestVocbaseBaseHandler::UPLOAD_PATH = "/_api/upload";
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief wal path
+/// @brief view path
 ////////////////////////////////////////////////////////////////////////////////
 
-std::string const RestVocbaseBaseHandler::WAL_PATH = "/_admin/wal";
+std::string const RestVocbaseBaseHandler::VIEW_PATH = "/_api/view";
 
 /// @brief Internal Traverser path
 
-std::string const RestVocbaseBaseHandler::INTERNAL_TRAVERSER_PATH = "/_internal/traverser";
+std::string const RestVocbaseBaseHandler::INTERNAL_TRAVERSER_PATH =
+    "/_internal/traverser";
 
 RestVocbaseBaseHandler::RestVocbaseBaseHandler(GeneralRequest* request,
                                                GeneralResponse* response)
@@ -291,7 +293,7 @@ void RestVocbaseBaseHandler::generatePreconditionFailed(
     }
   }
 
-  auto transactionContext(StandaloneTransactionContext::Create(_vocbase));
+  auto transactionContext(transaction::StandaloneContext::Create(_vocbase));
   writeResult(builder.slice(), *(transactionContext->getVPackOptionsForDump()));
 }
 
@@ -633,7 +635,7 @@ void RestVocbaseBaseHandler::prepareExecute() {
   if (found) {
     _nolockHeaderSet =
         new std::unordered_set<std::string>{std::string(shardId)};
-    transaction::Methods::_makeNolockHeaders = _nolockHeaderSet;
+    CollectionLockState::_noLockHeaders = _nolockHeaderSet;
   }
 }
 
@@ -643,7 +645,7 @@ void RestVocbaseBaseHandler::prepareExecute() {
 
 void RestVocbaseBaseHandler::finalizeExecute() {
   if (_nolockHeaderSet != nullptr) {
-    transaction::Methods::_makeNolockHeaders = nullptr;
+    CollectionLockState::_noLockHeaders = nullptr;
     delete _nolockHeaderSet;
     _nolockHeaderSet = nullptr;
   }

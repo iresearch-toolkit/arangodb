@@ -54,6 +54,7 @@ LogTopic Logger::HEARTBEAT("heartbeat", LogLevel::INFO);
 LogTopic Logger::MEMORY("memory", LogLevel::FATAL);  // suppress
 LogTopic Logger::MMAP("mmap");
 LogTopic Logger::PERFORMANCE("performance", LogLevel::FATAL);  // suppress
+LogTopic Logger::PREGEL("pregel", LogLevel::INFO);
 LogTopic Logger::QUERIES("queries", LogLevel::INFO);
 LogTopic Logger::REPLICATION("replication", LogLevel::INFO);
 LogTopic Logger::REQUESTS("requests", LogLevel::FATAL);  // suppress
@@ -69,6 +70,7 @@ LogTopic Logger::V8("v8", LogLevel::WARN);
 LogTopic AuditFeature::AUDIT_AUTHENTICATION("audit-authentication", LogLevel::INFO);
 LogTopic AuditFeature::AUDIT_DATABASE("audit-database", LogLevel::INFO);
 LogTopic AuditFeature::AUDIT_COLLECTION("audit-collection", LogLevel::INFO);
+LogTopic AuditFeature::AUDIT_VIEW("audit-view", LogLevel::INFO);
 LogTopic AuditFeature::AUDIT_DOCUMENT("audit-documentation", LogLevel::INFO);
 LogTopic AuditFeature::AUDIT_SERVICE("audit-service", LogLevel::INFO);
 #endif

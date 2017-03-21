@@ -343,11 +343,11 @@ typedef struct TRI_v8_global_s {
   /// @brief decrease the number of active externals
   inline void decreaseActiveExternals() { --_activeExternals; }
 
-  /// @brief collection mapping for weak pointers
+  /// @brief collections mapping for weak pointers
   std::unordered_map<void*, v8::Persistent<v8::External>> JSCollections;
-
-  /// @brief document ditches mapping for weak pointers
-  std::unordered_map<void*, v8::Persistent<v8::External>> JSVPack;
+  
+  /// @brief views mapping for weak pointers
+  std::unordered_map<void*, v8::Persistent<v8::External>> JSViews;
 
   /// @brief agency template
   v8::Persistent<v8::ObjectTemplate> AgencyTempl;
@@ -369,9 +369,12 @@ typedef struct TRI_v8_global_s {
 
   /// @brief VPack template
   v8::Persistent<v8::ObjectTemplate> VPackTempl;
-
-  /// @brief TRI_vocbase_col_t template
+  
+  /// @brief collection template
   v8::Persistent<v8::ObjectTemplate> VocbaseColTempl;
+  
+  /// @brief view template
+  v8::Persistent<v8::ObjectTemplate> VocbaseViewTempl;
 
   /// @brief TRI_vocbase_t template
   v8::Persistent<v8::ObjectTemplate> VocbaseTempl;
@@ -704,21 +707,19 @@ void TRI_AddMethodVocbase(
 
 /// @brief adds a global function to the given context
 void TRI_AddGlobalFunctionVocbase(
-    v8::Isolate* isolate, v8::Handle<v8::Context> context,
+    v8::Isolate* isolate, 
     v8::Handle<v8::String> name,
     void (*func)(v8::FunctionCallbackInfo<v8::Value> const&),
     bool isHidden = false);
 
 /// @brief adds a global function to the given context
 void TRI_AddGlobalFunctionVocbase(v8::Isolate* isolate,
-                                  v8::Handle<v8::Context> context,
                                   v8::Handle<v8::String> name,
                                   v8::Handle<v8::Function> func,
                                   bool isHidden = false);
 
 /// @brief adds a global read-only variable to the given context
 void TRI_AddGlobalVariableVocbase(v8::Isolate* isolate,
-                                  v8::Handle<v8::Context> context,
                                   v8::Handle<v8::String> name,
                                   v8::Handle<v8::Value> value);
 

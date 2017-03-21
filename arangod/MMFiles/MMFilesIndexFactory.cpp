@@ -323,7 +323,7 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
         res = EnhanceJsonIndexSkiplist(definition, enhanced, create);
         break;
 
-      case Index::TRI_IDX_TYPE_ROCKSDB_INDEX:
+      case Index::TRI_IDX_TYPE_PERSISTENT_INDEX:
         res = EnhanceJsonIndexPersistent(definition, enhanced, create);
         break;
 
@@ -430,8 +430,8 @@ std::shared_ptr<Index> MMFilesIndexFactory::prepareIndexFromSlice(
       newIdx.reset(new arangodb::MMFilesSkiplistIndex(iid, col, info));
       break;
     }
-    case arangodb::Index::TRI_IDX_TYPE_ROCKSDB_INDEX: {
-      newIdx.reset(new arangodb::PersistentIndex(iid, col, info));
+    case arangodb::Index::TRI_IDX_TYPE_PERSISTENT_INDEX: {
+      newIdx.reset(new arangodb::MMFilesPersistentIndex(iid, col, info));
       break;
     }
     case arangodb::Index::TRI_IDX_TYPE_FULLTEXT_INDEX: {

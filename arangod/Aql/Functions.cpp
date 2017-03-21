@@ -44,7 +44,7 @@
 #include "Utils/CollectionNameResolver.h"
 #include "Transaction/Helpers.h"
 #include "Transaction/Methods.h"
-#include "Utils/TransactionContext.h"
+#include "Transaction/Context.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/ManagedDocumentResult.h"
 
@@ -411,13 +411,11 @@ void Functions::Stringify(transaction::Methods* trx,
     return;
   }
    
-  if (slice.isObject() || slice.isArray()) {
-    VPackDumper dumper(&buffer, trx->transactionContextPtr()->getVPackOptions());
-    dumper.dump(slice);
-    return;
-  } 
-  
-  VPackDumper dumper(&buffer);
+  VPackOptions* options = trx->transactionContextPtr()->getVPackOptionsForDump();
+  VPackOptions adjustedOptions = *options;
+  adjustedOptions.escapeUnicode = false;
+  adjustedOptions.escapeForwardSlashes = false;
+  VPackDumper dumper(&buffer, &adjustedOptions);
   dumper.dump(slice);
 }
 
@@ -1530,7 +1528,7 @@ AqlValue Functions::Attributes(arangodb::aql::Query* query,
     result.openArray();
     for (auto const& it : keys) {
       TRI_ASSERT(!it.empty());
-      if (removeInternal && it.at(0) == '_') {
+      if (removeInternal && !it.empty() && it.at(0) == '_') {
         continue;
       }
       result.add(VPackValue(it));
@@ -1546,8 +1544,7 @@ AqlValue Functions::Attributes(arangodb::aql::Query* query,
   VPackBuilder result;
   result.openArray();
   for (auto const& it : keys) {
-    TRI_ASSERT(!it.empty());
-    if (removeInternal && it.at(0) == '_') {
+    if (removeInternal && !it.empty() && it.at(0) == '_') {
       continue;
     }
     result.add(VPackValue(it));
@@ -1591,9 +1588,13 @@ AqlValue Functions::Values(arangodb::aql::Query* query,
       // somehow invalid
       continue;
     }
-    if (removeInternal && entry.key.copyString().at(0) == '_') {
-      // skip attribute
-      continue;
+    if (removeInternal) {
+      VPackValueLength l;
+      char const* p = entry.key.getString(l);
+      if (l > 0 && *p == '_') {
+        // skip attribute
+        continue;
+      }
     }
     if (entry.value.isCustom()) {
       builder->add(VPackValue(trx->extractIdString(slice)));
@@ -2270,7 +2271,7 @@ AqlValue Functions::Zip(arangodb::aql::Query* query,
     for (VPackValueLength i = 0; i < n; ++i) {
       buffer->reset();
       Stringify(trx, adapter, keysSlice.at(i));
-      builder->add(std::string(buffer->c_str(), buffer->length()), valuesSlice.at(i));
+      builder->add(buffer->c_str(), buffer->length(), valuesSlice.at(i));
     }
     builder->close();
     return AqlValue(builder.get());
@@ -3685,4 +3686,36 @@ AqlValue Functions::IsSameCollection(
   RegisterWarning(query, "IS_SAME_COLLECTION",
                   TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
   return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+}
+
+#include "Pregel/PregelFeature.h"
+#include "Pregel/Worker.h"
+
+AqlValue Functions::PregelResult(arangodb::aql::Query* query, transaction::Methods* trx,
+                                        VPackFunctionParameters const& parameters) {
+  ValidateParameters(parameters, "PREGEL_RESULT", 1, 1);
+  
+  AqlValue arg1 = ExtractFunctionParameterValue(trx, parameters, 0);
+  if (!arg1.isNumber()) {
+    THROW_ARANGO_EXCEPTION_PARAMS(
+                                  TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH, "PREGEL_RESULT");
+  }
+  
+  uint64_t execNr = arg1.toInt64(trx);
+  pregel::PregelFeature *feature = pregel::PregelFeature::instance();
+  if (feature) {
+    pregel::IWorker *worker = feature->worker(execNr);
+    if (!worker) {
+      RegisterWarning(query, "PREGEL_RESULT",
+                      TRI_ERROR_QUERY_FUNCTION_INVALID_CODE);
+      return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
+    }
+    transaction::BuilderLeaser builder(trx);
+    worker->aqlResult(builder.get());
+    return AqlValue(builder.get());
+  } else {
+    RegisterWarning(query, "PREGEL_RESULT",
+                    TRI_ERROR_QUERY_FUNCTION_INVALID_CODE);
+    return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
+  }
 }

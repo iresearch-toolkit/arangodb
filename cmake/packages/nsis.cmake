@@ -1,9 +1,4 @@
 set(W_INSTALL_FILES                "${PROJECT_SOURCE_DIR}/Installation/Windows/")
-if (${USE_ENTERPRISE})
-  set(CPACK_PACKAGE_NAME             "ArangoDB3e")
-else()
-  set(CPACK_PACKAGE_NAME             "ArangoDB3")
-endif()
 
 set(CPACK_NSIS_DISPLAY_NAME,       ${ARANGODB_DISPLAY_NAME})
 set(CPACK_NSIS_HELP_LINK           ${ARANGODB_HELP_LINK})
@@ -13,15 +8,13 @@ set(CPACK_NSIS_MODIFY_PATH         ON)
 set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL 1)
 set(CPACK_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Installation/Windows/Templates")
 set(CPACK_PLUGIN_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Installation/Windows/Plugins")
-set(BITS 64)
+
 if (CMAKE_CL_64)
   # this needs to remain a $string for the template:
   SET(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
-  SET(ARANGODB_PACKAGE_ARCHITECTURE "win64")
   SET(BITS 64)
 else ()
   SET(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES")
-  SET(ARANGODB_PACKAGE_ARCHITECTURE "win32")
   SET(BITS 32)
 endif ()
 
@@ -59,7 +52,6 @@ set(CPACK_ARANGODB_NSIS_DEFINES "
     !define BIN_DIR '${W_BIN_DIR}'
     ")
 
-set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${ARANGODB_PACKAGE_REVISION}_${ARANGODB_PACKAGE_ARCHITECTURE}")
 
 ################################################################################
 # hook to build the server package
@@ -103,6 +95,9 @@ add_custom_target(package-arongodb-client-nsis
 
 
 list(APPEND PACKAGES_LIST package-arongodb-client-nsis)
+
+add_custom_target(copy_client_nsis_package
+  COMMAND ${CMAKE_COMMAND} -E copy ${ARANGODB_CLIENT_PACKAGE_FILE_NAME}.exe ${PACKAGE_TARGET_DIR})
 
 add_custom_target(copy_nsis_packages
   COMMAND ${CMAKE_COMMAND} -E copy ${CPACK_PACKAGE_FILE_NAME}.exe ${PACKAGE_TARGET_DIR})

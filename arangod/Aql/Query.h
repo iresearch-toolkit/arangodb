@@ -31,6 +31,7 @@
 #include "Aql/BindParameters.h"
 #include "Aql/Collections.h"
 #include "Aql/Graphs.h"
+#include "Aql/QueryExecutionState.h"
 #include "Aql/QueryResources.h"
 #include "Aql/QueryResultV8.h"
 #include "Aql/ResourceUsage.h"
@@ -42,9 +43,9 @@
 struct TRI_vocbase_t;
 
 namespace arangodb {
-class TransactionContext;
 
 namespace transaction {
+class Context;
 class Methods;
 }
 
@@ -60,43 +61,11 @@ class ExecutionEngine;
 class ExecutionPlan;
 class Executor;
 class Query;
+struct QueryProfile;
 class QueryRegistry;
 
 /// @brief equery part
 enum QueryPart { PART_MAIN, PART_DEPENDENT };
-
-/// @brief execution states
-enum ExecutionState {
-  INITIALIZATION = 0,
-  PARSING,
-  AST_OPTIMIZATION,
-  LOADING_COLLECTIONS,
-  PLAN_INSTANTIATION,
-  PLAN_OPTIMIZATION,
-  EXECUTION,
-  FINALIZATION,
-
-  INVALID_STATE
-};
-
-struct Profile {
-  Profile(Profile const&) = delete;
-  Profile& operator=(Profile const&) = delete;
-
-  explicit Profile(Query*);
-
-  ~Profile();
-
-  void setDone(ExecutionState);
-
-  /// @brief convert the profile to VelocyPack
-  std::shared_ptr<arangodb::velocypack::Builder> toVelocyPack();
-
-  Query* query;
-  std::vector<std::pair<ExecutionState, double>> results;
-  double stamp;
-  bool tracked;
-};
 
 /// @brief an AQL query
 class Query {
@@ -127,6 +96,10 @@ class Query {
     _trx = trx;
     init();
   }
+  
+  QueryProfile* profile() const {
+    return _profile.get();
+  }
 
   void increaseMemoryUsage(size_t value) { _resourceMonitor.increaseMemoryUsage(value); }
   void decreaseMemoryUsage(size_t value) { _resourceMonitor.decreaseMemoryUsage(value); }
@@ -135,6 +108,9 @@ class Query {
 
   /// @brief return the start timestamp of the query
   double startTime () const { return _startTime; }
+  
+  /// @brief return the current runtime of the query
+  double runTime () const { return TRI_microtime() - _startTime; }
 
   /// @brief whether or not the query is killed
   inline bool killed() const { return _killed; }
@@ -163,10 +139,12 @@ class Query {
   char const* queryString() const { return _queryString; }
 
   /// @brief get the length of the query string
-  size_t queryLength() const { return _queryLength; }
+  size_t queryLength() const { return _queryStringLength; }
 
   /// @brief getter for _ast
-  Ast* ast() const { return _ast; }
+  Ast* ast() const { 
+    return _ast.get(); 
+  }
 
   /// @brief should we return verbose plans?
   bool verbosePlans() const { return getBooleanOption("verbosePlans", false); }
@@ -238,7 +216,7 @@ class Query {
   /// @brief register a warning
   void registerWarning(int, char const* = nullptr);
   
-  void prepare(QueryRegistry*);
+  void prepare(QueryRegistry*, uint64_t queryStringHash);
 
   /// @brief execute an AQL query
   QueryResult execute(QueryRegistry*);
@@ -257,10 +235,10 @@ class Query {
   Executor* executor();
 
   /// @brief return the engine, if prepared
-  ExecutionEngine* engine() { return _engine; }
+  ExecutionEngine* engine() const { return _engine.get(); }
 
   /// @brief inject the engine
-  void engine(ExecutionEngine* engine) { _engine = engine; }
+  void engine(ExecutionEngine* engine);
 
   /// @brief return the transaction, if prepared
   inline transaction::Methods* trx() { return _trx; }
@@ -285,14 +263,16 @@ class Query {
   /// @brief fetch a boolean value from the options
   bool getBooleanOption(char const*, bool) const;
 
+  std::unordered_set<std::string> includedShards() const;
+
   /// @brief add the list of warnings to VelocyPack.
   ///        Will add a new entry { ..., warnings: <warnings>, } if there are
   ///        warnings. If there are none it will not modify the builder
-   void addWarningsToVelocyPackObject(arangodb::velocypack::Builder&) const;
+  void addWarningsToVelocyPackObject(arangodb::velocypack::Builder&) const;
 
   /// @brief transform the list of warnings to VelocyPack.
   ///        NOTE: returns nullptr if there are no warnings.
-   std::shared_ptr<arangodb::velocypack::Builder> warningsToVelocyPack() const;
+  std::shared_ptr<arangodb::velocypack::Builder> warningsToVelocyPack() const;
   
   /// @brief fetch the query memory limit
   static uint64_t MemoryLimit() { return MemoryLimitValue; }
@@ -324,6 +304,11 @@ class Query {
   /// @brief look up a graph in the _graphs collection
   Graph const* lookupGraphByName(std::string const& name);
 
+  /// @brief return the bind parameters as passed by the user
+  std::shared_ptr<arangodb::velocypack::Builder> bindParameters() const { 
+    return _bindParameters.builder(); 
+  }
+
  private:
   /// @brief initializes the query
   void init();
@@ -332,7 +317,7 @@ class Query {
   /// execute calls it internally. The purpose of this separate method is
   /// to be able to only prepare a query from VelocyPack and then store it in the
   /// QueryRegistry.
-  std::unique_ptr<ExecutionPlan> prepare();
+  ExecutionPlan* prepare();
 
   void setExecutionTime();
 
@@ -364,6 +349,8 @@ class Query {
 
     return value.getNumericValue<T>();
   }
+  
+  QueryExecutionState::ValueType state() const { return _state; }
 
  private:
   /// @brief read the "optimizer.inspectSimplePlans" section from the options
@@ -376,13 +363,13 @@ class Query {
   std::string buildErrorMessage(int errorCode) const;
 
   /// @brief enter a new state
-  void enterState(ExecutionState);
+  void enterState(QueryExecutionState::ValueType);
 
   /// @brief cleanup plan and engine for current query
   void cleanupPlanAndEngine(int, VPackBuilder* statsBuilder = nullptr);
 
-  /// @brief create a TransactionContext
-  std::shared_ptr<TransactionContext> createTransactionContext();
+  /// @brief create a transaction::Context
+  std::shared_ptr<transaction::Context> createTransactionContext();
 
   /// @brief returns the next query id
   static TRI_voc_tick_t NextId();
@@ -401,7 +388,7 @@ class Query {
   TRI_vocbase_t* _vocbase;
 
   /// @brief V8 code executor
-  Executor* _executor;
+  std::unique_ptr<Executor> _executor;
 
   /// @brief the currently used V8 context
   V8Context* _context;
@@ -413,7 +400,7 @@ class Query {
   char const* _queryString;
 
   /// @brief length of the query string in bytes
-  size_t const _queryLength;
+  size_t const _queryStringLength;
 
   /// @brief query in a VelocyPack structure
   std::shared_ptr<arangodb::velocypack::Builder> const _queryBuilder;
@@ -429,17 +416,17 @@ class Query {
   
   /// @brief _ast, we need an ast to manage the memory for AstNodes, even
   /// if we do not have a parser, because AstNodes occur in plans and engines
-  Ast* _ast;
+  std::unique_ptr<Ast> _ast;
 
   /// @brief query execution profile
-  Profile* _profile;
+  std::unique_ptr<QueryProfile> _profile;
 
   /// @brief current state the query is in (used for profiling and error
   /// messages)
-  ExecutionState _state;
+  QueryExecutionState::ValueType _state;
 
   /// @brief the ExecutionPlan object, if the query is prepared
-  std::unique_ptr<ExecutionPlan> _plan;
+  std::shared_ptr<ExecutionPlan> _plan;
 
   /// @brief the transaction object, in a distributed query every part of
   /// the query has its own transaction object. The transaction object is
@@ -447,7 +434,7 @@ class Query {
   transaction::Methods* _trx;
 
   /// @brief the ExecutionEngine object, if the query is prepared
-  ExecutionEngine* _engine;
+  std::unique_ptr<ExecutionEngine> _engine;
 
   /// @brief maximum number of warnings
   size_t _maxWarningCount;

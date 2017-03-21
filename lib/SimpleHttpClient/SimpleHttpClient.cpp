@@ -44,7 +44,7 @@ std::unordered_map<std::string, std::string> const
     SimpleHttpClient::NO_HEADERS{};
 
 /// @brief default value for max packet size
-size_t SimpleHttpClient::MaxPacketSize = 128 * 1024 * 1024;
+size_t SimpleHttpClient::MaxPacketSize = 256 * 1024 * 1024;
 
 SimpleHttpClient::SimpleHttpClient(GeneralClientConnection* connection,
                                    double requestTimeout, bool warn)
@@ -183,11 +183,7 @@ SimpleHttpResult* SimpleHttpClient::retryRequest(
                 << " - retries left: " << (_maxRetries - tries);
     }
 
-#ifdef _WIN32
-    usleep((unsigned long)_retryWaitTime);
-#else
-    usleep((useconds_t)_retryWaitTime);
-#endif
+    usleep(static_cast<TRI_usleep_t>(_retryWaitTime));
   }
 
   return result;

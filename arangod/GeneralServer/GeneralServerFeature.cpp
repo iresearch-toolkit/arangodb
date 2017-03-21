@@ -56,6 +56,7 @@
 #include "RestHandler/RestImportHandler.h"
 #include "RestHandler/RestJobHandler.h"
 #include "RestHandler/RestPleaseUpgradeHandler.h"
+#include "RestHandler/RestPregelHandler.h"
 #include "RestHandler/RestQueryCacheHandler.h"
 #include "RestHandler/RestQueryHandler.h"
 #include "RestHandler/RestReplicationHandler.h"
@@ -64,7 +65,7 @@
 #include "RestHandler/RestSimpleQueryHandler.h"
 #include "RestHandler/RestUploadHandler.h"
 #include "RestHandler/RestVersionHandler.h"
-#include "RestHandler/RestWalHandler.h"
+#include "RestHandler/RestViewHandler.h"
 #include "RestHandler/WorkMonitorHandler.h"
 #include "RestServer/DatabaseFeature.h"
 #include "RestServer/EndpointFeature.h"
@@ -75,6 +76,8 @@
 #include "Scheduler/Scheduler.h"
 #include "Scheduler/SchedulerFeature.h"
 #include "Ssl/SslServerFeature.h"
+#include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/StorageEngine.h"
 #include "V8Server/V8DealerFeature.h"
 
 using namespace arangodb;
@@ -89,9 +92,7 @@ GeneralServerFeature::GeneralServerFeature(
     application_features::ApplicationServer* server)
     : ApplicationFeature(server, "GeneralServer"),
       _allowMethodOverride(false),
-      _proxyCheck(true),
-      _handlerFactory(nullptr),
-      _jobManager(nullptr) {
+      _proxyCheck(true) {
   setOptional(true);
   requiresElevatedPrivileges(false);
   startsAfter("Agency");
@@ -205,8 +206,6 @@ static TRI_vocbase_t* LookupDatabaseFromRequest(GeneralRequest* request) {
 }
 
 static bool SetRequestContext(GeneralRequest* request, void* data) {
-  auto authentication = FeatureCacheFeature::instance()->authenticationFeature();
-  TRI_ASSERT(authentication != nullptr);
   TRI_vocbase_t* vocbase = LookupDatabaseFromRequest(request);
 
   // invalid database name specified, database not found etc.
@@ -214,12 +213,16 @@ static bool SetRequestContext(GeneralRequest* request, void* data) {
     return false;
   }
 
+  TRI_ASSERT(!vocbase->isDangling());
+
   // database needs upgrade
   if (vocbase->state() == TRI_vocbase_t::State::FAILED_VERSION) {
     request->setRequestPath("/_msg/please-upgrade");
+    vocbase->release();
     return false;
   }
 
+  // the vocbase context is now responsible for releasing the vocbase
   VocbaseContext* ctx = new arangodb::VocbaseContext(request, vocbase);
   request->setRequestContext(ctx, true);
 
@@ -250,7 +253,8 @@ void GeneralServerFeature::start() {
 
   // populate the authentication cache. otherwise no one can access the new
   // database
-  auto authentication = FeatureCacheFeature::instance()->authenticationFeature();
+  auto authentication =
+      FeatureCacheFeature::instance()->authenticationFeature();
   TRI_ASSERT(authentication != nullptr);
   if (authentication->isEnabled()) {
     authentication->authInfo()->outdate();
@@ -288,8 +292,9 @@ void GeneralServerFeature::buildServers() {
             "SslServer");
 
     if (ssl == nullptr) {
-      LOG_TOPIC(FATAL, arangodb::Logger::FIXME) << "no ssl context is known, cannot create https server, "
-                    "please enable SSL";
+      LOG_TOPIC(FATAL, arangodb::Logger::FIXME)
+          << "no ssl context is known, cannot create https server, "
+             "please enable SSL";
       FATAL_ERROR_EXIT();
     }
 
@@ -378,10 +383,6 @@ void GeneralServerFeature::defineHandlers() {
       queryRegistry);
 
   _handlerFactory->addPrefixHandler(
-      RestVocbaseBaseHandler::WAL_PATH,
-      RestHandlerCreator<RestWalHandler>::createNoData);
-
-  _handlerFactory->addPrefixHandler(
       RestVocbaseBaseHandler::SIMPLE_LOOKUP_PATH,
       RestHandlerCreator<RestSimpleHandler>::createData<aql::QueryRegistry*>,
       queryRegistry);
@@ -394,6 +395,10 @@ void GeneralServerFeature::defineHandlers() {
   _handlerFactory->addPrefixHandler(
       RestVocbaseBaseHandler::UPLOAD_PATH,
       RestHandlerCreator<RestUploadHandler>::createNoData);
+
+  _handlerFactory->addPrefixHandler(
+      RestVocbaseBaseHandler::VIEW_PATH,
+      RestHandlerCreator<RestViewHandler>::createNoData);
 
   _handlerFactory->addPrefixHandler(
       "/_api/aql",
@@ -410,6 +415,9 @@ void GeneralServerFeature::defineHandlers() {
   _handlerFactory->addPrefixHandler(
       "/_api/query-cache",
       RestHandlerCreator<RestQueryCacheHandler>::createNoData);
+  
+  _handlerFactory->addPrefixHandler("/_api/pregel",
+                                    RestHandlerCreator<RestPregelHandler>::createNoData);
 
   if (agency->isEnabled()) {
     _handlerFactory->addPrefixHandler(
@@ -498,4 +506,9 @@ void GeneralServerFeature::defineHandlers() {
 
   _handlerFactory->addPrefixHandler(
       "/", RestHandlerCreator<RestActionHandler>::createNoData);
+
+  // engine specific handlers
+  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  TRI_ASSERT(engine != nullptr);  // Engine not loaded. Startup broken
+  engine->addRestHandlers(_handlerFactory.get());
 }

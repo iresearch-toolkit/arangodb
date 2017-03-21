@@ -187,7 +187,11 @@ SET(ARANGOD_SOURCES
   Aql/NodeFinder.cpp
   Aql/Optimizer.cpp
   Aql/OptimizerRules.cpp
+  Aql/OptimizerRulesFeature.cpp
   Aql/Parser.cpp
+  Aql/PlanCache.cpp
+  Aql/QueryExecutionState.cpp
+  Aql/QueryProfile.cpp
   Aql/Quantifier.cpp
   Aql/Query.cpp
   Aql/QueryCache.cpp
@@ -213,6 +217,23 @@ SET(ARANGOD_SOURCES
   Aql/VariableGenerator.cpp
   Aql/grammar.cpp
   Aql/tokens.cpp
+  Cache/Cache.cpp
+  Cache/CacheManagerFeature.cpp
+  Cache/CacheManagerFeatureThreads.cpp
+  Cache/CachedValue.cpp
+  Cache/Finding.cpp
+  Cache/Manager.cpp
+  Cache/ManagerTasks.cpp
+  Cache/Metadata.cpp
+  Cache/PlainBucket.cpp
+  Cache/PlainCache.cpp
+  Cache/Rebalancer.cpp
+  Cache/State.cpp
+  Cache/Table.cpp
+  Cache/Transaction.cpp
+  Cache/TransactionalBucket.cpp
+  Cache/TransactionalCache.cpp
+  Cache/TransactionManager.cpp
   Cluster/AgencyCallback.cpp
   Cluster/AgencyCallbackRegistry.cpp
   Cluster/ClusterComm.cpp
@@ -221,6 +242,7 @@ SET(ARANGOD_SOURCES
   Cluster/ClusterInfo.cpp
   Cluster/ClusterMethods.cpp
   Cluster/ClusterTraverser.cpp
+  Cluster/CollectionLockState.cpp
   Cluster/FollowerInfo.cpp
   Cluster/DBServerAgencySync.cpp
   Cluster/HeartbeatThread.cpp
@@ -245,45 +267,6 @@ SET(ARANGOD_SOURCES
   Indexes/IndexIterator.cpp
   Indexes/SimpleAttributeEqualityMatcher.cpp
   InternalRestHandler/InternalRestTraverserHandler.cpp
-  MMFiles/fulltext-handles.cpp
-  MMFiles/fulltext-index.cpp
-  MMFiles/fulltext-list.cpp
-  MMFiles/fulltext-query.cpp
-  MMFiles/fulltext-result.cpp
-  MMFiles/geo-index.cpp
-  MMFiles/MMFilesAllocatorThread.cpp
-  MMFiles/MMFilesAqlFunctions.cpp
-  MMFiles/MMFilesCleanupThread.cpp
-  MMFiles/MMFilesCollection.cpp
-  MMFiles/MMFilesCollectorThread.cpp
-  MMFiles/MMFilesCompactorThread.cpp
-  MMFiles/MMFilesDatafile.cpp
-  MMFiles/MMFilesDatafileStatistics.cpp
-  MMFiles/MMFilesDocumentOperation.cpp
-  MMFiles/MMFilesEdgeIndex.cpp
-  MMFiles/MMFilesEngine.cpp
-  MMFiles/MMFilesIndexElement.cpp
-  MMFiles/MMFilesIndexFactory.cpp
-  MMFiles/MMFilesLogfileManager.cpp
-  MMFiles/MMFilesFulltextIndex.cpp
-  MMFiles/MMFilesGeoIndex.cpp
-  MMFiles/MMFilesHashIndex.cpp
-  MMFiles/MMFilesPathBasedIndex.cpp
-  MMFiles/MMFilesPersistentIndexFeature.cpp
-  MMFiles/MMFilesPersistentIndex.cpp
-  MMFiles/MMFilesPersistentIndexKeyComparator.cpp
-  MMFiles/MMFilesPrimaryIndex.cpp
-  MMFiles/MMFilesRemoverThread.cpp
-  MMFiles/MMFilesRevisionsCache.cpp
-  MMFiles/MMFilesSkiplistIndex.cpp
-  MMFiles/MMFilesSynchronizerThread.cpp
-  MMFiles/MMFilesTransactionCollection.cpp
-  MMFiles/MMFilesTransactionState.cpp
-  MMFiles/MMFilesWalLogfile.cpp
-  MMFiles/MMFilesWalRecoverState.cpp
-  MMFiles/MMFilesWalRecoveryFeature.cpp
-  MMFiles/MMFilesWalSlot.cpp
-  MMFiles/MMFilesWalSlots.cpp
   Replication/ContinuousSyncer.cpp
   Replication/InitialSyncer.cpp
   Replication/Syncer.cpp
@@ -310,8 +293,9 @@ SET(ARANGOD_SOURCES
   RestHandler/RestSimpleQueryHandler.cpp
   RestHandler/RestUploadHandler.cpp
   RestHandler/RestVersionHandler.cpp
+  RestHandler/RestViewHandler.cpp
   RestHandler/RestVocbaseBaseHandler.cpp
-  RestHandler/RestWalHandler.cpp
+  RestHandler/RestPregelHandler.cpp
   RestHandler/WorkMonitorHandler.cpp
   RestServer/AqlFeature.cpp
   RestServer/BootstrapFeature.cpp
@@ -334,9 +318,9 @@ SET(ARANGOD_SOURCES
   RestServer/TraverserEngineRegistryFeature.cpp
   RestServer/UnitTestsFeature.cpp
   RestServer/UpgradeFeature.cpp
+  RestServer/ViewTypesFeature.cpp
   RestServer/VocbaseContext.cpp
   RestServer/WorkMonitorFeature.cpp
-  RestServer/arangod.cpp
   Scheduler/Acceptor.cpp
   Scheduler/AcceptorTcp.cpp
   Scheduler/Job.cpp
@@ -356,8 +340,11 @@ SET(ARANGOD_SOURCES
   StorageEngine/EngineSelectorFeature.cpp
   StorageEngine/TransactionCollection.cpp
   StorageEngine/TransactionState.cpp
+  Transaction/Context.cpp
   Transaction/Helpers.cpp
   Transaction/Methods.cpp
+  Transaction/StandaloneContext.cpp
+  Transaction/V8Context.cpp
   Utils/CollectionExport.cpp
   Utils/CollectionKeys.cpp
   Utils/CollectionKeysRepository.cpp
@@ -366,9 +353,6 @@ SET(ARANGOD_SOURCES
   Utils/CursorRepository.cpp
   Utils/OperationCursor.cpp
   Utils/SingleCollectionTransaction.cpp
-  Utils/StandaloneTransactionContext.cpp
-  Utils/TransactionContext.cpp
-  Utils/V8TransactionContext.cpp
   Utils/WorkMonitorArangod.cpp
   V8Server/FoxxQueuesFeature.cpp
   V8Server/V8Context.cpp
@@ -383,16 +367,17 @@ SET(ARANGOD_SOURCES
   V8Server/v8-statistics.cpp
   V8Server/v8-user-structures.cpp
   V8Server/v8-util.cpp
+  V8Server/v8-views.cpp
   V8Server/v8-vocbase.cpp
   V8Server/v8-voccursor.cpp
   V8Server/v8-vocindex.cpp
+  Views/LoggerView.cpp
   VocBase/AuthInfo.cpp
-  VocBase/DatafileStatisticsContainer.cpp
-  VocBase/Ditch.cpp
   VocBase/EdgeCollectionInfo.cpp
   VocBase/Graphs.cpp
   VocBase/KeyGenerator.cpp
   VocBase/LogicalCollection.cpp
+  VocBase/LogicalView.cpp
   VocBase/PathEnumerator.cpp
   VocBase/PhysicalCollection.cpp
   VocBase/SingleServerTraverser.cpp
@@ -405,14 +390,90 @@ SET(ARANGOD_SOURCES
   VocBase/replication-dump.cpp
   VocBase/ticks.cpp
   VocBase/vocbase.cpp
+  Pregel/AggregatorHandler.cpp
+  Pregel/AlgoRegistry.cpp
+  Pregel/Algos/SSSP.cpp
+  Pregel/Algos/ShortestPath.cpp
+  Pregel/Algos/PageRank.cpp
+  Pregel/Algos/RecoveringPageRank.cpp
+  Pregel/Algos/LineRank.cpp
+  Pregel/Algos/ConnectedComponents.cpp
+  Pregel/Algos/SCC.cpp
+  Pregel/Algos/AsyncSCC.cpp
+  Pregel/Algos/HITS.cpp
+  Pregel/Algos/LabelPropagation.cpp
+  Pregel/Algos/DMID/DMID.cpp
+  Pregel/Algos/EffectiveCloseness/EffectiveCloseness.cpp
+  Pregel/Algos/EffectiveCloseness/HLLCounter.cpp
+  Pregel/Conductor.cpp
+  Pregel/GraphStore.cpp
+  Pregel/IncomingCache.cpp
+  Pregel/OutgoingCache.cpp
+  Pregel/PregelFeature.cpp
+  Pregel/Utils.cpp
+  Pregel/Recovery.cpp
+  Pregel/Worker.cpp
+  Pregel/WorkerConfig.cpp
   ${ADDITIONAL_BIN_ARANGOD_SOURCES}
+)
+
+# add sources for mmfiles engine
+set(ARANGOD_SOURCES
+  ${ARANGOD_SOURCES}
+  MMFiles/fulltext-handles.cpp
+  MMFiles/fulltext-index.cpp
+  MMFiles/fulltext-list.cpp
+  MMFiles/fulltext-query.cpp
+  MMFiles/fulltext-result.cpp
+  MMFiles/geo-index.cpp
+  MMFiles/MMFilesAllocatorThread.cpp
+  MMFiles/MMFilesAqlFunctions.cpp
+  MMFiles/MMFilesCleanupThread.cpp
+  MMFiles/MMFilesCollection.cpp
+  MMFiles/MMFilesCollectorThread.cpp
+  MMFiles/MMFilesCompactorThread.cpp
+  MMFiles/MMFilesDatafile.cpp
+  MMFiles/MMFilesDatafileStatistics.cpp
+  MMFiles/MMFilesDatafileStatisticsContainer.cpp
+  MMFiles/MMFilesDitch.cpp
+  MMFiles/MMFilesDocumentOperation.cpp
+  MMFiles/MMFilesEdgeIndex.cpp
+  MMFiles/MMFilesEngine.cpp
+  MMFiles/MMFilesIndexElement.cpp
+  MMFiles/MMFilesIndexFactory.cpp
+  MMFiles/MMFilesLogfileManager.cpp
+  MMFiles/MMFilesFulltextIndex.cpp
+  MMFiles/MMFilesGeoIndex.cpp
+  MMFiles/MMFilesHashIndex.cpp
+  MMFiles/MMFilesOptimizerRules.cpp
+  MMFiles/MMFilesPathBasedIndex.cpp
+  MMFiles/MMFilesPersistentIndexFeature.cpp
+  MMFiles/MMFilesPersistentIndex.cpp
+  MMFiles/MMFilesPersistentIndexKeyComparator.cpp
+  MMFiles/MMFilesPrimaryIndex.cpp
+  MMFiles/MMFilesRemoverThread.cpp
+  MMFiles/MMFilesRestHandlers.cpp
+  MMFiles/MMFilesRestWalHandler.cpp
+  MMFiles/MMFilesRevisionsCache.cpp
+  MMFiles/MMFilesSkiplistIndex.cpp
+  MMFiles/MMFilesSynchronizerThread.cpp
+  MMFiles/MMFilesTransactionCollection.cpp
+  MMFiles/MMFilesTransactionContextData.cpp
+  MMFiles/MMFilesTransactionState.cpp
+  MMFiles/MMFilesV8Functions.cpp
+  MMFiles/MMFilesView.cpp
+  MMFiles/MMFilesWalLogfile.cpp
+  MMFiles/MMFilesWalRecoverState.cpp
+  MMFiles/MMFilesWalRecoveryFeature.cpp
+  MMFiles/MMFilesWalSlot.cpp
+  MMFiles/MMFilesWalSlots.cpp
 )
 
 if (NOT MSVC)
   set(ARANGOD_SOURCES ${ARANGOD_SOURCES} Scheduler/AcceptorUnixDomain.cpp Scheduler/SocketUnixDomain.cpp)
 endif()
 
-add_executable(${BIN_ARANGOD} ${ARANGOD_SOURCES})
+add_library(arangoserver STATIC ${ARANGOD_SOURCES})
 
 if (USE_SSL)
   target_compile_definitions(${BIN_ARANGOD} PUBLIC "ARANGODB_SSL_ENABLED=1")
@@ -421,7 +482,7 @@ endif()
 # otherwise GCC reports lib/Basics/asio-helper.h:66:25: error: 'boost::asio::ssl::error' has not been declared
 target_compile_definitions(${BIN_ARANGOD} PRIVATE "ARANGODB_BASICS_ASIO_HELPER_H_2=1")
 
-target_link_libraries(${BIN_ARANGOD}
+target_link_libraries(arangoserver
   ${LIB_ARANGO_FE}
   ${LIB_ARANGO_V8}
   ${LIB_ARANGO}
@@ -430,9 +491,17 @@ target_link_libraries(${BIN_ARANGOD}
   ${V8_LIBS}
   ${ROCKSDB_LIBS}
   ${LIB_ARANGO_IRESEARCH}
-  ${SYSTEM_LIBRARIES}
   boost_boost
   boost_system
+  ${SYSTEM_LIBRARIES}
+)
+
+add_executable(${BIN_ARANGOD}
+  RestServer/arangod.cpp
+)
+
+target_link_libraries(${BIN_ARANGOD}
+  arangoserver
 )
 
 install(

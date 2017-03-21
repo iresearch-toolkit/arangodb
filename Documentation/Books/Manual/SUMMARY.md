@@ -64,6 +64,7 @@
     * [Using Traversal Objects](Graphs/Traversals/UsingTraversalObjects.md)
     * [Example Data](Graphs/Traversals/ExampleData.md)
   * [Working with Edges](Graphs/Edges/README.md)
+  * [Pregel](Graphs/Pregel/README.md)
 #
 * [Foxx Microservices](Foxx/README.md)
   * [At a glance](Foxx/AtAGlance.md)
@@ -164,7 +165,7 @@
     * [Synchronous Replication](Administration/Replication/Synchronous/README.md)
       * [Implementation](Administration/Replication/Synchronous/Implementation.md)
       * [Configuration](Administration/Replication/Synchronous/Configuration.md)
-    * [Satellite Collections](Administration/Replication/Synchronous/Satellites/README.md)
+
   * [Sharding](Administration/Sharding/README.md)
 #    * [Authentication](Administration/Sharding/Authentication.md)
 #    * [Firewall setup](Administration/Sharding/FirewallSetup.md)

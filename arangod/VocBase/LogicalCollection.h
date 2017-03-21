@@ -19,24 +19,19 @@
 /// Copyright holder is ArangoDB GmbH, Cologne, Germany
 ///
 /// @author Michael Hackstein
+/// @author Jan Christoph Uhde
 ////////////////////////////////////////////////////////////////////////////////
 
 #ifndef ARANGOD_VOCBASE_LOGICAL_COLLECTION_H
 #define ARANGOD_VOCBASE_LOGICAL_COLLECTION_H 1
 
 #include "Basics/Common.h"
-#include "StorageEngine/StorageEngine.h"
 #include "VocBase/voc-types.h"
 #include "VocBase/vocbase.h"
 
 #include <velocypack/Buffer.h>
 
-struct TRI_df_marker_t;
-
 namespace arangodb {
-namespace basics {
-class LocalTaskQueue;
-}
 
 namespace velocypack {
 class Slice;
@@ -48,18 +43,14 @@ typedef std::string CollectionID;  // ID of a collection
 typedef std::string ShardID;       // ID of a shard
 typedef std::unordered_map<ShardID, std::vector<ServerID>> ShardMap;
 
-struct DatafileStatisticsContainer;
-class Ditches;
 struct DocumentIdentifierToken;
 class FollowerInfo;
 class Index;
-class KeyGenerator;
+class IndexIterator;
 class ManagedDocumentResult;
-struct MMFilesDocumentOperation;
-class MMFilesWalMarker;
 struct OperationOptions;
 class PhysicalCollection;
-class MMFilesPrimaryIndex;
+class Result;
 class StringRef;
 namespace transaction {
 class Methods;
@@ -69,8 +60,7 @@ class LogicalCollection {
   friend struct ::TRI_vocbase_t;
 
  public:
-  LogicalCollection(TRI_vocbase_t*, velocypack::Slice const&,
-                    bool isPhysical);
+  LogicalCollection(TRI_vocbase_t*, velocypack::Slice const&);
 
   virtual ~LogicalCollection();
 
@@ -106,10 +96,6 @@ class LogicalCollection {
   static bool IsAllowedName(velocypack::Slice parameters);
   static bool IsAllowedName(bool isSystem, std::string const& name);
 
-  // TODO: MOVE TO PHYSICAL?
-  bool isFullyCollected(); //should not be exposed
-
-
   // SECTION: Meta Information
   uint32_t version() const { return _version; }
 
@@ -122,17 +108,16 @@ class LogicalCollection {
   std::string cid_as_string() const;
 
   TRI_voc_cid_t planId() const;
+  std::string planId_as_string() const;
 
   TRI_col_type_e type() const;
 
-  inline bool useSecondaryIndexes() const { return _useSecondaryIndexes; }
-
-  void useSecondaryIndexes(bool value) { _useSecondaryIndexes = value; }
-
   std::string name() const;
   std::string dbName() const;
-  std::string const& distributeShardsLike() const;
-  void distributeShardsLike(std::string const&);
+
+  // Does always return the cid
+  std::string const distributeShardsLike() const;
+  void distributeShardsLike(std::string const& cid);
 
   std::vector<std::string> const& avoidServers() const;
   void avoidServers(std::vector<std::string> const&);
@@ -161,23 +146,15 @@ class LogicalCollection {
   /// if the boolean is false, the return value is always
   /// TRI_VOC_COL_STATUS_CORRUPTED
   TRI_vocbase_col_status_e tryFetchStatus(bool&);
-  std::string statusString();
-
-  TRI_voc_tick_t maxTick() const { return _maxTick; }
-  void maxTick(TRI_voc_tick_t value) { _maxTick = value; }
+  std::string statusString() const;
 
   uint64_t numberDocuments() const;
-
-  // TODO this should be part of physical collection!
-  size_t journalSize() const;
 
   // SECTION: Properties
   TRI_voc_rid_t revision() const;
   bool isLocal() const;
   bool deleted() const;
-  bool doCompact() const;
   bool isSystem() const;
-  bool isVolatile() const;
   bool waitForSync() const;
   bool isSmart() const;
 
@@ -187,34 +164,17 @@ class LogicalCollection {
 
   void setDeleted(bool);
 
-  Ditches* ditches() const;
-
-  // SECTION: Key Options
-  velocypack::Slice keyOptions() const;
-
-  // Get a reference to this KeyGenerator.
-  // Caller is not allowed to free it.
-  inline KeyGenerator* keyGenerator() const {
-    return _keyGenerator.get();
-  }
-
   PhysicalCollection* getPhysical() const { return _physical.get(); }
+  
+  std::unique_ptr<IndexIterator> getAllIterator(transaction::Methods* trx, ManagedDocumentResult* mdr, bool reverse);
+  std::unique_ptr<IndexIterator> getAnyIterator(transaction::Methods* trx, ManagedDocumentResult* mdr);
+
+  void invokeOnAllElements(std::function<bool(DocumentIdentifierToken const&)> callback);
+
 
   // SECTION: Indexes
-  uint32_t indexBuckets() const;
-
   std::vector<std::shared_ptr<Index>> const& getIndexes() const;
 
-  // WARNING: Make sure that this LogicalCollection Instance
-  // is somehow protected. If it goes out of all scopes
-  // or it's indexes are freed the pointer returned will get invalidated.
-  MMFilesPrimaryIndex* primaryIndex() const;
-
-  // Adds all properties to the builder (has to be an open object)
-  // Does not add Shards or Indexes
-  void getPropertiesVPack(velocypack::Builder&,
-                          bool translateCids) const;
-  
   void getIndexesVPack(velocypack::Builder&, bool) const;
 
   // SECTION: Replication
@@ -227,6 +187,8 @@ class LogicalCollection {
   virtual bool usesDefaultShardKeys() const;
   std::vector<std::string> const& shardKeys() const;
   std::shared_ptr<ShardMap> shardIds() const;
+  // return a filtered list of the collection's shards
+  std::shared_ptr<ShardMap> shardIds(std::unordered_set<std::string> const& includedShards) const;
   void setShardMap(std::shared_ptr<ShardMap>& map);
 
   /// @brief a method to skip certain documents in AQL write operations,
@@ -242,19 +204,19 @@ class LogicalCollection {
   virtual void setStatus(TRI_vocbase_col_status_e);
 
   // SECTION: Serialisation
-  void toVelocyPack(velocypack::Builder&, bool withPath) const;
-  virtual void toVelocyPackForAgency(velocypack::Builder&);
+  void toVelocyPack(velocypack::Builder&, bool translateCids) const;
+
+  velocypack::Builder toVelocyPackIgnore(
+      std::unordered_set<std::string> const& ignoreKeys,
+      bool translateCids) const;
+
   virtual void toVelocyPackForClusterInventory(velocypack::Builder&,
                                                bool useSystem) const;
-
-  /// @brief transform the information for this collection to velocypack
-  ///        The builder has to be an opened Type::Object
-  void toVelocyPack(velocypack::Builder&, bool, TRI_voc_tick_t);
 
   inline TRI_vocbase_t* vocbase() const { return _vocbase; }
 
   // Update this collection.
-  virtual int updateProperties(velocypack::Slice const&, bool);
+  virtual arangodb::Result updateProperties(velocypack::Slice const&, bool);
 
   /// @brief return the figures for a collection
   virtual std::shared_ptr<velocypack::Builder> figures();
@@ -266,18 +228,6 @@ class LogicalCollection {
   int close();
 
   /// datafile management
-
-  /// @brief rotate the active journal - will do nothing if there is no journal
-  int rotateActiveJournal();
-
-  /// @brief increase dead stats for a datafile, if it exists
-  void updateStats(TRI_voc_fid_t fid,
-                   DatafileStatisticsContainer const& values);
-
-  bool applyForTickRange(
-      TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax,
-      std::function<bool(TRI_voc_tick_t foundTick,
-                         TRI_df_marker_t const* marker)> const& callback);
 
   void sizeHint(transaction::Methods* trx, int64_t hint);
 
@@ -293,27 +243,7 @@ class LogicalCollection {
   /// @brief Find index by iid
   std::shared_ptr<Index> lookupIndex(TRI_idx_iid_t) const;
 
-  // SECTION: Indexes (local only)
-
-  /// @brief Detect all indexes form file
-  int detectIndexes(transaction::Methods* trx);
-
-  /// @brief Restores an index from VelocyPack.
-  int restoreIndex(transaction::Methods*, velocypack::Slice const&,
-                   std::shared_ptr<Index>&);
-
-  /// @brief Exposes a pointer to index list
-  std::vector<std::shared_ptr<Index>> const* indexList() const;
-
-  /// @brief Fill indexes used in recovery
-  int fillIndexes(transaction::Methods*,
-                  std::vector<std::shared_ptr<Index>> const&,
-                  bool skipPersistent = true);
-
-  /// @brief Saves Index to file
-  int saveIndex(Index* idx, bool writeMarker);
-
-  bool dropIndex(TRI_idx_iid_t iid, bool writeMarker);
+  bool dropIndex(TRI_idx_iid_t iid);
 
   // SECTION: Index access (local only)
 
@@ -341,66 +271,43 @@ class LogicalCollection {
              OperationOptions&, TRI_voc_tick_t&, bool,
              TRI_voc_rid_t& prevRev, ManagedDocumentResult& previous);
 
-  bool readDocument(transaction::Methods*, ManagedDocumentResult& result,
-                    DocumentIdentifierToken const& token);
-  bool readDocumentConditional(transaction::Methods*,
-                               ManagedDocumentResult& result,
-                               DocumentIdentifierToken const& token,
-                               TRI_voc_tick_t maxTick, bool excludeWal);
+  bool readDocument(transaction::Methods* trx,
+                    DocumentIdentifierToken const& token,
+                    ManagedDocumentResult& result);
 
-  bool readRevision(transaction::Methods*, ManagedDocumentResult& result,
-                    TRI_voc_rid_t revisionId);
-  bool readRevisionConditional(transaction::Methods*,
-                               ManagedDocumentResult& result,
-                               TRI_voc_rid_t revisionId, TRI_voc_tick_t maxTick,
-                               bool excludeWal);
+  bool readDocumentConditional(transaction::Methods* trx,
+                               DocumentIdentifierToken const& token,
+                               TRI_voc_tick_t maxTick,
+                               ManagedDocumentResult& result);
+
+  /// @brief Persist the connected physical collection.
+  ///        This should be called AFTER the collection is successfully
+  ///        created and only on Sinlge/DBServer
+  void persistPhysicalCollection();
+
+  basics::ReadWriteLock& lock() {
+    return _lock;
+  }
+
+  /// @brief Defer a callback to be executed when the collection
+  ///        can be dropped. The callback is supposed to drop
+  ///        the collection and it is guaranteed that no one is using
+  ///        it at that moment.
+  void deferDropCollection(std::function<bool(arangodb::LogicalCollection*)> callback);
 
  private:
-  // SECTION: Index creation
-
-  /// @brief creates the initial indexes for the collection
-  void createInitialIndexes();
-
-  bool removeIndex(TRI_idx_iid_t iid);
-
-  void addIndex(std::shared_ptr<Index>);
-  void addIndexCoordinator(std::shared_ptr<Index>, bool);
 
   // SECTION: Indexes (local only)
-
-  // TODO Make Private and IndexFiller as friend
-  /// @brief initializes an index with all existing documents
-  void fillIndex(basics::LocalTaskQueue*, transaction::Methods*,
-                 Index*,
-                 std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const&,
-                 bool);
-
   // @brief create index with the given definition.
   bool openIndex(velocypack::Slice const&, transaction::Methods*);
 
-  // SECTION: Document pre commit preperation (only local)
-
-  /// @brief new object for insert, value must have _key set correctly.
-  int newObjectForInsert(transaction::Methods* trx,
-                         velocypack::Slice const& value,
-                         velocypack::Slice const& fromSlice,
-                         velocypack::Slice const& toSlice,
-                         bool isEdgeCollection,
-                         velocypack::Builder& builder,
-                         bool isRestore);
-
- public: // TODO FIXME
- /// @brief new object for remove, must have _key set
-  void newObjectForRemove(transaction::Methods* trx,
-                          velocypack::Slice const& oldValue,
-                          std::string const& rev,
-                          velocypack::Builder& builder);
- private:
   void increaseInternalVersion();
 
  protected:
-  void toVelocyPackInObject(velocypack::Builder& result,
-                            bool translateCids) const;
+
+  virtual void includeVelocyPackEnterprise(velocypack::Builder& result) const;
+
+ protected:
 
   // SECTION: Meta Information
   //
@@ -438,24 +345,13 @@ class LogicalCollection {
 
   // SECTION: Properties
   bool _isLocal;
-  bool _isDeleted;
-  bool _doCompact;
-  bool const _isSystem;
-  bool const _isVolatile;
-  bool _waitForSync;
-  TRI_voc_size_t _journalSize;
 
-  // SECTION: Key Options
-  // TODO Really VPack?
-  std::shared_ptr<velocypack::Buffer<uint8_t> const>
-      _keyOptions;  // options for key creation
+  bool _isDeleted;
+
+  bool const _isSystem;
 
   uint32_t _version;
-
-  // SECTION: Indexes
-  uint32_t _indexBuckets;
-
-  std::vector<std::shared_ptr<Index>> _indexes;
+  bool _waitForSync;
 
   // SECTION: Replication
   size_t _replicationFactor;
@@ -471,21 +367,7 @@ class LogicalCollection {
 
   TRI_vocbase_t* _vocbase;
 
-  // SECTION: Local Only has to be moved to PhysicalCollection
- public:
-  // TODO MOVE ME
-  size_t _cleanupIndexes;
-  size_t _persistentIndexes;
- protected:
-
   std::unique_ptr<PhysicalCollection> _physical;
-
-  // whether or not secondary indexes should be filled
-  bool _useSecondaryIndexes;
-
-  TRI_voc_tick_t _maxTick;
-
-  std::unique_ptr<KeyGenerator> _keyGenerator;
 
   mutable basics::ReadWriteLock
       _lock;  // lock protecting the status and name

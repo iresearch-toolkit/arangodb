@@ -25,6 +25,7 @@
 
 #include "Agency/v8-agency.h"
 #include "ApplicationFeatures/ApplicationServer.h"
+#include "Aql/PlanCache.h"
 #include "Aql/QueryCache.h"
 #include "Aql/QueryRegistry.h"
 #include "Basics/ArangoGlobalContext.h"
@@ -90,7 +91,7 @@ void DatabaseManagerThread::run() {
         auto theLists = databaseFeature->_databasesLists.load();
 
         for (TRI_vocbase_t* vocbase : theLists->_droppedDatabases) {
-          if (!vocbase->canBeDropped()) {
+          if (!vocbase->isDangling()) {
             continue;
           }
 
@@ -133,10 +134,12 @@ void DatabaseManagerThread::run() {
           // not possible that another thread has seen this very database
           // and tries to free it at the same time!
         }
-
+  
         if (database->type() != TRI_VOCBASE_TYPE_COORDINATOR) {
           // regular database
           // ---------------------------
+  
+          TRI_ASSERT(!database->isSystem());
 
           LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "physically removing database directory '"
                      << engine->databasePath(database) << "' of database '"
@@ -237,6 +240,7 @@ DatabaseFeature::DatabaseFeature(ApplicationServer* server)
   startsAfter("MMFilesLogfileManager");
   startsAfter("InitDatabase");
   startsAfter("MMFilesEngine");
+  startsAfter("MMFilesPersistentIndex");
 }
 
 DatabaseFeature::~DatabaseFeature() {
@@ -522,7 +526,7 @@ int DatabaseFeature::createDatabaseCoordinator(TRI_voc_tick_t id,
 
 /// @brief create a new database
 int DatabaseFeature::createDatabase(TRI_voc_tick_t id, std::string const& name,
-                                    bool writeMarker, TRI_vocbase_t*& result) {
+                                    TRI_vocbase_t*& result) {
   result = nullptr;
 
   if (!TRI_vocbase_t::IsAllowedName(false, name)) {
@@ -606,7 +610,8 @@ int DatabaseFeature::createDatabase(TRI_voc_tick_t id, std::string const& name,
       }
 
       // increase reference counter
-      vocbase->use();
+      bool result = vocbase->use();
+      TRI_ASSERT(result);
     }
 
     {
@@ -631,7 +636,7 @@ int DatabaseFeature::createDatabase(TRI_voc_tick_t id, std::string const& name,
   // write marker into log
   int res = TRI_ERROR_NO_ERROR;
 
-  if (writeMarker) {
+  if (!engine->inRecovery()) {
     res = engine->writeCreateMarker(id, builder.slice());
   }
 
@@ -686,8 +691,7 @@ int DatabaseFeature::dropDatabaseCoordinator(TRI_voc_tick_t id, bool force) {
 }
 
 /// @brief drop database
-int DatabaseFeature::dropDatabase(std::string const& name, bool writeMarker,
-                                  bool waitForDeletion,
+int DatabaseFeature::dropDatabase(std::string const& name, bool waitForDeletion,
                                   bool removeAppsDirectory) {
   if (name == TRI_VOC_SYSTEM_DATABASE) {
     // prevent deletion of system database
@@ -718,13 +722,6 @@ int DatabaseFeature::dropDatabase(std::string const& name, bool writeMarker,
         // mark as deleted
         TRI_ASSERT(vocbase->type() == TRI_VOCBASE_TYPE_NORMAL);
 
-        if (!vocbase->markAsDropped()) {
-          // deleted by someone else?
-          delete newLists;
-          events::DropDatabase(name, TRI_ERROR_ARANGO_DATABASE_NOT_FOUND);
-          return TRI_ERROR_ARANGO_DATABASE_NOT_FOUND;
-        }
-
         newLists->_databases.erase(it);
         newLists->_droppedDatabases.insert(vocbase);
       }
@@ -739,14 +736,21 @@ int DatabaseFeature::dropDatabase(std::string const& name, bool writeMarker,
     _databasesLists = newLists;
     _databasesProtector.scan();
     delete oldLists;
+       
+    TRI_ASSERT(!vocbase->isSystem()); 
+    bool result = vocbase->markAsDropped();
+    TRI_ASSERT(result);
 
     vocbase->setIsOwnAppsDirectory(removeAppsDirectory);
 
     // invalidate all entries for the database
+    arangodb::aql::PlanCache::instance()->invalidate(vocbase);
     arangodb::aql::QueryCache::instance()->invalidate(vocbase);
 
-    engine->prepareDropDatabase(vocbase, writeMarker, res);
+    engine->prepareDropDatabase(vocbase, !engine->inRecovery(), res);
   }
+  // must not use the database after here, as it may now be
+  // deleted by the DatabaseManagerThread!
 
   if (res == TRI_ERROR_NO_ERROR && waitForDeletion) {
     engine->waitUntilDeletion(id, true, res);
@@ -757,8 +761,7 @@ int DatabaseFeature::dropDatabase(std::string const& name, bool writeMarker,
 }
 
 /// @brief drops an existing database
-int DatabaseFeature::dropDatabase(TRI_voc_tick_t id, bool writeMarker,
-                                  bool waitForDeletion,
+int DatabaseFeature::dropDatabase(TRI_voc_tick_t id, bool waitForDeletion,
                                   bool removeAppsDirectory) {
   std::string name;
 
@@ -778,7 +781,7 @@ int DatabaseFeature::dropDatabase(TRI_voc_tick_t id, bool writeMarker,
   }
 
   // and call the regular drop function
-  return dropDatabase(name, writeMarker, waitForDeletion, removeAppsDirectory);
+  return dropDatabase(name, waitForDeletion, removeAppsDirectory);
 }
 
 std::vector<TRI_voc_tick_t> DatabaseFeature::getDatabaseIdsCoordinator(
@@ -812,6 +815,9 @@ std::vector<TRI_voc_tick_t> DatabaseFeature::getDatabaseIds(
     for (auto& p : theLists->_databases) {
       TRI_vocbase_t* vocbase = p.second;
       TRI_ASSERT(vocbase != nullptr);
+      if (vocbase->isDropped()) {
+        continue;
+      }
       if (includeSystem || vocbase->name() != TRI_VOC_SYSTEM_DATABASE) {
         ids.emplace_back(vocbase->id());
       }
@@ -832,7 +838,9 @@ std::vector<std::string> DatabaseFeature::getDatabaseNames() {
     for (auto& p : theLists->_databases) {
       TRI_vocbase_t* vocbase = p.second;
       TRI_ASSERT(vocbase != nullptr);
-
+      if (vocbase->isDropped()) {
+        continue;
+      }
       names.emplace_back(vocbase->name());
     }
   }
@@ -856,6 +864,9 @@ std::vector<std::string> DatabaseFeature::getDatabaseNamesForUser(
     for (auto& p : theLists->_databases) {
       TRI_vocbase_t* vocbase = p.second;
       TRI_ASSERT(vocbase != nullptr);
+      if (vocbase->isDropped()) {
+        continue;
+      }
 
       auto authentication = application_features::ApplicationServer::getFeature<
           AuthenticationFeature>("Authentication");
@@ -877,7 +888,8 @@ std::vector<std::string> DatabaseFeature::getDatabaseNamesForUser(
 }
 
 void DatabaseFeature::useSystemDatabase() {
-  useDatabase(TRI_VOC_SYSTEM_DATABASE);
+  TRI_vocbase_t* result = useDatabase(TRI_VOC_SYSTEM_DATABASE);
+  TRI_ASSERT(result != nullptr);
 }
 
 /// @brief get a coordinator database by its id
@@ -924,8 +936,9 @@ TRI_vocbase_t* DatabaseFeature::useDatabase(std::string const& name) {
 
   if (it != theLists->_databases.end()) {
     TRI_vocbase_t* vocbase = it->second;
-    vocbase->use();
-    return vocbase;
+    if (vocbase->use()) {
+      return vocbase;
+    }
   }
 
   return nullptr;
@@ -939,8 +952,10 @@ TRI_vocbase_t* DatabaseFeature::useDatabase(TRI_voc_tick_t id) {
     TRI_vocbase_t* vocbase = p.second;
 
     if (vocbase->id() == id) {
-      vocbase->use();
-      return vocbase;
+      if (vocbase->use()) {
+        return vocbase;
+      }
+      break;
     }
   }
 
@@ -999,6 +1014,10 @@ void DatabaseFeature::updateContexts() {
         TRI_InitV8Queries(isolate, context);
         TRI_InitV8Cluster(isolate, context);
         TRI_InitV8Agency(isolate, context);
+      
+        StorageEngine* engine = EngineSelectorFeature::ENGINE; 
+        TRI_ASSERT(engine != nullptr); // Engine not loaded. Startup broken
+        engine->addV8Functions();
       },
       vocbase);
 }

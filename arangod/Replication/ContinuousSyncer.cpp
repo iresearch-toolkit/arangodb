@@ -24,6 +24,7 @@
 #include "ContinuousSyncer.h"
 #include "ApplicationFeatures/ApplicationServer.h"
 #include "Basics/Exceptions.h"
+#include "Basics/Result.h"
 #include "Basics/StaticStrings.h"
 #include "Basics/StringBuffer.h"
 #include "Basics/VelocyPackHelper.h"
@@ -571,7 +572,7 @@ int ContinuousSyncer::processDocument(TRI_replication_operation_e type,
   else {
     // standalone operation
     // update the apply tick for all standalone operations
-    SingleCollectionTransaction trx(StandaloneTransactionContext::Create(_vocbase),
+    SingleCollectionTransaction trx(transaction::StandaloneContext::Create(_vocbase),
                                             cid, AccessMode::Type::WRITE);
     trx.addHint(transaction::Hints::Hint::SINGLE_OPERATION);
 
@@ -756,7 +757,7 @@ int ContinuousSyncer::renameCollection(VPackSlice const& slice) {
     return TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND;
   }
 
-  return _vocbase->renameCollection(col, name, true, true);
+  return _vocbase->renameCollection(col, name, true);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -784,7 +785,7 @@ int ContinuousSyncer::changeCollection(VPackSlice const& slice) {
 
   arangodb::CollectionGuard guard(_vocbase, cid);
   bool doSync = application_features::ApplicationServer::getFeature<DatabaseFeature>("Database")->forceSyncProperties();
-  return guard.collection()->updateProperties(data, doSync);
+  return guard.collection()->updateProperties(data, doSync).errorNumber();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

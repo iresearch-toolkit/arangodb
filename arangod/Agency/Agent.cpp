@@ -28,6 +28,7 @@
 #include <velocypack/velocypack-aliases.h>
 
 #include <chrono>
+#include <thread>
 
 #include "Agency/GossipCallback.h"
 #include "Basics/ConditionLocker.h"
@@ -58,7 +59,8 @@ Agent::Agent(config_t const& config)
     _inception(std::make_unique<Inception>(this)),
     _activator(nullptr),
     _compactor(this),
-    _ready(false) {
+    _ready(false),
+    _preparing(false) {
   _state.configure(this);
   _constituent.configure(this);
 }
@@ -156,7 +158,7 @@ std::string Agent::leaderID() const {
 
 /// Are we leading?
 bool Agent::leading() const {
-  return _constituent.leading();
+  return _preparing || _constituent.leading();
 }
 
 /// Start constituent personality
@@ -354,12 +356,6 @@ void Agent::sendAppendEntriesRPC() {
 
       std::vector<log_t> unconfirmed = _state.get(last_confirmed);
 
-      if (unconfirmed.empty()) {
-        // this can only happen if the log is totally empty (I think, Max)
-        // and so it is OK, to skip the time check here
-        continue;
-      }
-
       index_t highest = unconfirmed.back().index;
 
       // _lastSent, _lastHighest: local and single threaded access
@@ -381,7 +377,8 @@ void Agent::sendAppendEntriesRPC() {
       // Body
       Builder builder;
       builder.add(VPackValue(VPackValueType::Array));
-      if ((system_clock::now() - _earliestPackage[followerId]).count() > 0) {
+      if (!_preparing &&
+          ((system_clock::now() - _earliestPackage[followerId]).count() > 0)) {
         for (size_t i = 1; i < unconfirmed.size(); ++i) {
           auto const& entry = unconfirmed.at(i);
           builder.add(VPackValue(VPackValueType::Object));
@@ -632,6 +629,7 @@ query_t Agent::lastAckedAgo() const {
 }
 
 trans_ret_t Agent::transact(query_t const& queries) {
+
   arangodb::consensus::index_t maxind = 0; // maximum write index
 
   auto leader = _constituent.leaderID();
@@ -764,6 +762,7 @@ inquire_ret_t Agent::inquire(query_t const& query) {
 
 /// Write new entries to replicated state and store
 write_ret_t Agent::write(query_t const& query) {
+
   std::vector<bool> applied;
   std::vector<index_t> indices;
   auto multihost = size()>1;
@@ -1002,10 +1001,16 @@ void Agent::beginShutdown() {
 }
 
 
-void Agent::prepareLead() {
-
+bool Agent::prepareLead() {
+  
   // Key value stores
-  rebuildDBs();
+  try {
+    rebuildDBs();
+  } catch (std::exception const& e) {
+    LOG_TOPIC(ERR, Logger::AGENCY)
+      << "Failed to rebuild key value stores." << e.what();
+    return false;
+  }
   
   // Reset last acknowledged
   {
@@ -1015,7 +1020,9 @@ void Agent::prepareLead() {
     }
     _leaderSince = system_clock::now();
   }
-
+  
+  return true; 
+  
 }
 
 /// Becoming leader
@@ -1026,6 +1033,7 @@ void Agent::lead() {
     CONDITION_LOCKER(guard, _appendCV);
     guard.broadcast();
   }
+
 
   // Agency configuration
   term_t myterm;
@@ -1161,8 +1169,8 @@ void Agent::notify(query_t const& message) {
 
   _config.update(message);
 
-  _state.persistActiveAgents(_config.activeToBuilder(),
-                             _config.poolToBuilder());
+  _state.persistActiveAgents(_config.activeToBuilder(), _config.poolToBuilder());
+  
 }
 
 // Rebuild key value stores
@@ -1173,23 +1181,18 @@ arangodb::consensus::index_t Agent::rebuildDBs() {
 
   // Apply logs from last applied index to leader's commit index
   LOG_TOPIC(DEBUG, Logger::AGENCY)
-    << "Rebuilding kvstores from index "
+    << "Rebuilding key-value stores from index "
     << _lastAppliedIndex << " to " << _leaderCommitIndex;
-  
-  _spearhead.apply(
-    _state.slices(_lastAppliedIndex+1, _leaderCommitIndex+1),
-    _leaderCommitIndex, _constituent.term());
-  
-  _readDB.apply(
-    _state.slices(_lastAppliedIndex+1, _leaderCommitIndex+1),
-    _leaderCommitIndex, _constituent.term());
 
-  _compacted.apply(
-    _state.slices(_lastAppliedIndex+1, _leaderCommitIndex+1),
-    _leaderCommitIndex, _constituent.term());
-
+  auto logs = _state.slices(_lastAppliedIndex+1, _leaderCommitIndex+1);
+  
+  _spearhead.apply(logs, _leaderCommitIndex, _constituent.term());
+  _readDB.apply(logs, _leaderCommitIndex, _constituent.term());
+  
+  LOG_TOPIC(TRACE, Logger::AGENCY)
+    << "ReadDB: " << _readDB;
+  
   _lastAppliedIndex = _leaderCommitIndex;
-  _lastCompactionIndex = _leaderCommitIndex;
   
   return _lastAppliedIndex;
 

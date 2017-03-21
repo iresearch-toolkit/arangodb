@@ -40,7 +40,7 @@
 #include "Utils/OperationOptions.h"
 #include "Utils/OperationResult.h"
 #include "Utils/SingleCollectionTransaction.h"
-#include "Utils/StandaloneTransactionContext.h"
+#include "Transaction/StandaloneContext.h"
 #include "VocBase/ticks.h"
 #include "VocBase/vocbase.h"
 
@@ -87,13 +87,6 @@ Constituent::~Constituent() { shutdown(); }
 /// Wait for sync
 bool Constituent::waitForSync() const { return _agent->config().waitForSync(); }
 
-/// Random sleep times in election process
-duration_t Constituent::sleepFor(double min_t, double max_t) {
-  int32_t left = static_cast<int32_t>(1000.0 * min_t),
-    right = static_cast<int32_t>(1000.0 * max_t);
-  return duration_t(static_cast<long>(RandomGenerator::interval(left, right)));
-}
-
 /// Get my term
 term_t Constituent::term() const {
   MUTEX_LOCKER(guard, _castLock);
@@ -116,33 +109,36 @@ void Constituent::termNoLock(term_t t) {
       << roleStr[_role] << " new term " << t;
 
     _cast = false;
-    Builder body;
-    body.add(VPackValue(VPackValueType::Object));
-    std::ostringstream i_str;
-    i_str << std::setw(20) << std::setfill('0') << t;
-    body.add("_key", Value(i_str.str()));
-    body.add("term", Value(t));
-    body.add("voted_for", Value(_votedFor));
-    body.close();
 
-    TRI_ASSERT(_vocbase != nullptr);
-    auto transactionContext =
-        std::make_shared<StandaloneTransactionContext>(_vocbase);
-    SingleCollectionTransaction trx(transactionContext, "election",
-                                    AccessMode::Type::WRITE);
-
-    int res = trx.begin();
-
-    if (res != TRI_ERROR_NO_ERROR) {
-      THROW_ARANGO_EXCEPTION(res);
+    if (!_votedFor.empty()) {
+      Builder body;
+      body.add(VPackValue(VPackValueType::Object));
+      std::ostringstream i_str;
+      i_str << std::setw(20) << std::setfill('0') << t;
+      body.add("_key", Value(i_str.str()));
+      body.add("term", Value(t));
+      body.add("voted_for", Value(_votedFor));
+      body.close();
+      
+      TRI_ASSERT(_vocbase != nullptr);
+      auto transactionContext =
+        std::make_shared<transaction::StandaloneContext>(_vocbase);
+      SingleCollectionTransaction trx(transactionContext, "election",
+                                      AccessMode::Type::WRITE);
+      
+      int res = trx.begin();
+      
+      if (res != TRI_ERROR_NO_ERROR) {
+        THROW_ARANGO_EXCEPTION(res);
+      }
+      
+      OperationOptions options;
+      options.waitForSync = _agent->config().waitForSync();
+      options.silent = true;
+      
+      OperationResult result = trx.insert("election", body.slice(), options);
+      trx.finish(result.code);
     }
-
-    OperationOptions options;
-    options.waitForSync = false;
-    options.silent = true;
-
-    OperationResult result = trx.insert("election", body.slice(), options);
-    trx.finish(result.code);
   }
 }
 
@@ -195,7 +191,17 @@ void Constituent::followNoLock(term_t t) {
 void Constituent::lead(term_t term) {
 
   // we need to rebuild spear_head and read_db
-  _agent->prepareLead();
+
+  _agent->beginPrepareLeadership();
+  TRI_DEFER(_agent->endPrepareLeadership());
+  
+  if (!_agent->prepareLead()) {
+    {
+      MUTEX_LOCKER(guard, _castLock);
+      followNoLock(term);
+    }
+    return;
+  }
 
   {
     MUTEX_LOCKER(guard, _castLock);

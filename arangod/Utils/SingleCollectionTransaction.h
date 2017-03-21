@@ -30,8 +30,9 @@
 #include "VocBase/voc-types.h"
 
 namespace arangodb {
-class DocumentDitch;
-class TransactionContext;
+namespace transaction {
+class Context;
+}
 
 class SingleCollectionTransaction final : public transaction::Methods {
 
@@ -40,14 +41,14 @@ class SingleCollectionTransaction final : public transaction::Methods {
   /// @brief create the transaction, using a collection id
   //////////////////////////////////////////////////////////////////////////////
 
-  SingleCollectionTransaction(std::shared_ptr<TransactionContext>,
+  SingleCollectionTransaction(std::shared_ptr<transaction::Context>,
                               TRI_voc_cid_t, AccessMode::Type);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief create the transaction, using a collection name
   //////////////////////////////////////////////////////////////////////////////
 
-  SingleCollectionTransaction(std::shared_ptr<TransactionContext>,
+  SingleCollectionTransaction(std::shared_ptr<transaction::Context>,
                               std::string const&, AccessMode::Type);
 
   //////////////////////////////////////////////////////////////////////////////

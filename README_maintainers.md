@@ -29,6 +29,7 @@ CMake flags
  * *-DUSE_MAINTAINER_MODE=1* - generate lex/yacc and errors files
  * *-DUSE_BACKTRACE=1* - add backtraces to native code asserts & exceptions
  * *-DUSE_FAILURE_TESTS=1* - adds javascript hook to crash the server for data integrity tests
+ * *-DUSE_CATCH_TESTS=On (default is On so this is set unless you explicitly disable it)
 
 CFLAGS
 ------
@@ -122,7 +123,7 @@ Dependencies
 ------------
 * *Ruby*, *rspec*, *httparty* to install the required dependencies run:
   `cd UnitTests/HttpInterface; bundler`
-* boost_test (compile time)
+* catch (compile time, shipped in the 3rdParty directory)
 
 
 Filename conventions
@@ -166,8 +167,7 @@ Test frameworks used
 ====================
 There are several major places where unittests live: 
  - *UnitTests/HttpInterface*        - rspec tests
- - *UnitTests/Basics*               - boost unittests
- - *UnitTests/Geo*                  - boost unittests
+ - tests/*                          - catch unittests
  - *js/server/tests*                - runneable on the server
  - *js/common/tests*                - runneable on the server & via arangosh
  - *js/common/test-data*
@@ -366,6 +366,34 @@ via the environment variable or in the menu. Given we want to store the symbols 
 
 You then will be able to see stack traces in the debugger.
 
+You may also try to download the symbols manually using: 
+
+    symchk.exe arangod.exe /s SRV*e:/symbol_cache/cache*https://www.arangodb.com/repositories/symsrv/
+
+
+The symbolserver over at https://www.arangodb.com/repositories/symsrv/ is browseable; thus you can easily download the files you need by hand. It contains of a list of directories corosponding to the components of arangodb:
+
+  - arango - the basic arangodb library needed by all components
+  - arango_v8 - the basic V8 wrappers needed by all components
+  - arangod - the server process 
+  - the client utilities:
+    - arangob
+    - arangobench
+    - arangoexport
+    - arangoimp
+    - arangorestore
+    - arangosh
+    - arangovpack
+
+In these directories you will find subdirectories with the hash corosponding to the id of the binaries. Their date should corrospond to the release date of their respective arango release. 
+
+This means i.e. for ArangoDB 3.1.11: 
+
+ https://www.arangodb.com/repositories/symsrv/arangod.pdb/A8B899D2EDFC40E994C30C32FCE5FB346/arangod.pd_
+
+This file is a microsoft cabinet file, which is a little bit compressed. You can dismantle it so the windows explorer offers you its proper handler by renaming it to .cab; click on the now named `arangod.cab`, copy the contained arangod.pdb into your symbol path.
+
+
 Coredump analysis
 -----------------
 While Visual studio may cary a nice shiny gui, the concept of GUI fails miserably i.e. in testautomation. Getting an overview over all running threads is a tedious task with it. Here the commandline version of [WinDBG](http://www.windbg.org/) cdb comes to the aid. `testing.js` utilizes it to obtain automatical stack traces for crashes.
@@ -386,6 +414,22 @@ ________________________________________________________________________________
 
 Documentation
 =============
+Using Docker container
+----------------------
+We provide the docker container `arangodb/documentation-builder` which brings all neccessary dependencies to build the documentation.
+
+You can automagically build it using
+
+    ./scripts/generateDocumentation.sh
+
+which will start the docker container, compile ArangoDB, generate fresh example snippets, generate swagger, and all gitbook
+produced output files.
+
+You can also use `proselint` inside of that container to let it proof read your english ;-)
+
+
+Installing on local system
+--------------------------
 Dependencies to build documentation:
 
 - [swagger 2](http://swagger.io/) for the API-Documentation inside aardvark (no installation required)
@@ -468,7 +512,7 @@ restrictions. You can use pythons build in http server for this.
 
 To only regereneate one file (faster) you may specify a filter:
 
-    make FILTER=Manual/Aql/Invoke.mdpp
+    make build-book NAME=Manual FILTER=Manual/Aql/Invoke.mdpp
 
 (regular expressions allowed)
 

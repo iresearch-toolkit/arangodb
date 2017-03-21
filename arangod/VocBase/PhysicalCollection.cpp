@@ -23,7 +23,15 @@
 
 #include "PhysicalCollection.h"
 
+#include "Basics/encoding.h"
 #include "Basics/StaticStrings.h"
+#include "Basics/VelocyPackHelper.h"
+#include "Indexes/Index.h"
+#include "StorageEngine/TransactionState.h"
+#include "Transaction/Methods.h"
+#include "VocBase/KeyGenerator.h"
+#include "VocBase/LogicalCollection.h"
+#include "VocBase/ticks.h"
 #include "VocBase/vocbase.h"
 
 #include <velocypack/Builder.h>
@@ -33,6 +41,45 @@
 #include <velocypack/velocypack-aliases.h>
 
 using namespace arangodb;
+
+PhysicalCollection::PhysicalCollection(LogicalCollection* collection,
+                                       VPackSlice const& info)
+    : _logicalCollection(collection),
+      _keyOptions(nullptr),
+      _indexes(),
+      _keyGenerator() {
+  TRI_ASSERT(info.isObject());
+  auto keyOpts = info.get("keyOptions");
+
+  _keyGenerator.reset(KeyGenerator::factory(keyOpts));
+  if (!keyOpts.isNone()) {
+    _keyOptions = VPackBuilder::clone(keyOpts).steal();
+  }
+}
+
+void PhysicalCollection::figures(std::shared_ptr<arangodb::velocypack::Builder>& builder){
+    this->figuresSpecific(builder);
+};
+
+void PhysicalCollection::drop() {
+  _indexes.clear();
+  try {
+    // close collection. this will also invalidate the revisions cache
+    close();
+  } catch (...) {
+    // don't throw from here... dropping should succeed
+  }
+}
+
+std::shared_ptr<Index> PhysicalCollection::lookupIndex(
+    TRI_idx_iid_t idxId) const {
+  for (auto const& idx : _indexes) {
+    if (idx->id() == idxId) {
+      return idx;
+    }
+  }
+  return nullptr;
+}
 
 /// @brief merge two objects for update, oldValue must have correctly set
 /// _key and _id attributes
@@ -165,6 +212,112 @@ void PhysicalCollection::mergeObjectsForUpdate(
   b.close();
 }
 
+/// @brief new object for insert, computes the hash of the key
+int PhysicalCollection::newObjectForInsert(
+    transaction::Methods* trx, VPackSlice const& value,
+    VPackSlice const& fromSlice, VPackSlice const& toSlice,
+    bool isEdgeCollection, VPackBuilder& builder, bool isRestore) const {
+  TRI_voc_tick_t newRev = 0;
+  builder.openObject();
+
+  // add system attributes first, in this order:
+  // _key, _id, _from, _to, _rev
+
+  // _key
+  VPackSlice s = value.get(StaticStrings::KeyString);
+  if (s.isNone()) {
+    TRI_ASSERT(!isRestore);  // need key in case of restore
+    newRev = TRI_HybridLogicalClock();
+    std::string keyString = keyGenerator()->generate(TRI_NewTickServer());
+    if (keyString.empty()) {
+      return TRI_ERROR_ARANGO_OUT_OF_KEYS;
+    }
+    uint8_t* where =
+        builder.add(StaticStrings::KeyString, VPackValue(keyString));
+    s = VPackSlice(where);  // point to newly built value, the string
+  } else if (!s.isString()) {
+    return TRI_ERROR_ARANGO_DOCUMENT_KEY_BAD;
+  } else {
+    std::string keyString = s.copyString();
+    int res = keyGenerator()->validate(keyString, isRestore);
+    if (res != TRI_ERROR_NO_ERROR) {
+      return res;
+    }
+    builder.add(StaticStrings::KeyString, s);
+  }
+
+  // _id
+  uint8_t* p = builder.add(StaticStrings::IdString,
+                           VPackValuePair(9ULL, VPackValueType::Custom));
+  *p++ = 0xf3;  // custom type for _id
+  if (trx->state()->isDBServer() && !_logicalCollection->isSystem()) {
+    // db server in cluster, note: the local collections _statistics,
+    // _statisticsRaw and _statistics15 (which are the only system
+    // collections)
+    // must not be treated as shards but as local collections
+    encoding::storeNumber<uint64_t>(p, _logicalCollection->planId(), sizeof(uint64_t));
+  } else {
+    // local server
+    encoding::storeNumber<uint64_t>(p, _logicalCollection->cid(), sizeof(uint64_t));
+  }
+
+  // _from and _to
+  if (isEdgeCollection) {
+    TRI_ASSERT(!fromSlice.isNone());
+    TRI_ASSERT(!toSlice.isNone());
+    builder.add(StaticStrings::FromString, fromSlice);
+    builder.add(StaticStrings::ToString, toSlice);
+  }
+
+  // _rev
+  std::string newRevSt;
+  if (isRestore) {
+    VPackSlice oldRev = TRI_ExtractRevisionIdAsSlice(value);
+    if (!oldRev.isString()) {
+      return TRI_ERROR_ARANGO_DOCUMENT_REV_BAD;
+    }
+    bool isOld;
+    VPackValueLength l;
+    char const* p = oldRev.getString(l);
+    TRI_voc_rid_t oldRevision = TRI_StringToRid(p, l, isOld, false);
+    if (isOld || oldRevision == UINT64_MAX) {
+      oldRevision = TRI_HybridLogicalClock();
+    }
+    newRevSt = TRI_RidToString(oldRevision);
+  } else {
+    if (newRev == 0) {
+      newRev = TRI_HybridLogicalClock();
+    }
+    newRevSt = TRI_RidToString(newRev);
+  }
+  builder.add(StaticStrings::RevString, VPackValue(newRevSt));
+
+  // add other attributes after the system attributes
+  TRI_SanitizeObjectWithEdges(value, builder);
+
+  builder.close();
+  return TRI_ERROR_NO_ERROR;
+}
+
+/// @brief new object for remove, must have _key set
+void PhysicalCollection::newObjectForRemove(transaction::Methods* trx,
+                                            VPackSlice const& oldValue,
+                                            std::string const& rev,
+                                            VPackBuilder& builder) const {
+  // create an object consisting of _key and _rev (in this order)
+  builder.openObject();
+  if (oldValue.isString()) {
+    builder.add(StaticStrings::KeyString, oldValue);
+  } else {
+    VPackSlice s = oldValue.get(StaticStrings::KeyString);
+    TRI_ASSERT(s.isString());
+    builder.add(StaticStrings::KeyString, s);
+  }
+  builder.add(StaticStrings::RevString, VPackValue(rev));
+  builder.close();
+}
+
+
 /// @brief new object for replace, oldValue must have _key and _id correctly
 /// set
 void PhysicalCollection::newObjectForReplace(
@@ -212,4 +365,54 @@ int PhysicalCollection::checkRevision(transaction::Methods* trx,
     return TRI_ERROR_ARANGO_CONFLICT;
   }
   return TRI_ERROR_NO_ERROR;
+}
+
+/// @brief hands out a list of indexes
+std::vector<std::shared_ptr<arangodb::Index>> const&
+PhysicalCollection::getIndexes() const {
+  return _indexes;
+}
+
+void PhysicalCollection::getIndexesVPack(VPackBuilder& result,
+                                         bool withFigures) const {
+  result.openArray();
+  for (auto const& idx : _indexes) {
+    result.openObject();
+    idx->toVelocyPack(result, withFigures);
+    result.close();
+  }
+  result.close();
+}
+
+/// @brief return the figures for a collection
+std::shared_ptr<arangodb::velocypack::Builder> PhysicalCollection::figures() {
+  auto builder = std::make_shared<VPackBuilder>();
+  builder->openObject();
+
+  // add index information
+  size_t sizeIndexes = memory();
+  size_t numIndexes = 0;
+  for (auto const& idx : _indexes) {
+    sizeIndexes += static_cast<size_t>(idx->memory());
+    ++numIndexes;
+  }
+
+  builder->add("indexes", VPackValue(VPackValueType::Object));
+  builder->add("count", VPackValue(numIndexes));
+  builder->add("size", VPackValue(sizeIndexes));
+  builder->close();  // indexes
+
+  // add engine-specific figures
+  figures(builder);
+  builder->close();
+  return builder;
+}
+
+
+// SECTION: Key Options
+VPackSlice PhysicalCollection::keyOptions() const {
+  if (_keyOptions == nullptr) {
+    return arangodb::basics::VelocyPackHelper::NullValue();
+  }
+  return VPackSlice(_keyOptions->data());
 }

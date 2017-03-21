@@ -28,8 +28,10 @@
 #include "Basics/ReadWriteLock.h"
 #include "Indexes/IndexLookupContext.h"
 #include "MMFiles/MMFilesDatafileStatistics.h"
+#include "MMFiles/MMFilesDatafileStatisticsContainer.h"
+#include "MMFiles/MMFilesDitch.h"
+#include "MMFiles/MMFilesDocumentPosition.h"
 #include "MMFiles/MMFilesRevisionsCache.h"
-#include "VocBase/Ditch.h"
 #include "VocBase/KeyGenerator.h"
 #include "VocBase/ManagedDocumentResult.h"
 #include "VocBase/PhysicalCollection.h"
@@ -40,21 +42,38 @@ struct TRI_df_marker_t;
 namespace arangodb {
 class LogicalCollection;
 class ManagedDocumentResult;
+struct MMFilesDocumentOperation;
 class MMFilesPrimaryIndex;
+class MMFilesWalMarker;
+class Result;
 
 class MMFilesCollection final : public PhysicalCollection {
- friend class MMFilesCompactorThread;
- friend class MMFilesEngine;
+  friend class MMFilesCompactorThread;
+  friend class MMFilesEngine;
 
  public:
+  static inline MMFilesCollection* toMMFilesCollection(
+      PhysicalCollection* physical) {
+    auto rv = static_cast<MMFilesCollection*>(physical);
+    TRI_ASSERT(rv != nullptr);
+    return rv;
+  }
+
+  static inline MMFilesCollection* toMMFilesCollection(
+      LogicalCollection* logical) {
+    auto phys = logical->getPhysical();
+    TRI_ASSERT(phys != nullptr);
+    return toMMFilesCollection(phys);
+  }
+
   /// @brief state during opening of a collection
   struct OpenIteratorState {
     LogicalCollection* _collection;
     arangodb::MMFilesPrimaryIndex* _primaryIndex;
     TRI_voc_tid_t _tid;
     TRI_voc_fid_t _fid;
-    std::unordered_map<TRI_voc_fid_t, DatafileStatisticsContainer*> _stats;
-    DatafileStatisticsContainer* _dfi;
+    std::unordered_map<TRI_voc_fid_t, MMFilesDatafileStatisticsContainer*> _stats;
+    MMFilesDatafileStatisticsContainer* _dfi;
     transaction::Methods* _trx;
     ManagedDocumentResult _mmdr;
     IndexLookupContext _context;
@@ -64,9 +83,10 @@ class MMFilesCollection final : public PhysicalCollection {
     int64_t _initialCount;
     bool const _trackKeys;
 
-    OpenIteratorState(LogicalCollection* collection, transaction::Methods* trx) 
+    OpenIteratorState(LogicalCollection* collection, transaction::Methods* trx)
         : _collection(collection),
-          _primaryIndex(collection->primaryIndex()),
+          _primaryIndex(static_cast<MMFilesCollection*>(collection->getPhysical())
+                            ->primaryIndex()),
           _tid(0),
           _fid(0),
           _stats(),
@@ -78,7 +98,7 @@ class MMFilesCollection final : public PhysicalCollection {
           _documents(0),
           _operations(0),
           _initialCount(-1),
-          _trackKeys(collection->keyGenerator()->trackKeys()) {
+          _trackKeys(collection->getPhysical()->keyGenerator()->trackKeys()) {
       TRI_ASSERT(collection != nullptr);
       TRI_ASSERT(trx != nullptr);
     }
@@ -99,16 +119,25 @@ class MMFilesCollection final : public PhysicalCollection {
   };
 
  public:
-  explicit MMFilesCollection(LogicalCollection*);
+  explicit MMFilesCollection(LogicalCollection*, VPackSlice const& info);
+  explicit MMFilesCollection(LogicalCollection*, PhysicalCollection*); //use in cluster only!!!!!
+
   ~MMFilesCollection();
-  
+
+  constexpr static double defaultLockTimeout = 10.0 * 60.0;
+
   std::string const& path() const override {
     return _path;
   };
-  
+
   void setPath(std::string const& path) override {
     _path = path;
   };
+
+  arangodb::Result updateProperties(VPackSlice const& slice, bool doSync) override;
+  virtual arangodb::Result persistProperties() override;
+
+  virtual PhysicalCollection* clone(LogicalCollection*, PhysicalCollection*) override;
 
   TRI_voc_rid_t revision() const override;
 
@@ -118,10 +147,14 @@ class MMFilesCollection final : public PhysicalCollection {
 
   int64_t initialCount() const override;
   void updateCount(int64_t) override;
-  
-  /// @brief return engine-specific figures
-  void figures(std::shared_ptr<arangodb::velocypack::Builder>&) override;
-  
+  size_t journalSize() const override;
+  bool isVolatile() const;
+ 
+  TRI_voc_tick_t maxTick() const { return _maxTick; }
+  void maxTick(TRI_voc_tick_t value) { _maxTick = value; }
+
+  void getPropertiesVPack(velocypack::Builder&) const override;
+
   // datafile management
   bool applyForTickRange(TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax,
                          std::function<bool(TRI_voc_tick_t foundTick, TRI_df_marker_t const* marker)> const& callback) override;
@@ -155,19 +188,16 @@ class MMFilesCollection final : public PhysicalCollection {
   int sealDatafile(MMFilesDatafile* datafile, bool isCompactor);
 
   /// @brief increase dead stats for a datafile, if it exists
-  void updateStats(TRI_voc_fid_t fid, DatafileStatisticsContainer const& values) override {
+  void updateStats(TRI_voc_fid_t fid, MMFilesDatafileStatisticsContainer const& values) {
     _datafileStatistics.update(fid, values);
   }
    
+  uint64_t numberDocuments() const override;
+
+  void sizeHint(transaction::Methods* trx, int64_t hint) override;
+
   /// @brief report extra memory used by indexes etc.
   size_t memory() const override;
-
-  //void preventCompaction() override;
-  //bool tryPreventCompaction() override;
-  //void allowCompaction() override;
-  //void lockForCompaction() override;
-  //bool tryLockForCompaction() override;
-  //void finishCompaction() override;
 
   void preventCompaction();
   bool tryPreventCompaction();
@@ -194,8 +224,7 @@ class MMFilesCollection final : public PhysicalCollection {
   double lastCompactionStamp() const { return _lastCompactionStamp; }
   void lastCompactionStamp(double value) { _lastCompactionStamp = value; }
 
-  
-  Ditches* ditches() const override { return &_ditches; }
+  MMFilesDitches* ditches() const { return &_ditches; }
   
   void open(bool ignoreErrors) override;
 
@@ -203,6 +232,9 @@ class MMFilesCollection final : public PhysicalCollection {
   int iterateMarkersOnLoad(arangodb::transaction::Methods* trx) override;
   
   bool isFullyCollected() const override;
+
+  bool doCompact() const override { return _doCompact; }
+
   
   int64_t uncollectedLogfileEntries() const {
     return _uncollectedLogfileEntries.load();
@@ -219,6 +251,42 @@ class MMFilesCollection final : public PhysicalCollection {
     }
   }
 
+  ////////////////////////////////////
+  // -- SECTION Indexes --
+  ///////////////////////////////////
+
+  uint32_t indexBuckets() const override;
+
+  // WARNING: Make sure that this Collection Instance
+  // is somehow protected. If it goes out of all scopes
+  // or it's indexes are freed the pointer returned will get invalidated.
+  MMFilesPrimaryIndex* primaryIndex() const;
+ 
+  inline bool useSecondaryIndexes() const { return _useSecondaryIndexes; }
+
+  void useSecondaryIndexes(bool value) { _useSecondaryIndexes = value; }
+
+  int fillAllIndexes(transaction::Methods*);
+
+  void prepareIndexes(arangodb::velocypack::Slice indexesSlice) override;
+
+  /// @brief Find index by definition
+  std::shared_ptr<Index> lookupIndex(velocypack::Slice const&) const override;
+
+ std::unique_ptr<IndexIterator> getAllIterator(transaction::Methods* trx, ManagedDocumentResult* mdr, bool reverse) override;
+  std::unique_ptr<IndexIterator> getAnyIterator(transaction::Methods* trx, ManagedDocumentResult* mdr)  override;
+  void invokeOnAllElements(std::function<bool(DocumentIdentifierToken const&)> callback) override;
+
+  std::shared_ptr<Index> createIndex(transaction::Methods* trx,
+                                     arangodb::velocypack::Slice const& info,
+                                     bool& created) override;
+
+  /// @brief Restores an index from VelocyPack.
+  int restoreIndex(transaction::Methods*, velocypack::Slice const&,
+                   std::shared_ptr<Index>&) override;
+
+  /// @brief Drop an index with the given iid.
+  bool dropIndex(TRI_idx_iid_t iid) override;
 
   int cleanupIndexes();
 
@@ -242,6 +310,15 @@ class MMFilesCollection final : public PhysicalCollection {
 
   int read(transaction::Methods*, arangodb::velocypack::Slice const key,
            ManagedDocumentResult& result, bool) override;
+
+  bool readDocument(transaction::Methods* trx,
+                    DocumentIdentifierToken const& token,
+                    ManagedDocumentResult& result) override;
+
+  bool readDocumentConditional(transaction::Methods* trx,
+                               DocumentIdentifierToken const& token,
+                               TRI_voc_tick_t maxTick,
+                               ManagedDocumentResult& result) override;
 
   int insert(arangodb::transaction::Methods* trx,
              arangodb::velocypack::Slice const newSlice,
@@ -270,8 +347,14 @@ class MMFilesCollection final : public PhysicalCollection {
              arangodb::velocypack::Slice const slice,
              arangodb::ManagedDocumentResult& previous,
              OperationOptions& options, TRI_voc_tick_t& resultMarkerTick,
-             bool lock, TRI_voc_rid_t const& revisionId, TRI_voc_rid_t& prevRev,
-             arangodb::velocypack::Slice const toRemove) override;
+             bool lock, TRI_voc_rid_t const& revisionId,
+             TRI_voc_rid_t& prevRev) override;
+
+  /// @brief Defer a callback to be executed when the collection
+  ///        can be dropped. The callback is supposed to drop
+  ///        the collection and it is guaranteed that no one is using
+  ///        it at that moment.
+  void deferDropCollection(std::function<bool(LogicalCollection*)> callback) override;
 
   int rollbackOperation(transaction::Methods*, TRI_voc_document_operation_e,
                         TRI_voc_rid_t oldRevisionId,
@@ -279,8 +362,10 @@ class MMFilesCollection final : public PhysicalCollection {
                         TRI_voc_rid_t newRevisionId,
                         velocypack::Slice const& newDoc);
 
-  void insertRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
-                      TRI_voc_fid_t fid, bool isInWal, bool shouldLock);
+  MMFilesDocumentPosition insertRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
+                                         TRI_voc_fid_t fid, bool isInWal, bool shouldLock);
+
+  void insertRevision(MMFilesDocumentPosition const& position, bool shouldLock);
 
   void updateRevision(TRI_voc_rid_t revisionId, uint8_t const* dataptr,
                       TRI_voc_fid_t fid, bool isInWal);
@@ -294,6 +379,23 @@ class MMFilesCollection final : public PhysicalCollection {
 
  private:
 
+  /// @brief creates the initial indexes for the collection
+  void createInitialIndexes();
+
+  bool openIndex(VPackSlice const& description, transaction::Methods* trx);
+
+  /// @brief initializes an index with all existing documents
+  void fillIndex(basics::LocalTaskQueue*, transaction::Methods*,
+                 Index*,
+                 std::vector<std::pair<TRI_voc_rid_t, VPackSlice>> const&,
+                 bool);
+
+
+  /// @brief Fill indexes used in recovery
+  int fillIndexes(transaction::Methods*,
+                  std::vector<std::shared_ptr<Index>> const&,
+                  bool skipPersistent = true);
+ 
   int openWorker(bool ignoreErrors);
 
   int removeFastPath(arangodb::transaction::Methods* trx,
@@ -315,7 +417,7 @@ class MMFilesCollection final : public PhysicalCollection {
 
   /// @brief create statistics for a datafile, using the stats provided
   void createStats(TRI_voc_fid_t fid,
-                   DatafileStatisticsContainer const& values) {
+                   MMFilesDatafileStatisticsContainer const& values) {
     _datafileStatistics.create(fid, values);
     }
 
@@ -355,9 +457,26 @@ class MMFilesCollection final : public PhysicalCollection {
                        MMFilesWalMarker const* marker, bool& waitForSync);
 
    private:
+
+    void addIndex(std::shared_ptr<arangodb::Index> idx);
+
+    void addIndexCoordinator(std::shared_ptr<arangodb::Index> idx,
+                             bool distribute);
+
+    bool removeIndex(TRI_idx_iid_t iid);
+
+    /// @brief return engine-specific figures
+    void figuresSpecific(std::shared_ptr<arangodb::velocypack::Builder>&) override;
+  
     // SECTION: Index storage
 
-    int insertIndexes(transaction::Methods * trx, TRI_voc_rid_t revisionId,
+    int saveIndex(transaction::Methods* trx,
+                  std::shared_ptr<arangodb::Index> idx);
+
+    /// @brief Detect all indexes form file
+    int detectIndexes(transaction::Methods* trx);
+
+    int insertIndexes(transaction::Methods* trx, TRI_voc_rid_t revisionId,
                       velocypack::Slice const& doc);
 
     int insertPrimaryIndex(transaction::Methods*, TRI_voc_rid_t revisionId,
@@ -383,7 +502,7 @@ class MMFilesCollection final : public PhysicalCollection {
                        bool& waitForSync);
 
    private:
-    mutable arangodb::Ditches _ditches;
+    mutable arangodb::MMFilesDitches _ditches;
 
     // lock protecting the indexes
     mutable basics::ReadWriteLock _idxLock;
@@ -412,6 +531,21 @@ class MMFilesCollection final : public PhysicalCollection {
     char const* _lastCompactionStatus;
     double _lastCompactionStamp;
     std::string _path;
+    TRI_voc_size_t _journalSize;
+
+    bool const _isVolatile;
+
+    // SECTION: Indexes
+
+    size_t _cleanupIndexes;
+    size_t _persistentIndexes;
+    uint32_t _indexBuckets;
+
+    // whether or not secondary indexes should be filled
+    bool _useSecondaryIndexes;
+
+    bool _doCompact;
+    TRI_voc_tick_t _maxTick;
 };
 
 }

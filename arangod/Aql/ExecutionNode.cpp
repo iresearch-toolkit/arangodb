@@ -31,6 +31,7 @@
 #include "Aql/ExecutionPlan.h"
 #include "Aql/IndexNode.h"
 #include "Aql/ModificationNodes.h"
+#include "Aql/Query.h"
 #include "Aql/SortNode.h"
 #include "Aql/TraversalNode.h"
 #include "Aql/ShortestPathNode.h"
@@ -1207,7 +1208,9 @@ double EnumerateCollectionNode::estimateCost(size_t& nrItems) const {
   nrItems = incoming * count;
   // We do a full collection scan for each incoming item.
   // random iteration is slightly more expensive than linear iteration
-  return depCost + nrItems * (_random ? 1.005 : 1.0);
+  // we also penalize each EnumerateCollectionNode slightly (and do not
+  // do the same for IndexNodes) so IndexNodes will be preferred
+  return depCost + nrItems * (_random ? 1.005 : 1.0) + 1.0;
 }
 
 EnumerateListNode::EnumerateListNode(ExecutionPlan* plan,
@@ -1375,7 +1378,7 @@ ExecutionNode* CalculationNode::clone(ExecutionPlan* plan,
     outVariable = plan->getAst()->variables()->createVariable(outVariable);
   }
 
-  auto c = new CalculationNode(plan, _id, _expression->clone(),
+  auto c = new CalculationNode(plan, _id, _expression->clone(plan->getAst()),
                                conditionVariable, outVariable);
   c->_canRemoveIfThrows = _canRemoveIfThrows;
 

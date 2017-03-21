@@ -30,17 +30,20 @@
 #include "Cluster/ClusterInfo.h"
 #include "Cluster/ClusterMethods.h"
 #include "Indexes/Index.h"
+#include "Indexes/IndexFactory.h"
 #include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/StorageEngine.h"
 #include "Transaction/Helpers.h"
 #include "Transaction/Hints.h"
 #include "Utils/Events.h"
 #include "Utils/SingleCollectionTransaction.h"
-#include "Utils/V8TransactionContext.h"
+#include "Transaction/V8Context.h"
 #include "V8/v8-conv.h"
 #include "V8/v8-globals.h"
 #include "V8/v8-utils.h"
 #include "V8/v8-vpack.h"
 #include "V8Server/v8-collection.h"
+#include "V8Server/v8-externals.h"
 #include "V8Server/v8-vocbase.h"
 #include "V8Server/v8-vocbaseprivate.h"
 #include "VocBase/modes.h"
@@ -163,7 +166,7 @@ static void EnsureIndexLocal(v8::FunctionCallbackInfo<v8::Value> const& args,
   READ_LOCKER(readLocker, collection->vocbase()->_inventoryLock);
 
   SingleCollectionTransaction trx(
-      V8TransactionContext::Create(collection->vocbase(), true),
+      transaction::V8Context::Create(collection->vocbase(), true),
       collection->cid(), create ? AccessMode::Type::WRITE : AccessMode::Type::READ);
 
   int res = trx.begin();
@@ -454,7 +457,7 @@ static void JS_DropIndexVocbaseCol(
   READ_LOCKER(readLocker, collection->vocbase()->_inventoryLock);
 
   SingleCollectionTransaction trx(
-      V8TransactionContext::Create(collection->vocbase(), true),
+      transaction::V8Context::Create(collection->vocbase(), true),
       collection->cid(), AccessMode::Type::WRITE);
 
   int res = trx.begin();
@@ -476,7 +479,7 @@ static void JS_DropIndexVocbaseCol(
     TRI_V8_THROW_EXCEPTION(TRI_ERROR_FORBIDDEN);
   }
 
-  bool ok = col->dropIndex(idx->id(), true);
+  bool ok = col->dropIndex(idx->id());
 
   if (ok) {
     TRI_V8_RETURN_TRUE();
@@ -548,7 +551,7 @@ static void JS_GetIndexesVocbaseCol(
   }
 
   SingleCollectionTransaction trx(
-      V8TransactionContext::Create(collection->vocbase(), true),
+      transaction::V8Context::Create(collection->vocbase(), true),
       collection->cid(), AccessMode::Type::READ);
     
   trx.addHint(transaction::Hints::Hint::NO_USAGE_LOCK);
@@ -726,7 +729,7 @@ static void CreateVocBase(v8::FunctionCallbackInfo<v8::Value> const& args,
   try {
     TRI_voc_cid_t cid = 0;
     arangodb::LogicalCollection const* collection =
-        vocbase->createCollection(infoSlice, cid, true);
+        vocbase->createCollection(infoSlice, cid);
 
     TRI_ASSERT(collection != nullptr);
 
@@ -777,7 +780,7 @@ static void JS_CreateEdgeCollectionVocbase(
   TRI_V8_TRY_CATCH_END
 }
 
-void TRI_InitV8indexArangoDB(v8::Isolate* isolate,
+void TRI_InitV8IndexArangoDB(v8::Isolate* isolate,
                              v8::Handle<v8::ObjectTemplate> rt) {
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("_create"),
                        JS_CreateVocbase, true);
@@ -789,7 +792,7 @@ void TRI_InitV8indexArangoDB(v8::Isolate* isolate,
                        JS_CreateDocumentCollectionVocbase);
 }
 
-void TRI_InitV8indexCollection(v8::Isolate* isolate,
+void TRI_InitV8IndexCollection(v8::Isolate* isolate,
                                v8::Handle<v8::ObjectTemplate> rt) {
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("dropIndex"),
                        JS_DropIndexVocbaseCol);

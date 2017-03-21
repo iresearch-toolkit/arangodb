@@ -129,12 +129,12 @@ class RestVocbaseBaseHandler : public RestBaseHandler {
   //////////////////////////////////////////////////////////////////////////////
 
   static std::string const UPLOAD_PATH;
-  
+
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief wal path
+  /// @brief view path
   //////////////////////////////////////////////////////////////////////////////
-  
-  static std::string const WAL_PATH;
+
+  static std::string const VIEW_PATH;
 
   /// @brief Internal Traverser path
 
@@ -163,9 +163,7 @@ class RestVocbaseBaseHandler : public RestBaseHandler {
   /// @brief generates ok message without content
   //////////////////////////////////////////////////////////////////////////////
 
-  void generateOk() {
-    resetResponse(rest::ResponseCode::NO_CONTENT);
-  }
+  void generateOk() { resetResponse(rest::ResponseCode::NO_CONTENT); }
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief generates ok message with no body but with certain status code
@@ -265,7 +263,7 @@ class RestVocbaseBaseHandler : public RestBaseHandler {
   //////////////////////////////////////////////////////////////////////////////
 
   bool extractBooleanParameter(std::string const& name, bool def) const;
-  
+
   bool extractBooleanParameter(char const* name, bool def) const {
     return extractBooleanParameter(std::string(name), def);
   }
