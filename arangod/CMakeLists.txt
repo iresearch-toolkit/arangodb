@@ -53,9 +53,7 @@ if (USE_IRESEARCH)
     IResearch/IResearchViewMeta.cpp IResearch/IResearchViewMeta.h
     IResearch/IResearchFeature.cpp IResearch/IResearchFeature.h
     IResearch/IResearchDocument.cpp IResearch/IResearchDocument.h
-    IResearch/ViewFeature.cpp IResearch/ViewFeature.h
     IResearch/VelocyPackHelper.cpp IResearch/VelocyPackHelper.h
-    IResearch/RestViewHandler.cpp
   )
 
   target_include_directories(${LIB_ARANGO_IRESEARCH}
@@ -480,7 +478,7 @@ if (USE_SSL)
 endif()
 
 # otherwise GCC reports lib/Basics/asio-helper.h:66:25: error: 'boost::asio::ssl::error' has not been declared
-target_compile_definitions(${BIN_ARANGOD} PRIVATE "ARANGODB_BASICS_ASIO_HELPER_H_2=1")
+target_compile_definitions(arangoserver PRIVATE "ARANGODB_BASICS_ASIO_HELPER_H_2=1")
 
 target_link_libraries(arangoserver
   ${LIB_ARANGO_FE}
