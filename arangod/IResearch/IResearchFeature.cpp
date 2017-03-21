@@ -24,7 +24,8 @@
 
 #include "IResearchFeature.h"
 #include "IResearchView.h"
-#include "ViewFeature.h"
+
+#include "RestServer/ViewTypesFeature.h"
 
 #include "Logger/Logger.h"
 
@@ -34,13 +35,11 @@
 using namespace arangodb::iresearch;
 using namespace arangodb::options;
 
-IResearchView s_view;
-
 IResearchFeature::IResearchFeature(arangodb::application_features::ApplicationServer* server)
     : ApplicationFeature(server, "IResearch") {
   setOptional(true);
   requiresElevatedPrivileges(false);
-  startsAfter("View");
+  startsAfter("ViewTypes");
   startsAfter("Logger");
 }
 
@@ -57,16 +56,11 @@ void IResearchFeature::prepare() {
   // load all known analyzers
   ::iresearch::analysis::analyzers::init();
 
-  ViewFeature::registerFactory(
-    StringRef("iresearch"),
-    [](VPackSlice params, TRI_vocbase_t* vocbase) {
-      if (!s_view.properties(params, vocbase)) {
-        LOG_TOPIC(WARN, arangodb::Logger::DEVEL) << "failed to create a view";
-        return false;
-      }
-      return true;
-    }
-  );
+  // register 'iresearch' view
+  ViewTypesFeature::registerViewImplementation(
+     IResearchView::type,
+     IResearchView::make
+   );
 }
 
 void IResearchFeature::start() {

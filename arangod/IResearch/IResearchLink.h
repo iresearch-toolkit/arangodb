@@ -40,7 +40,7 @@ class IResearchLink final: public Index {
     TRI_idx_iid_t iid,
     arangodb::LogicalCollection* collection,
     IResearchLinkMeta&& meta,
-    IResearchView::ptr view
+    IResearchView& view
   );
 
   bool allowExpansion() const override;
@@ -121,7 +121,7 @@ class IResearchLink final: public Index {
 
  private:
   IResearchLinkMeta _meta; // how this collection should be indexed
-  IResearchView::ptr _view; // effectively the index itself
+  IResearchView* _view; // effectively the index itself
 }; // IResearchLink
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -27,6 +27,8 @@
 #include "IResearchLink.h"
 
 #include "VocBase/LogicalCollection.h"
+
+#include "Basics/Result.h"
 #include "Basics/files.h"
 #include "Basics/VelocyPackHelper.h"
 
@@ -34,7 +36,8 @@
 #include "Logger/LogMacros.h"
 
 #include "Utils/SingleCollectionTransaction.h"
-#include "Utils/StandaloneTransactionContext.h"
+
+#include "Transaction/StandaloneContext.h"
 
 #include <velocypack/Builder.h>
 #include <velocypack/Iterator.h>
@@ -277,7 +280,37 @@ void IndexStore::close() noexcept {
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
-int IResearchView::drop() {
+/*static*/ std::string IResearchView::type = "iresearch";
+
+/*static*/ std::unique_ptr<arangodb::ViewImplementation> IResearchView::make(
+    arangodb::LogicalView* view,
+    arangodb::velocypack::Slice const& info,
+    bool isNew) {
+  return std::unique_ptr<arangodb::ViewImplementation>(new IResearchView(view, info));
+}
+
+IResearchView::IResearchView(
+    arangodb::LogicalView* view,
+    arangodb::velocypack::Slice const& info) noexcept
+  : ViewImplementation(view, info) {
+}
+
+arangodb::Result IResearchView::updateProperties(
+    arangodb::velocypack::Slice const& slice,
+    bool doSync) {
+  // FIXME TODO
+  return {};
+}
+
+void IResearchView::getPropertiesVPack(arangodb::velocypack::Builder&) const {
+  // FIXME TODO
+}
+
+void IResearchView::open() {
+  // FIXME TODO
+}
+
+void IResearchView::drop() {
   _threadPool.stop();
 
   WriteMutex mutex(_mutex);
@@ -307,16 +340,18 @@ int IResearchView::drop() {
     _storePersisted._writer->close();
     _storePersisted._directory.close();
 
-    return TRI_RemoveDirectory(_meta._dataPath.c_str());
+    TRI_RemoveDirectory(_meta._dataPath.c_str());
   } catch (std::exception& e) {
     LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "': " << e.what();
     IR_EXCEPTION();
+    throw;
   } catch (...) {
     LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "'";
     IR_EXCEPTION();
+    throw;
   }
 
-  return TRI_ERROR_INTERNAL;
+//  return TRI_ERROR_INTERNAL;
 }
 
 int IResearchView::drop(TRI_voc_cid_t cid) {
@@ -445,7 +480,7 @@ bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) 
     }
 
     SingleCollectionTransaction trx(
-      StandaloneTransactionContext::Create(vocbase),
+      transaction::StandaloneContext::Create(vocbase),
       cid,
       AccessMode::Type::WRITE
     );

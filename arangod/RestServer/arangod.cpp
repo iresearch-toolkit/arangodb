@@ -98,7 +98,6 @@
 #endif
 
 #ifdef USE_IRESEARCH
-#include "IResearch/ViewFeature.h"
 #include "IResearch/IResearchFeature.h"
 #endif
 
@@ -203,7 +202,6 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new MMFilesPersistentIndexFeature(&server));
 
 #ifdef USE_IRESEARCH
-    server.addFeature(new ViewFeature(&server));
     server.addFeature(new iresearch::IResearchFeature(&server));
 #endif
 

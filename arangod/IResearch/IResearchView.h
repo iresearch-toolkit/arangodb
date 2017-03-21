@@ -28,6 +28,8 @@
 #include "IResearchViewMeta.h"
 #include "IResearchDocument.h"
 
+#include "VocBase/ViewImplementation.h"
+
 #include "store/memory_directory.hpp"
 #include "index/index_writer.hpp"
 #include "index/directory_reader.hpp"
@@ -92,15 +94,40 @@ class IndexStore {
   irs::directory_reader _reader;
 }; // IndexStore
 
-class IResearchView /* : public ViewImpl */ {
+class IResearchView final : public arangodb::ViewImplementation {
  public:
-  typedef std::shared_ptr<IResearchView> ptr;
-  IResearchView() = default;
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief type of the view
+  ///////////////////////////////////////////////////////////////////////////////
+  static std::string type;
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief view factory
+  /// @returns initialized view object
+  ///////////////////////////////////////////////////////////////////////////////
+  static std::unique_ptr<ViewImplementation> make(
+    arangodb::LogicalView*,
+    arangodb::velocypack::Slice const& info,
+    bool isNew
+  );
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// --SECTION--                                              ViewImplementation
+  ///////////////////////////////////////////////////////////////////////////////
+
+  arangodb::Result updateProperties(
+    arangodb::velocypack::Slice const& slice,
+    bool doSync
+  ) override;
+
+  void getPropertiesVPack(arangodb::velocypack::Builder&) const override;
+
+  void open() override;
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief drop this iResearch View
   ///////////////////////////////////////////////////////////////////////////////
-  int drop();
+  void drop() override;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief drop collection matching 'cid' from the iResearch View
@@ -167,6 +194,11 @@ class IResearchView /* : public ViewImpl */ {
   bool sync();
 
  private:
+  IResearchView(
+    arangodb::LogicalView*,
+    arangodb::velocypack::Slice const& info
+  ) noexcept;
+
   template<typename Directory>
   struct DataStore {
     Directory _directory;

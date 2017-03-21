@@ -25,8 +25,6 @@
 #include "Logger/LogMacros.h"
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
-#include "Utils/SingleCollectionTransaction.h"
-#include "Utils/StandaloneTransactionContext.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/PhysicalCollection.h"
 
@@ -71,10 +69,10 @@ IResearchLink::IResearchLink(
   TRI_idx_iid_t iid,
   arangodb::LogicalCollection* collection,
   IResearchLinkMeta&& meta,
-  IResearchView::ptr view
+  IResearchView& view
 ) : Index(iid, collection, emptyParentSlice()),
     _meta(std::move(meta)),
-    _view(std::move(view)) {
+    _view(&view) {
   _unique = false; // cannot be unique since multiple fields are indexed
   _sparse = true;  // always sparse
 }
@@ -143,7 +141,7 @@ bool IResearchLink::isSorted() const {
   VPackSlice const& definition
 ) noexcept {  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
   try {
-    IResearchView::ptr view;
+    IResearchView* view;
     std::string viewName;
 
     if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
@@ -160,10 +158,7 @@ bool IResearchLink::isSorted() const {
 
           if (physicalView && typeid(physicalView) == typeid(IResearchView)) {
             // TODO FIXME find a better way to look up an iResearch View
-            view.reset(
-              reinterpret_cast<IResearchView*>(physicalView),
-              [](IResearchView*)->void{}
-            );
+            view = reinterpret_cast<IResearchView*>(physicalView);
           }
         }
       }
@@ -186,7 +181,7 @@ bool IResearchLink::isSorted() const {
       return nullptr; // failed to parse metadata
     }
 
-    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), view);
+    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), *view);
   } catch (std::exception const& e) {
     LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
   } catch (...) {
@@ -289,7 +284,7 @@ char const* IResearchLink::typeName() const {
 }
 
 int IResearchLink::unload() {
-  _view.reset(); // release reference to the iResearch View
+  _view = nullptr; // release reference to the iResearch View
 
   return TRI_ERROR_NO_ERROR;
 }
