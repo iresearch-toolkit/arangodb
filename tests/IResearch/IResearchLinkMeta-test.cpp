@@ -21,7 +21,7 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <boost/test/unit_test.hpp>
+#include "catch.hpp"
 
 #include "analysis/analyzers.hpp"
 #include "utils/locale_utils.hpp"
@@ -55,15 +55,7 @@ NS_END
 // --SECTION--                                                 setup / tear-down
 // -----------------------------------------------------------------------------
 
-struct IResearchLinkMetaSetup {
-  IResearchLinkMetaSetup() {
-    BOOST_TEST_MESSAGE("setup IResearchLinkMeta");
-  }
-
-  ~IResearchLinkMetaSetup() {
-    BOOST_TEST_MESSAGE("tear-down IResearchLinkMeta");
-  }
-};
+struct IResearchLinkMetaSetup { };
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                                        test suite
@@ -73,23 +65,24 @@ struct IResearchLinkMetaSetup {
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_FIXTURE_TEST_SUITE(IResearchLinkMetaTest, IResearchLinkMetaSetup)
+TEST_CASE("IResearchLinkMetaTest", "[iresearch-linkmeta]") {
+  IResearchLinkMetaSetup s;
 
-BOOST_AUTO_TEST_CASE(test_defaults) {
+SECTION("test_defaults") {
   arangodb::iresearch::IResearchLinkMeta meta;
 
-  BOOST_CHECK_EQUAL(1., meta._boost);
-  BOOST_CHECK_EQUAL(true, meta._fields.empty());
-  BOOST_CHECK_EQUAL(false, meta._includeAllFields);
-  BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(meta._locale));
-  BOOST_CHECK_EQUAL(false, meta._nestListValues);
-  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
-  BOOST_CHECK_EQUAL("identity", meta._tokenizers.begin()->name());
-  BOOST_CHECK_EQUAL("", meta._tokenizers.begin()->args());
-  BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->tokenizer());
+  CHECK(1. == meta._boost);
+  CHECK(true == meta._fields.empty());
+  CHECK(false == meta._includeAllFields);
+  CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
+  CHECK(false == meta._nestListValues);
+  CHECK(1U == meta._tokenizers.size());
+  CHECK("identity" == meta._tokenizers.begin()->name());
+  CHECK("" == meta._tokenizers.begin()->args());
+  CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
-BOOST_AUTO_TEST_CASE(test_inheritDefaults) {
+SECTION("test_inheritDefaults") {
   arangodb::iresearch::IResearchLinkMeta defaults;
   arangodb::iresearch::IResearchLinkMeta meta;
   std::unordered_set<std::string> expectedFields = { "abc" };
@@ -106,62 +99,62 @@ BOOST_AUTO_TEST_CASE(test_inheritDefaults) {
   defaults._fields["abc"]._fields["xyz"] = std::move(arangodb::iresearch::IResearchLinkMeta());
 
   auto json = arangodb::velocypack::Parser::fromJson("{}");
-  BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString, defaults));
-  BOOST_CHECK_EQUAL(3.14f, meta._boost);
-  BOOST_CHECK_EQUAL(1U, meta._fields.size());
+  CHECK(true == meta.init(json->slice(), tmpString, defaults));
+  CHECK(3.14f == meta._boost);
+  CHECK(1U == meta._fields.size());
 
   for (auto& field: meta._fields) {
-    BOOST_CHECK_EQUAL(1U, expectedFields.erase(field.first));
-    BOOST_CHECK_EQUAL(1U, field.second._fields.size());
+    CHECK(1U == expectedFields.erase(field.first));
+    CHECK(1U == field.second._fields.size());
 
     for (auto& fieldOverride: field.second._fields) {
       auto& actual = fieldOverride.second;
-      BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.first));
+      CHECK(1U == expectedOverrides.erase(fieldOverride.first));
 
       if ("xyz" == fieldOverride.first) {
-        BOOST_CHECK_EQUAL(1.f, actual._boost);
-        BOOST_CHECK_EQUAL(true, actual._fields.empty());
-        BOOST_CHECK_EQUAL(false, actual._includeAllFields);
-        BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(actual._locale));
-        BOOST_CHECK_EQUAL(false, actual._nestListValues);
-        BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
-        BOOST_CHECK_EQUAL("identity", actual._tokenizers.begin()->name());
-        BOOST_CHECK_EQUAL("", actual._tokenizers.begin()->args());
-        BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->tokenizer());
+        CHECK(1.f == actual._boost);
+        CHECK(true == actual._fields.empty());
+        CHECK(false == actual._includeAllFields);
+        CHECK(std::string("C") == irs::locale_utils::name(actual._locale));
+        CHECK(false == actual._nestListValues);
+        CHECK(1U == actual._tokenizers.size());
+        CHECK("identity" == actual._tokenizers.begin()->name());
+        CHECK("" == actual._tokenizers.begin()->args());
+        CHECK(false == !actual._tokenizers.begin()->tokenizer());
       }
     }
   }
 
-  BOOST_CHECK_EQUAL(true, expectedOverrides.empty());
-  BOOST_CHECK_EQUAL(true, expectedFields.empty());
-  BOOST_CHECK_EQUAL(true, meta._includeAllFields);
-  BOOST_CHECK_EQUAL(std::string("ru"), irs::locale_utils::name(meta._locale));
-  BOOST_CHECK_EQUAL(true, meta._nestListValues);
+  CHECK(true == expectedOverrides.empty());
+  CHECK(true == expectedFields.empty());
+  CHECK(true == meta._includeAllFields);
+  CHECK(std::string("ru") == irs::locale_utils::name(meta._locale));
+  CHECK(true == meta._nestListValues);
 
-  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
-  BOOST_CHECK_EQUAL("empty", meta._tokenizers.begin()->name());
-  BOOST_CHECK_EQUAL("en", meta._tokenizers.begin()->args());
-  BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->tokenizer());
+  CHECK(1U == meta._tokenizers.size());
+  CHECK("empty" == meta._tokenizers.begin()->name());
+  CHECK("en" == meta._tokenizers.begin()->args());
+  CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
-BOOST_AUTO_TEST_CASE(test_readDefaults) {
+SECTION("test_readDefaults") {
   arangodb::iresearch::IResearchLinkMeta meta;
   auto json = arangodb::velocypack::Parser::fromJson("{}");
   std::string tmpString;
 
-  BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString));
-  BOOST_CHECK_EQUAL(1.f, meta._boost);
-  BOOST_CHECK_EQUAL(true, meta._fields.empty());
-  BOOST_CHECK_EQUAL(false, meta._includeAllFields);
-  BOOST_CHECK_EQUAL(std::string("C"), irs::locale_utils::name(meta._locale));
-  BOOST_CHECK_EQUAL(false, meta._nestListValues);
-  BOOST_CHECK_EQUAL(1U, meta._tokenizers.size());
-  BOOST_CHECK_EQUAL("identity", meta._tokenizers.begin()->name());
-  BOOST_CHECK_EQUAL("", meta._tokenizers.begin()->args());
-  BOOST_CHECK_EQUAL(false, !meta._tokenizers.begin()->tokenizer());
+  CHECK(true == meta.init(json->slice(), tmpString));
+  CHECK(1.f == meta._boost);
+  CHECK(true == meta._fields.empty());
+  CHECK(false == meta._includeAllFields);
+  CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
+  CHECK(false == meta._nestListValues);
+  CHECK(1U == meta._tokenizers.size());
+  CHECK("identity" == meta._tokenizers.begin()->name());
+  CHECK("" == meta._tokenizers.begin()->args());
+  CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
-BOOST_AUTO_TEST_CASE(test_readCustomizedValues) {
+SECTION("test_readCustomizedValues") {
   std::unordered_set<std::string> expectedFields = { "a", "b", "c" };
   std::unordered_set<std::string> expectedOverrides = { "default", "all", "some", "none" };
   std::unordered_set<std::string> expectedTokenizers = { "empty", "identity" };
@@ -188,112 +181,112 @@ BOOST_AUTO_TEST_CASE(test_readCustomizedValues) {
       \"nestListValues\": true, \
       \"tokenizers\": { \"empty\": [\"en\"], \"identity\": [\"\"] } \
     }");
-    BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString));
-    BOOST_CHECK_EQUAL(10.f, meta._boost);
-    BOOST_CHECK_EQUAL(3U, meta._fields.size());
+    CHECK(true == meta.init(json->slice(), tmpString));
+    CHECK(10.f == meta._boost);
+    CHECK(3U == meta._fields.size());
 
     for (auto& field: meta._fields) {
-      BOOST_CHECK_EQUAL(1U, expectedFields.erase(field.first));
+      CHECK(1U == expectedFields.erase(field.first));
 
       for (auto& fieldOverride: field.second._fields) {
         auto& actual = fieldOverride.second;
 
-        BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.first));
+        CHECK(1U == expectedOverrides.erase(fieldOverride.first));
 
         if ("default" == fieldOverride.first) {
-          BOOST_CHECK_EQUAL(1.f, actual._boost);
-          BOOST_CHECK_EQUAL(true, actual._fields.empty());
-          BOOST_CHECK_EQUAL(false, actual._includeAllFields);
-          BOOST_CHECK_EQUAL(std::string("C"), iresearch::locale_utils::name(actual._locale));
-          BOOST_CHECK_EQUAL(false, actual._nestListValues);
-          BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
-          BOOST_CHECK_EQUAL("identity", actual._tokenizers.begin()->name());
-          BOOST_CHECK_EQUAL("", actual._tokenizers.begin()->args());
-          BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->tokenizer());
+          CHECK(1.f == actual._boost);
+          CHECK(true == actual._fields.empty());
+          CHECK(false == actual._includeAllFields);
+          CHECK(std::string("C") == iresearch::locale_utils::name(actual._locale));
+          CHECK(false == actual._nestListValues);
+          CHECK(1U == actual._tokenizers.size());
+          CHECK("identity" == actual._tokenizers.begin()->name());
+          CHECK("" == actual._tokenizers.begin()->args());
+          CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("all" == fieldOverride.first) {
-          BOOST_CHECK_EQUAL(11., actual._boost);
-          BOOST_CHECK_EQUAL(2U, actual._fields.size());
-          BOOST_CHECK_EQUAL(true, actual._fields.find("d") != actual._fields.end());
-          BOOST_CHECK_EQUAL(true, actual._fields.find("e") != actual._fields.end());
-          BOOST_CHECK_EQUAL(true, actual._includeAllFields);
-          BOOST_CHECK_EQUAL(std::string("en_US.UTF-8"), irs::locale_utils::name(actual._locale));
-          BOOST_CHECK_EQUAL(true, actual._nestListValues);
-          BOOST_CHECK_EQUAL(1U, actual._tokenizers.size());
-          BOOST_CHECK_EQUAL("empty", actual._tokenizers.begin()->name());
-          BOOST_CHECK_EQUAL("en", actual._tokenizers.begin()->args());
-          BOOST_CHECK_EQUAL(false, !actual._tokenizers.begin()->tokenizer());
+          CHECK(11. == actual._boost);
+          CHECK(2U == actual._fields.size());
+          CHECK(true == (actual._fields.find("d") != actual._fields.end()));
+          CHECK(true == (actual._fields.find("e") != actual._fields.end()));
+          CHECK(true == actual._includeAllFields);
+          CHECK(std::string("en_US.UTF-8") == irs::locale_utils::name(actual._locale));
+          CHECK(true == actual._nestListValues);
+          CHECK(1U == actual._tokenizers.size());
+          CHECK("empty" == actual._tokenizers.begin()->name());
+          CHECK("en" == actual._tokenizers.begin()->args());
+          CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("some" == fieldOverride.first) {
-          BOOST_CHECK_EQUAL(12., actual._boost);
-          BOOST_CHECK_EQUAL(true, actual._fields.empty()); // not inherited
-          BOOST_CHECK_EQUAL(true, actual._includeAllFields); // inherited
-          BOOST_CHECK_EQUAL(std::string("ru_RU.UTF-8"), irs::locale_utils::name(actual._locale)); // inherited
-          BOOST_CHECK_EQUAL(true, actual._nestListValues);
-          BOOST_CHECK_EQUAL(2U, actual._tokenizers.size());
+          CHECK(12. == actual._boost);
+          CHECK(true == actual._fields.empty()); // not inherited
+          CHECK(true == actual._includeAllFields); // inherited
+          CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(actual._locale)); // inherited
+          CHECK(true == actual._nestListValues);
+          CHECK(2U == actual._tokenizers.size());
           auto itr = actual._tokenizers.begin();
-          BOOST_CHECK_EQUAL("empty", itr->name());
-          BOOST_CHECK_EQUAL("en", itr->args());
-          BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+          CHECK("empty" == itr->name());
+          CHECK("en" == itr->args());
+          CHECK(false == !itr->tokenizer());
           ++itr;
-          BOOST_CHECK_EQUAL("identity", itr->name());
-          BOOST_CHECK_EQUAL("", itr->args());
-          BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+          CHECK("identity" == itr->name());
+          CHECK("" == itr->args());
+          CHECK(false == !itr->tokenizer());
         } else if ("none" == fieldOverride.first) {
-          BOOST_CHECK_EQUAL(10., actual._boost); // inherited
-          BOOST_CHECK_EQUAL(true, actual._fields.empty()); // not inherited
-          BOOST_CHECK_EQUAL(true, actual._includeAllFields); // inherited
-          BOOST_CHECK_EQUAL(std::string("ru_RU.UTF-8"), irs::locale_utils::name(actual._locale)); // inherited
-          BOOST_CHECK_EQUAL(true, actual._nestListValues); // inherited
+          CHECK(10. == actual._boost); // inherited
+          CHECK(true == actual._fields.empty()); // not inherited
+          CHECK(true == actual._includeAllFields); // inherited
+          CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(actual._locale)); // inherited
+          CHECK(true == actual._nestListValues); // inherited
           auto itr = actual._tokenizers.begin();
-          BOOST_CHECK_EQUAL("empty", itr->name());
-          BOOST_CHECK_EQUAL("en", itr->args());
-          BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+          CHECK("empty" == itr->name());
+          CHECK("en" == itr->args());
+          CHECK(false == !itr->tokenizer());
           ++itr;
-          BOOST_CHECK_EQUAL("identity", itr->name());
-          BOOST_CHECK_EQUAL("", itr->args());
-          BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+          CHECK("identity" == itr->name());
+          CHECK("" == itr->args());
+          CHECK(false == !itr->tokenizer());
         }
       }
     }
 
-    BOOST_CHECK_EQUAL(true, expectedOverrides.empty());
-    BOOST_CHECK_EQUAL(true, expectedFields.empty());
-    BOOST_CHECK_EQUAL(true, meta._includeAllFields);
-    BOOST_CHECK_EQUAL(std::string("ru_RU.UTF-8"), irs::locale_utils::name(meta._locale));
-    BOOST_CHECK_EQUAL(true, meta._nestListValues);
+    CHECK(true == expectedOverrides.empty());
+    CHECK(true == expectedFields.empty());
+    CHECK(true == meta._includeAllFields);
+    CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(meta._locale));
+    CHECK(true == meta._nestListValues);
     auto itr = meta._tokenizers.begin();
-    BOOST_CHECK_EQUAL("empty", itr->name());
-    BOOST_CHECK_EQUAL("en", itr->args());
-    BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+    CHECK("empty" == itr->name());
+    CHECK("en" == itr->args());
+    CHECK(false == !itr->tokenizer());
     ++itr;
-    BOOST_CHECK_EQUAL("identity", itr->name());
-    BOOST_CHECK_EQUAL("", itr->args());
-    BOOST_CHECK_EQUAL(false, !itr->tokenizer());
+    CHECK("identity" == itr->name());
+    CHECK("" == itr->args());
+    CHECK(false == !itr->tokenizer());
   }
 }
 
-BOOST_AUTO_TEST_CASE(test_writeDefaults) {
+SECTION("test_writeDefaults") {
   arangodb::iresearch::IResearchLinkMeta meta;
   arangodb::velocypack::Builder builder;
   arangodb::velocypack::Slice tmpSlice;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
+  CHECK(true == meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6U, slice.length());
+  CHECK(6U == slice.length());
   tmpSlice = slice.get("boost");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 1. == tmpSlice.getDouble());
+  CHECK((true == tmpSlice.isNumber() && 1. == tmpSlice.getDouble()));
   tmpSlice = slice.get("fields");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isObject() && 0 == tmpSlice.length());
+  CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
   tmpSlice = slice.get("includeAllFields");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+  CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
   tmpSlice = slice.get("locale");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("C") == tmpSlice.copyString());
+  CHECK((true == tmpSlice.isString() && std::string("C") == tmpSlice.copyString()));
   tmpSlice = slice.get("nestListValues");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+  CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
   tmpSlice = slice.get("tokenizers");
-  BOOST_CHECK_EQUAL(
-    true,
+  CHECK((
+    true ==
     tmpSlice.isObject() &&
     1 == tmpSlice.length() &&
     tmpSlice.keyAt(0).isString() &&
@@ -302,10 +295,10 @@ BOOST_AUTO_TEST_CASE(test_writeDefaults) {
     1 == tmpSlice.valueAt(0).length() &&
     tmpSlice.valueAt(0).at(0).isString() &&
     std::string("") == tmpSlice.valueAt(0).at(0).copyString()
-  );
+  ));
 }
 
-BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
+SECTION("test_writeCustomizedValues") {
   arangodb::iresearch::IResearchLinkMeta meta;
 
   meta._boost = 10.;
@@ -351,21 +344,21 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
   arangodb::velocypack::Builder builder;
   arangodb::velocypack::Slice tmpSlice;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
+  CHECK(true == meta.json(arangodb::velocypack::ObjectBuilder(&builder)));
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6U, slice.length());
+  CHECK(6U == slice.length());
   tmpSlice = slice.get("boost");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 10. == tmpSlice.getDouble());
+  CHECK((true == tmpSlice.isNumber() && 10. == tmpSlice.getDouble()));
   tmpSlice = slice.get("fields");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isObject() && 3 == tmpSlice.length());
+  CHECK((true == tmpSlice.isObject() && 3 == tmpSlice.length()));
 
   for (arangodb::velocypack::ObjectIterator itr(tmpSlice); itr.valid(); ++itr) {
     auto key = itr.key();
     auto value = itr.value();
-    BOOST_CHECK_EQUAL(true, key.isString() && 1 == expectedFields.erase(key.copyString()));
-    BOOST_CHECK_EQUAL(true, value.isObject());
+    CHECK((true == key.isString() && 1 == expectedFields.erase(key.copyString())));
+    CHECK(true == value.isObject());
 
     if (!value.hasKey("fields")) {
       continue;
@@ -376,22 +369,22 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
     for (arangodb::velocypack::ObjectIterator overrideItr(tmpSlice); overrideItr.valid(); ++overrideItr) {
       auto fieldOverride = overrideItr.key();
       auto sliceOverride = overrideItr.value();
-      BOOST_CHECK_EQUAL(true, fieldOverride.isString() && sliceOverride.isObject());
-      BOOST_CHECK_EQUAL(1U, expectedOverrides.erase(fieldOverride.copyString()));
+      CHECK((true == fieldOverride.isString() && sliceOverride.isObject()));
+      CHECK(1U == expectedOverrides.erase(fieldOverride.copyString()));
 
       if ("default" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(5U, sliceOverride.length());
+        CHECK(5U == sliceOverride.length());
         tmpSlice = sliceOverride.get("boost");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 1. == tmpSlice.getDouble());
+        CHECK((true == tmpSlice.isNumber() && 1. == tmpSlice.getDouble()));
         tmpSlice = sliceOverride.get("includeAllFields");
-        BOOST_CHECK_EQUAL(true, false == tmpSlice.getBool());
+        CHECK(true == (false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("locale");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("C") == tmpSlice.copyString());
+        CHECK((true == tmpSlice.isString() && std::string("C") == tmpSlice.copyString()));
         tmpSlice = sliceOverride.get("nestListValues");
-        BOOST_CHECK_EQUAL(true, false == tmpSlice.getBool());
+        CHECK(true == (false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("tokenizers");
-        BOOST_CHECK_EQUAL(
-          true,
+        CHECK((
+          true ==
           tmpSlice.isObject() &&
           1 == tmpSlice.length() &&
           tmpSlice.keyAt(0).isString() &&
@@ -400,27 +393,27 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
           1 == tmpSlice.valueAt(0).length() &&
           tmpSlice.valueAt(0).at(0).isString() &&
           std::string("") == tmpSlice.valueAt(0).at(0).copyString()
-        );
+        ));
       } else if ("all" == fieldOverride.copyString()) {
         std::unordered_set<std::string> expectedFields = { "x", "y" };
-        BOOST_CHECK_EQUAL(6U, sliceOverride.length());
+        CHECK(6U == sliceOverride.length());
         tmpSlice = sliceOverride.get("boost");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 11. == tmpSlice.getDouble());
+        CHECK((true == tmpSlice.isNumber() && 11. == tmpSlice.getDouble()));
         tmpSlice = sliceOverride.get("fields");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isObject() && 2 == tmpSlice.length());
+        CHECK((true == tmpSlice.isObject() && 2 == tmpSlice.length()));
         for (arangodb::velocypack::ObjectIterator overrideFieldItr(tmpSlice); overrideFieldItr.valid(); ++overrideFieldItr) {
-          BOOST_CHECK_EQUAL(true, overrideFieldItr.key().isString() && 1 == expectedFields.erase(overrideFieldItr.key().copyString()));
+          CHECK((true == overrideFieldItr.key().isString() && 1 == expectedFields.erase(overrideFieldItr.key().copyString())));
         }
-        BOOST_CHECK_EQUAL(true, expectedFields.empty());
+        CHECK(true == expectedFields.empty());
         tmpSlice = sliceOverride.get("includeAllFields");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+        CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("locale");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("en_US.UTF-8") == tmpSlice.copyString());
+        CHECK((true == tmpSlice.isString() && std::string("en_US.UTF-8") == tmpSlice.copyString()));
         tmpSlice = sliceOverride.get("nestListValues");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+        CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("tokenizers");
-        BOOST_CHECK_EQUAL(
-          true,
+        CHECK((
+          true ==
           tmpSlice.isObject() &&
           1 == tmpSlice.length() &&
           tmpSlice.keyAt(0).isString() &&
@@ -429,50 +422,50 @@ BOOST_AUTO_TEST_CASE(test_writeCustomizedValues) {
           1 == tmpSlice.valueAt(0).length() &&
           tmpSlice.valueAt(0).at(0).isString() &&
           std::string("en") == tmpSlice.valueAt(0).at(0).copyString()
-        );
+        ));
       } else if ("some" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(2U, sliceOverride.length());
+        CHECK(2U == sliceOverride.length());
         tmpSlice = sliceOverride.get("boost");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isNumber() && 12. == tmpSlice.getDouble());
+        CHECK((true == tmpSlice.isNumber() && 12. == tmpSlice.getDouble()));
         tmpSlice = sliceOverride.get("nestListValues");
-        BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && false == tmpSlice.getBool());
+        CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
       } else if ("none" == fieldOverride.copyString()) {
-        BOOST_CHECK_EQUAL(0U, sliceOverride.length());
+        CHECK(0U == sliceOverride.length());
       }
     }
   }
 
-  BOOST_CHECK_EQUAL(true, expectedOverrides.empty());
-  BOOST_CHECK_EQUAL(true, expectedFields.empty());
+  CHECK(true == expectedOverrides.empty());
+  CHECK(true == expectedFields.empty());
   tmpSlice = slice.get("includeAllFields");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && true == tmpSlice.getBool());
+  CHECK((true == tmpSlice.isBool() && true == tmpSlice.getBool()));
   tmpSlice = slice.get("locale");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isString() && std::string("en_UK.UTF-8") == tmpSlice.copyString());
+  CHECK((true == tmpSlice.isString() && std::string("en_UK.UTF-8") == tmpSlice.copyString()));
   tmpSlice = slice.get("nestListValues");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isBool() && true == tmpSlice.getBool());
+  CHECK((true == tmpSlice.isBool() && true == tmpSlice.getBool()));
   tmpSlice = slice.get("tokenizers");
-  BOOST_CHECK_EQUAL(true, tmpSlice.isObject() && 2 == tmpSlice.length());
+  CHECK((true == tmpSlice.isObject() && 2 == tmpSlice.length()));
 
   for (arangodb::velocypack::ObjectIterator tokenizersItr(tmpSlice); tokenizersItr.valid(); ++tokenizersItr) {
     auto key = tokenizersItr.key();
     auto value = tokenizersItr.value();
-    BOOST_CHECK_EQUAL(true, key.isString() && 1 == expectedTokenizers.erase(key.copyString()));
+    CHECK((true == key.isString() && 1 == expectedTokenizers.erase(key.copyString())));
 
     auto args = key.copyString() == "empty" ? "en" : "";
 
-    BOOST_CHECK_EQUAL(
-      true,
+    CHECK((
+      true ==
       value.isArray() &&
       1 == value.length() &&
       value.at(0).isString() &&
       std::string(args) == value.at(0).copyString()
-    );
+    ));
   }
 
-  BOOST_CHECK_EQUAL(true, expectedTokenizers.empty());
+  CHECK(true == expectedTokenizers.empty());
 }
 
-BOOST_AUTO_TEST_CASE(test_readMaskAll) {
+SECTION("test_readMaskAll") {
   arangodb::iresearch::IResearchLinkMeta meta;
   arangodb::iresearch::IResearchLinkMeta::Mask mask;
   std::string tmpString;
@@ -485,65 +478,65 @@ BOOST_AUTO_TEST_CASE(test_readMaskAll) {
     \"nestListValues\": true, \
     \"tokenizers\": {} \
   }");
-  BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString, arangodb::iresearch::IResearchLinkMeta::DEFAULT(), &mask));
-  BOOST_CHECK_EQUAL(true, mask._boost);
-  BOOST_CHECK_EQUAL(true, mask._fields);
-  BOOST_CHECK_EQUAL(true, mask._includeAllFields);
-  BOOST_CHECK_EQUAL(true, mask._locale);
-  BOOST_CHECK_EQUAL(true, mask._nestListValues);
-  BOOST_CHECK_EQUAL(true, mask._tokenizers);
+  CHECK(true == meta.init(json->slice(), tmpString, arangodb::iresearch::IResearchLinkMeta::DEFAULT(), &mask));
+  CHECK(true == mask._boost);
+  CHECK(true == mask._fields);
+  CHECK(true == mask._includeAllFields);
+  CHECK(true == mask._locale);
+  CHECK(true == mask._nestListValues);
+  CHECK(true == mask._tokenizers);
 }
 
-BOOST_AUTO_TEST_CASE(test_readMaskNone) {
+SECTION("test_readMaskNone") {
   arangodb::iresearch::IResearchLinkMeta meta;
   arangodb::iresearch::IResearchLinkMeta::Mask mask;
   std::string tmpString;
 
   auto json = arangodb::velocypack::Parser::fromJson("{}");
-  BOOST_REQUIRE_EQUAL(true, meta.init(json->slice(), tmpString, arangodb::iresearch::IResearchLinkMeta::DEFAULT(), &mask));
-  BOOST_CHECK_EQUAL(false, mask._boost);
-  BOOST_CHECK_EQUAL(false, mask._fields);
-  BOOST_CHECK_EQUAL(false, mask._includeAllFields);
-  BOOST_CHECK_EQUAL(false, mask._locale);
-  BOOST_CHECK_EQUAL(false, mask._nestListValues);
-  BOOST_CHECK_EQUAL(false, mask._tokenizers);
+  CHECK(true == meta.init(json->slice(), tmpString, arangodb::iresearch::IResearchLinkMeta::DEFAULT(), &mask));
+  CHECK(false == mask._boost);
+  CHECK(false == mask._fields);
+  CHECK(false == mask._includeAllFields);
+  CHECK(false == mask._locale);
+  CHECK(false == mask._nestListValues);
+  CHECK(false == mask._tokenizers);
 }
 
-BOOST_AUTO_TEST_CASE(test_writeMaskAll) {
+SECTION("test_writeMaskAll") {
   arangodb::iresearch::IResearchLinkMeta meta;
   arangodb::iresearch::IResearchLinkMeta::Mask mask(true);
   arangodb::velocypack::Builder builder;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
+  CHECK(true == meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(6U, slice.length());
-  BOOST_CHECK_EQUAL(true, slice.hasKey("boost"));
-  BOOST_CHECK_EQUAL(true, slice.hasKey("fields"));
-  BOOST_CHECK_EQUAL(true, slice.hasKey("includeAllFields"));
-  BOOST_CHECK_EQUAL(true, slice.hasKey("locale"));
-  BOOST_CHECK_EQUAL(true, slice.hasKey("nestListValues"));
-  BOOST_CHECK_EQUAL(true, slice.hasKey("tokenizers"));
+  CHECK(6U == slice.length());
+  CHECK(true == slice.hasKey("boost"));
+  CHECK(true == slice.hasKey("fields"));
+  CHECK(true == slice.hasKey("includeAllFields"));
+  CHECK(true == slice.hasKey("locale"));
+  CHECK(true == slice.hasKey("nestListValues"));
+  CHECK(true == slice.hasKey("tokenizers"));
 }
 
-BOOST_AUTO_TEST_CASE(test_writeMaskNone) {
+SECTION("test_writeMaskNone") {
   arangodb::iresearch::IResearchLinkMeta meta;
   arangodb::iresearch::IResearchLinkMeta::Mask mask(false);
   arangodb::velocypack::Builder builder;
 
-  BOOST_REQUIRE_EQUAL(true, meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
+  CHECK(true == meta.json(arangodb::velocypack::ObjectBuilder(&builder), nullptr, &mask));
 
   auto slice = builder.slice();
 
-  BOOST_CHECK_EQUAL(0U, slice.length());
+  CHECK(0U == slice.length());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_AUTO_TEST_SUITE_END()
+}
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                                       END-OF-FILE

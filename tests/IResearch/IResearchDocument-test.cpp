@@ -21,7 +21,7 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include <boost/test/unit_test.hpp>
+#include "catch.hpp"
 
 #include "IResearch/IResearchDocument.h"
 #include "IResearch/IResearchLinkMeta.h"
@@ -46,9 +46,10 @@ struct IResearchDocumentSetup { };
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_FIXTURE_TEST_SUITE(IResearchDocumentTest, IResearchDocumentSetup)
+TEST_CASE("IResearchDocumentTest", "[iresearch-document]") {
+  IResearchDocumentSetup s;
 
-BOOST_AUTO_TEST_CASE(test_smoke) {
+SECTION("test_smoke") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -112,16 +113,13 @@ BOOST_AUTO_TEST_CASE(test_smoke) {
     ++it;
   }
 
-
-
-         int i =5
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////
 
-BOOST_AUTO_TEST_SUITE_END()
+}
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                                       END-OF-FILE

@@ -2,6 +2,19 @@ foreach (LINK_DIR ${V8_LINK_DIRECTORIES})
   link_directories("${LINK_DIR}")
 endforeach()
 
+################################################################################
+## IResearch
+################################################################################
+
+if (USE_IRESEARCH)
+  set(IRESEARCH_TESTS_SOURCES
+    IResearch/VelocyPackHelper-test.cpp
+    IResearch/IResearchLinkMeta-test.cpp
+    IResearch/IResearchViewMeta-test.cpp
+    IResearch/IResearchDocument-test.cpp
+  )
+endif ()
+
 # linking is a dark art...workmonitordummy is somehow necessary
 add_executable(
   arangodbtests
@@ -45,6 +58,7 @@ add_executable(
   Cache/TransactionsWithBackingStore.cpp
   Geo/georeg.cpp
   Pregel/typedbuffer.cpp
+  ${IRESEARCH_TESTS_SOURCES}
   main.cpp
 )
 
