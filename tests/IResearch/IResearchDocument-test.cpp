@@ -49,7 +49,62 @@ struct IResearchDocumentSetup { };
 TEST_CASE("IResearchDocumentTest", "[iresearch-document]") {
   IResearchDocumentSetup s;
 
-SECTION("test_smoke") {
+  SECTION("traverse_complex_object_all_fields") {
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"nested\": { \"foo\": \"str\" }, \
+    \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
+    \"tokenizers\": {}, \
+    \"boost\": \"10\", \
+    \"depth\": \"20\", \
+    \"fields\": { \"fieldA\" : { \"name\" : \"a\" }, \"fieldB\" : { \"name\" : \"b\" } }, \
+    \"listValuation\": \"ignored\", \
+    \"locale\": \"ru_RU.KOI8-R\", \
+    \"array\" : [ \
+      { \"id\" : \"1\", \"subarr\" : [ \"1\", \"2\", \"3\" ], \"subobj\" : { \"id\" : \"1\" } }, \
+      { \"subarr\" : [ \"4\", \"5\", \"6\" ], \"subobj\" : { \"name\" : \"foo\" }, \"id\" : \"2\" }, \
+      { \"id\" : \"3\", \"subarr\" : [ \"7\", \"8\", \"9\" ], \"subobj\" : { \"id\" : \"2\" } } \
+    ] \
+  }");
+
+std::unordered_map<std::string, size_t> expectedValues {
+    { "nested.foo", 1 },
+    { "keys", 4 },
+    { "boost", 1 },
+    { "depth", 1 },
+    { "fields.fieldA.name", 1 },
+    { "fields.fieldB.name", 1 },
+    { "listValuation", 1 },
+    { "locale", 1 },
+    { "array.id", 3 },
+    { "array.subarr", 9 },
+    { "array.subobj.id", 2 },
+    { "array.subobj.name", 1 },
+    { "array.id", 2 }
+  };
+
+  auto const slice = json->slice();
+
+  arangodb::iresearch::IResearchViewMeta viewMeta;
+  arangodb::iresearch::IResearchLinkMeta linkMeta;
+
+  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  while (it.valid()) {
+    std::string const actualName = std::string((*it).name());
+    auto const expectedValue = expectedValues.find(actualName);
+    REQUIRE(expectedValues.end() != expectedValue);
+
+    auto& refs = expectedValue->second;
+    if (!--refs) {
+      expectedValues.erase(expectedValue);
+    }
+
+    ++it;
+  }
+
+  CHECK(expectedValues.empty());
+}
+
+SECTION("traverse_complex_object_ordered_all_fields") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -67,12 +122,11 @@ SECTION("test_smoke") {
   }");
 
   std::unordered_multiset<std::string> expectedValues {
-    "nested.foo"
+    "nested.foo",
     "keys[0]",
     "keys[1]",
     "keys[2]",
     "keys[3]",
-    "tokenizers",
     "boost",
     "depth",
     "fields.fieldA.name",
@@ -96,23 +150,23 @@ SECTION("test_smoke") {
     "array[2].subarr[0]",
     "array[2].subarr[1]",
     "array[2].subarr[2]",
-    "array[2].subobj.id",
+    "array[2].subobj.id"
   };
 
   auto const slice = json->slice();
 
   arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
+  linkMeta._nestListValues = true; // allow indexes in field names
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   while (it.valid()) {
     std::string const actualName = std::string((*it).name());
-    expectedValues.erase(actualName);
-
-
+    CHECK(1 == expectedValues.erase(actualName));
     ++it;
   }
 
+  CHECK(expectedValues.empty());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

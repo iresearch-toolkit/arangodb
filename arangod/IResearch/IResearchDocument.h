@@ -75,9 +75,10 @@ class Field {
   IResearchLinkMeta const* _meta;
 }; // Field
 
-class FieldIterator {
+class FieldIterator : public std::iterator<std::forward_iterator_tag, Field> {
  public:
   FieldIterator() noexcept;
+
   FieldIterator(
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
@@ -103,24 +104,44 @@ class FieldIterator {
     return !_stack.empty();
   }
 
+  bool operator==(FieldIterator const& rhs) const noexcept {
+    return _stack == rhs._stack;
+  }
+
+  bool operator!=(FieldIterator const& rhs) const noexcept {
+    return !(*this == rhs);
+  }
+
  private:
+  typedef bool(*Filter)(
+    std::string& buffer,
+    IResearchLinkMeta const*& rootMeta,
+    IResearchViewMeta const& viewMeta,
+    IteratorValue const& value
+  );
+
   struct Level {
-    Level(VPackSlice slice, size_t name, IResearchLinkMeta const& meta)
-      : it(slice), name(name), meta(&meta) {
+    Level(VPackSlice slice, size_t nameLength, IResearchLinkMeta const& meta, Filter filter)
+      : it(slice), nameLength(nameLength), meta(&meta), filter(filter) {
+    }
+
+    bool operator==(Level const& rhs) const noexcept {
+      return it == rhs.it;
+    }
+
+    bool operator !=(Level const& rhs) const noexcept {
+      return !(*this == rhs);
     }
 
     Iterator it;
-    size_t name; // length of the name at the current level
+    size_t nameLength; // length of the name at the current level
     IResearchLinkMeta const* meta; // metadata
-  };
+    Filter filter;
+  }; // Level
 
   Level& top() noexcept {
     TRI_ASSERT(!_stack.empty());
     return _stack.back();
-  }
-
-  Iterator& topIter() noexcept {
-    return top().it;
   }
 
   std::string& nameBuffer() noexcept {
@@ -131,11 +152,10 @@ class FieldIterator {
   void next();
   void nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const* topMeta);
-  void appendName(irs::string_ref const& name, IteratorValue const& value);
 
   std::vector<Level> _stack;
   IResearchViewMeta const* _meta;
-  Field _value;
+  Field _value; // iterator's value
 }; // FieldIterator
 
 } // iresearch

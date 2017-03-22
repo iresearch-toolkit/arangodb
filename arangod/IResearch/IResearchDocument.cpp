@@ -75,6 +75,92 @@ inline IResearchLinkMeta const* findMeta(
   return fields.end() == it ? rootMeta : &(it->second);
 }
 
+inline bool inObjectFiltered(
+    std::string& buffer,
+    IResearchLinkMeta const*& rootMeta,
+    IResearchViewMeta const& /*viewMeta*/,
+    IteratorValue const& value) {
+  TRI_ASSERT(value.key.isString());
+
+  auto const key = toStringRef(value.key);
+
+  auto const meta = findMeta(key, rootMeta);
+
+  if (meta == rootMeta) {
+    return false;
+  }
+
+  buffer.append(key.c_str(), key.size());
+  rootMeta = meta;
+
+  return true;
+}
+
+inline bool inObject(
+    std::string& buffer,
+    IResearchLinkMeta const*& rootMeta,
+    IResearchViewMeta const& /*viewMeta*/,
+    IteratorValue const& value) {
+  auto const key = toStringRef(value.key);
+
+  buffer.append(key.c_str(), key.size());
+  rootMeta = findMeta(key, rootMeta);
+
+  return true;
+}
+
+inline bool inArrayOrdered(
+    std::string& buffer,
+    IResearchLinkMeta const*& /*rootMeta*/,
+    IResearchViewMeta const& viewMeta,
+    IteratorValue const& value) {
+
+  buffer += viewMeta._nestingListOffsetPrefix;
+  append(buffer, value.pos);
+  buffer += viewMeta._nestingListOffsetSuffix;
+
+  return true;
+}
+
+inline bool inArray(
+    std::string& /*buffer*/,
+    IResearchLinkMeta const*& /*rootMeta*/,
+    IResearchViewMeta const& /*viewMeta*/,
+    IteratorValue const& /*value*/) noexcept {
+  // does nothing
+  return true;
+}
+
+typedef bool(*Filter)(
+  std::string& buffer,
+  IResearchLinkMeta const*& rootMeta,
+  IResearchViewMeta const& viewMeta,
+  IteratorValue const& value
+);
+
+Filter valueAcceptors[] = {
+  &inObject,         // type == Object, nestListValues == false, includeAllValues == false
+  &inObjectFiltered, // type == Object, nestListValues == false, includeAllValues == true
+  &inObject,         // type == Object, nestListValues == true , includeAllValues == false
+  &inObjectFiltered, // type == Object, nestListValues == true , includeAllValues == true
+  &inArray,          // type == Array , nestListValues == flase, includeAllValues == false
+  &inArray,          // type == Array , nestListValues == flase, includeAllValues == true
+  &inArrayOrdered,   // type == Array , nestListValues == true,  includeAllValues == false
+  &inArrayOrdered    // type == Array , nestListValues == true,  includeAllValues == false
+};
+
+inline Filter getFilter(
+    VPackSlice value,
+    IResearchLinkMeta const& meta) noexcept {
+  TRI_ASSERT(isArrayOrObject(value));
+
+  return valueAcceptors[
+    4 * value.isArray()
+      + 2 * meta._nestListValues
+      + meta._includeAllFields
+   ];
+}
+
 }
 
 // ----------------------------------------------------------------------------
@@ -109,79 +195,45 @@ Field& Field::operator=(Field&& rhs) {
   return *this;
 }
 
-void FieldIterator::appendName(
-    irs::string_ref const& name,
-    IteratorValue const& value) {
-  auto& out = nameBuffer();
-
-  if (!out.empty()) {
-    out += _meta->_nestingDelimiter;
-  }
-
-  // TODO: add name mangling here
-  out.append(name.c_str(), name.size());
-
-  if (VPackValueType::Array == value.type) {
-    out += _meta->_nestingListOffsetPrefix;
-    append(out, value.pos);
-    out += _meta->_nestingListOffsetSuffix;
-  }
-}
-
 void FieldIterator::nextTop() {
-  auto& it = top().it;
-  auto const* topMeta = top().meta;
-  bool const isArray = top().it.value().type == VPackValueType::Array;
+  auto& name = nameBuffer();
+  auto& level = top();
+  auto& it = level.it;
+  auto const* topMeta = level.meta;
+  auto const filter = level.filter;
 
-  while (it.next()) {
-    nameBuffer().resize(top().name);
-
-    auto& value = it.value();
-
-    auto key = irs::string_ref::nil;
-    if (!isArray) {
-      key = toStringRef(value.key);
-      auto* meta = findMeta(key, topMeta);
-
-      if (topMeta->_includeAllFields && topMeta == meta) {
-        // filter out fields
-        continue;
-      }
-
-      top().meta = topMeta = meta;
-    }
-    appendName(key, value);
-
-    break;
+  name.resize(level.nameLength);
+  while (it.next() && !(filter(name, topMeta, *_meta, it.value()))) {
+    // filtered out
+    name.resize(level.nameLength);
   }
 }
 
 bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const* topMeta) {
+  auto& name = nameBuffer();
+
   while (isArrayOrObject(slice)) {
-    _stack.emplace_back(slice, nameBuffer().size(), *topMeta);
+    if (!name.empty() && !slice.isArray()) {
+      name += _meta->_nestingDelimiter;
+    }
+
+    auto const filter = getFilter(slice, *topMeta);
+
+    _stack.emplace_back(slice, name.size(), *topMeta, filter);
 
     auto& it = top().it;
 
     if (!it.valid()) {
-      // empty object or array
+      // empty object or array, skip it
       return false;
     }
 
     auto& value = it.value();
 
-    auto key = irs::string_ref::nil;
-    if (value.type != VPackValueType::Array) {
-      key = toStringRef(value.key);
-      auto* meta = findMeta(key, topMeta);
-
-      if (topMeta->_includeAllFields && topMeta == meta) {
-        // filter out fields
-        return false;
-      }
-
-      top().meta = topMeta = meta;
+    if (!filter(name, topMeta, *_meta, value)) {
+      // filtered out
+      continue;
     }
-    appendName(key, value);
 
     slice = value.value;
   }
@@ -195,18 +247,19 @@ void FieldIterator::next() {
     nextTop();
 
     // pop all exhausted iterators
-    for (; !topIter().valid(); nextTop()) {
+    for (; !top().it.valid(); nextTop()) {
       _stack.pop_back();
 
       if (!valid()) {
+        // reached the end
         return;
       }
 
       // reset name to previous size
-      nameBuffer().resize(top().name);
+      nameBuffer().resize(top().nameLength);
     }
 
-  } while (!push(topIter().value().value, top().meta));
+  } while (!push(top().it.value().value, top().meta));
 }
 
 FieldIterator::FieldIterator() noexcept
