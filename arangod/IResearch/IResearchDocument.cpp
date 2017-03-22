@@ -37,23 +37,12 @@ struct Buffer : public std::string {
   typedef std::shared_ptr<std::string> ptr;
 
   static ptr make() {
-    auto buf = std::make_shared<std::string>();
-    buf->clear(); // clear buffer
-    return buf;
+    return std::make_shared<std::string>();
   }
 };
 
 const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
 irs::unbounded_object_pool<Buffer> s_pool(DEFAULT_POOL_SIZE);
-
-inline irs::string_ref toStringRef(VPackSlice const& slice) {
-  TRI_ASSERT(slice.isString());
-
-  size_t size;
-  auto const* str = slice.getString(size);
-
-  return irs::string_ref(str, size);
-}
 
 // appends the specified 'value' to 'out'
 inline void append(std::string& out, size_t value) {
@@ -63,55 +52,55 @@ inline void append(std::string& out, size_t value) {
   out.resize(size + written);
 }
 
-// returns 'rootMeta' in case if can't find the specified 'field'
+// returns 'context' in case if can't find the specified 'field'
 inline IResearchLinkMeta const* findMeta(
     irs::string_ref const& key,
-    IResearchLinkMeta const* rootMeta) {
-  TRI_ASSERT(rootMeta);
+    IResearchLinkMeta const* context) {
+  TRI_ASSERT(context);
 
-  auto& fields = rootMeta->_fields;
+  auto& fields = context->_fields;
 
   auto const it = fields.find(std::string(key)); // TODO: use string_ref
-  return fields.end() == it ? rootMeta : &(it->second);
+  return fields.end() == it ? context : &(it->second);
 }
 
 inline bool inObjectFiltered(
     std::string& buffer,
-    IResearchLinkMeta const*& rootMeta,
+    IResearchLinkMeta const*& context,
     IResearchViewMeta const& /*viewMeta*/,
     IteratorValue const& value) {
   TRI_ASSERT(value.key.isString());
 
-  auto const key = toStringRef(value.key);
+  auto const key = getStringRef(value.key);
 
-  auto const meta = findMeta(key, rootMeta);
+  auto const meta = findMeta(key, context);
 
-  if (meta == rootMeta) {
+  if (meta == context) {
     return false;
   }
 
   buffer.append(key.c_str(), key.size());
-  rootMeta = meta;
+  context = meta;
 
   return true;
 }
 
 inline bool inObject(
     std::string& buffer,
-    IResearchLinkMeta const*& rootMeta,
+    IResearchLinkMeta const*& context,
     IResearchViewMeta const& /*viewMeta*/,
     IteratorValue const& value) {
-  auto const key = toStringRef(value.key);
+  auto const key = getStringRef(value.key);
 
   buffer.append(key.c_str(), key.size());
-  rootMeta = findMeta(key, rootMeta);
+  context = findMeta(key, context);
 
   return true;
 }
 
 inline bool inArrayOrdered(
     std::string& buffer,
-    IResearchLinkMeta const*& /*rootMeta*/,
+    IResearchLinkMeta const*& /*context*/,
     IResearchViewMeta const& viewMeta,
     IteratorValue const& value) {
 
@@ -124,7 +113,7 @@ inline bool inArrayOrdered(
 
 inline bool inArray(
     std::string& /*buffer*/,
-    IResearchLinkMeta const*& /*rootMeta*/,
+    IResearchLinkMeta const*& /*context*/,
     IResearchViewMeta const& /*viewMeta*/,
     IteratorValue const& /*value*/) noexcept {
   // does nothing
@@ -133,20 +122,20 @@ inline bool inArray(
 
 typedef bool(*Filter)(
   std::string& buffer,
-  IResearchLinkMeta const*& rootMeta,
+  IResearchLinkMeta const*& context,
   IResearchViewMeta const& viewMeta,
   IteratorValue const& value
 );
 
 Filter valueAcceptors[] = {
-  &inObject,         // type == Object, nestListValues == false, includeAllValues == false
-  &inObjectFiltered, // type == Object, nestListValues == false, includeAllValues == true
-  &inObject,         // type == Object, nestListValues == true , includeAllValues == false
-  &inObjectFiltered, // type == Object, nestListValues == true , includeAllValues == true
+  &inObjectFiltered, // type == Object, nestListValues == false, includeAllValues == false
+  &inObject,         // type == Object, nestListValues == false, includeAllValues == true
+  &inObjectFiltered, // type == Object, nestListValues == true , includeAllValues == false
+  &inObject,         // type == Object, nestListValues == true , includeAllValues == true
   &inArray,          // type == Array , nestListValues == flase, includeAllValues == false
   &inArray,          // type == Array , nestListValues == flase, includeAllValues == true
   &inArrayOrdered,   // type == Array , nestListValues == true,  includeAllValues == false
-  &inArrayOrdered    // type == Array , nestListValues == true,  includeAllValues == false
+  &inArrayOrdered    // type == Array , nestListValues == true,  includeAllValues == true
 };
 
 inline Filter getFilter(
@@ -179,8 +168,10 @@ Field::Field(Field const& rhs) {
 
 Field& Field::operator=(Field const& rhs) {
   if (this != &rhs) {
-    _name = s_pool.emplace(); // init buffer for name
-    *_name = *rhs._name; // copy content
+    if (rhs._name) {
+      _name = s_pool.emplace(); // init buffer for name
+      *_name = *rhs._name; // copy content
+    }
     _meta = rhs._meta;
   }
   return *this;
@@ -195,21 +186,42 @@ Field& Field::operator=(Field&& rhs) {
   return *this;
 }
 
-void FieldIterator::nextTop() {
-  auto& name = nameBuffer();
-  auto& level = top();
-  auto& it = level.it;
-  auto const* topMeta = level.meta;
-  auto const filter = level.filter;
+/*static*/ FieldIterator FieldIterator::END;
 
-  name.resize(level.nameLength);
-  while (it.next() && !(filter(name, topMeta, *_meta, it.value()))) {
-    // filtered out
-    name.resize(level.nameLength);
+FieldIterator::FieldIterator(
+    VPackSlice const& doc,
+    IResearchLinkMeta const& linkMeta,
+    IResearchViewMeta const& viewMeta)
+  : _meta(&viewMeta) {
+
+  // initialize iterator's value
+  _value._name = s_pool.emplace();
+  _value._name->clear();
+  _value._meta = &linkMeta;
+
+  // push the provided 'doc' to stack
+  if (isArrayOrObject(doc) && !push(doc, _value._meta)) {
+    next();
   }
 }
 
-bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const* topMeta) {
+IResearchLinkMeta const* FieldIterator::nextTop() {
+  auto& name = nameBuffer();
+  auto& level = top();
+  auto& it = level.it;
+  auto const* context = level.meta;
+  auto const filter = level.filter;
+
+  name.resize(level.nameLength);
+  while (it.next() && !filter(name, context, *_meta, it.value())) {
+    // filtered out
+    name.resize(level.nameLength);
+  }
+
+  return context;
+}
+
+bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
   auto& name = nameBuffer();
 
   while (isArrayOrObject(slice)) {
@@ -217,9 +229,9 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const* topMeta) {
       name += _meta->_nestingDelimiter;
     }
 
-    auto const filter = getFilter(slice, *topMeta);
+    auto const filter = getFilter(slice, *context);
 
-    _stack.emplace_back(slice, name.size(), *topMeta, filter);
+    _stack.emplace_back(slice, name.size(), *context, filter);
 
     auto& it = top().it;
 
@@ -230,9 +242,9 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const* topMeta) {
 
     auto& value = it.value();
 
-    if (!filter(name, topMeta, *_meta, value)) {
+    if (!filter(name, context, *_meta, value)) {
       // filtered out
-      continue;
+      return false;
     }
 
     slice = value.value;
@@ -242,12 +254,16 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const* topMeta) {
 }
 
 void FieldIterator::next() {
+  TRI_ASSERT(valid());
+
+  IResearchLinkMeta const* context;
+
   do {
     // advance top iterator
-    nextTop();
+    context = nextTop();
 
     // pop all exhausted iterators
-    for (; !top().it.valid(); nextTop()) {
+    for (; !top().it.valid(); context = nextTop()) {
       _stack.pop_back();
 
       if (!valid()) {
@@ -259,22 +275,10 @@ void FieldIterator::next() {
       nameBuffer().resize(top().nameLength);
     }
 
-  } while (!push(top().it.value().value, top().meta));
-}
+  } while (!push(top().it.value().value, context));
 
-FieldIterator::FieldIterator() noexcept
-  : _value(nullptr) {
-  // default constructor doesn't require buffer
-}
-
-FieldIterator::FieldIterator(
-    VPackSlice const& doc,
-    IResearchLinkMeta const& linkMeta,
-    IResearchViewMeta const& viewMeta)
-  : _meta(&viewMeta), _value(s_pool.emplace()) {
-  if (isArrayOrObject(doc) && !push(doc, &linkMeta)) {
-    next();
-  }
+  // refresh value
+  _value._meta = context;
 }
 
 } // iresearch

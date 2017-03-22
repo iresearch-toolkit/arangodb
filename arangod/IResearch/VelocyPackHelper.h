@@ -29,6 +29,8 @@
 #include "velocypack/Slice.h"
 #include "velocypack/velocypack-aliases.h"
 
+#include "utils/string.hpp" // for irs::string_ref
+
 namespace arangodb {
 namespace iresearch {
 
@@ -46,6 +48,20 @@ inline bool isCompactArrayOrObject(VPackSlice const& slice) {
 
   auto const head = slice.head();
   return COMPACT_ARRAY == head || COMPACT_OBJECT == head;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+/// @brief extracts string_ref from VPackSlice, note that provided 'slice'
+///        must be a string
+/// @return extracted string_ref
+//////////////////////////////////////////////////////////////////////////////
+inline irs::string_ref getStringRef(VPackSlice const& slice) {
+  TRI_ASSERT(slice.isString());
+
+  size_t size;
+  auto const* str = slice.getString(size);
+
+  return irs::string_ref(str, size);
 }
 
 //////////////////////////////////////////////////////////////////////////////

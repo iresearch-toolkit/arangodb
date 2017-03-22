@@ -105,9 +105,10 @@ struct IResearchLinkMeta {
   };
 
   typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
+  typedef std::map<std::string, IResearchLinkMeta> Fields;
 
   float_t _boost;
-  std::map<std::string, IResearchLinkMeta> _fields;
+  Fields _fields;
   bool _includeAllFields; // include all fields or only fields listed in '_fields'
   std::locale _locale;
   bool _nestListValues; // append relative offset in list to attribute name (as opposed to without offset)

@@ -41,9 +41,7 @@ struct IResearchViewMeta;
 
 class Field {
  public:
-  Field(std::shared_ptr<std::string> const& name)
-    : _name(name) {
-  }
+  Field() = default;
   Field(Field&& rhs);
   Field(Field const& rhs);
   Field& operator=(Field const& rhs);
@@ -72,12 +70,14 @@ class Field {
   friend class FieldIterator;
 
   std::shared_ptr<std::string> _name; // buffer for field name
-  IResearchLinkMeta const* _meta;
+  IResearchLinkMeta const* _meta{};
 }; // Field
 
-class FieldIterator : public std::iterator<std::forward_iterator_tag, Field> {
+class FieldIterator : public std::iterator<std::forward_iterator_tag, const Field> {
  public:
-  FieldIterator() noexcept;
+  static FieldIterator END;
+
+  FieldIterator() = default;
 
   FieldIterator(
     VPackSlice const& doc,
@@ -111,6 +111,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field> {
   bool operator!=(FieldIterator const& rhs) const noexcept {
     return !(*this == rhs);
   }
+
+  // support range based traversal
+  FieldIterator& begin() { return *this; }
+  FieldIterator& end() { return END; };
 
  private:
   typedef bool(*Filter)(
@@ -150,11 +154,11 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field> {
   }
 
   void next();
-  void nextTop();
-  bool push(VPackSlice slice, IResearchLinkMeta const* topMeta);
+  IResearchLinkMeta const* nextTop();
+  bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
 
   std::vector<Level> _stack;
-  IResearchViewMeta const* _meta;
+  IResearchViewMeta const* _meta{};
   Field _value; // iterator's value
 }; // FieldIterator
 
