@@ -2288,7 +2288,7 @@
         {
           'action_name': 'js2c',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(library_files)',
           ],
@@ -2304,7 +2304,7 @@
         {
           'action_name': 'js2c_bin',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(library_files)',
           ],
@@ -2322,7 +2322,7 @@
         {
           'action_name': 'js2c_experimental',
           'inputs': [
-            'python',
+	    '<(PYTHON_EXECUTABLE)',
             '../tools/js2c.py',
             '<@(experimental_library_files)',
           ],
@@ -2338,7 +2338,7 @@
         {
           'action_name': 'js2c_experimental_bin',
           'inputs': [
-            'python',
+	    '<(PYTHON_EXECUTABLE)',
             '../tools/js2c.py',
             '<@(experimental_library_files)',
           ],
@@ -2356,7 +2356,7 @@
         {
           'action_name': 'js2c_extras',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(v8_extra_library_files)',
           ],
@@ -2372,7 +2372,7 @@
         {
           'action_name': 'js2c_extras_bin',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(v8_extra_library_files)',
           ],
@@ -2390,7 +2390,7 @@
         {
           'action_name': 'js2c_experimental_extras',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(v8_experimental_extra_library_files)',
           ],
@@ -2408,7 +2408,7 @@
         {
           'action_name': 'js2c_experimental_extras_bin',
           'inputs': [
-            'python',
+            '<(PYTHON_EXECUTABLE)',
 	    '../tools/js2c.py',
             '<@(v8_experimental_extra_library_files)',
           ],
