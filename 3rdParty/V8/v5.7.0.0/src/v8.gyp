@@ -2200,14 +2200,14 @@
                       '<(PRODUCT_DIR)/natives_blob_host.bin',
                     ],
                     'action': [
-                      '<(PYTHON_EXECUTABLE)', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob_host.bin'
+                      'python', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob_host.bin'
                     ],
                   }, {
                     'outputs': [
                       '<(PRODUCT_DIR)/natives_blob.bin',
                     ],
                     'action': [
-                      '<(PYTHON_EXECUTABLE)', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob.bin'
+                      'python', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob.bin'
                     ],
                   }],
                 ],
@@ -2216,7 +2216,7 @@
                   '<(PRODUCT_DIR)/natives_blob.bin',
                 ],
                 'action': [
-                  '<(PYTHON_EXECUTABLE)', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob.bin'
+                  'python', '<@(_inputs)', '<(PRODUCT_DIR)/natives_blob.bin'
                 ],
               }],
             ],

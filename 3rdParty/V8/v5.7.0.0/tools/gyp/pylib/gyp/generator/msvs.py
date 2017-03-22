@@ -359,6 +359,8 @@ def _BuildCommandLineForRuleRaw(spec, cmd, cygwin_shell, has_input_path,
     # Convert cat --> type to mimic unix.
     if cmd[0] == 'cat':
       command = ['type']
+    elif quote_cmd:
+      command = ['"' + cmd[0].replace('/', '\\') + '"']
     else:
       command = [cmd[0].replace('/', '\\')]
     # Add call before command to ensure that commands can be tied together one
