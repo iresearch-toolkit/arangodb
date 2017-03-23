@@ -94,6 +94,24 @@ else()
       target_compile_definitions(boost_locale PRIVATE "${ELEMENT}")
     endforeach()
 
+    #build boost_program_options - add more source files as needed
+    add_library(boost_program_options STATIC
+        ${boost_src}/libs/program_options/src/cmdline.cpp
+        ${boost_src}/libs/program_options/src/config_file.cpp
+        ${boost_src}/libs/program_options/src/convert.cpp
+        ${boost_src}/libs/program_options/src/options_description.cpp
+        ${boost_src}/libs/program_options/src/parsers.cpp
+        ${boost_src}/libs/program_options/src/positional_options.cpp
+        ${boost_src}/libs/program_options/src/split.cpp
+        ${boost_src}/libs/program_options/src/utf8_codecvt_facet.cpp
+        ${boost_src}/libs/program_options/src/value_semantic.cpp
+        ${boost_src}/libs/program_options/src/variables_map.cpp
+        ${boost_src}/libs/program_options/src/winmain.cpp
+    )
+    target_link_libraries(boost_program_options PUBLIC boost_boost) #this will add required includes
+    target_compile_definitions(boost_program_options PRIVATE "BOOST_SYSTEM_STATIC_LINK=1")
+    target_compile_definitions(boost_program_options PUBLIC  "BOOST_ALL_NO_LIB=1")
+
     #build boost_system - there seems to be just one cpp file:)
     add_library(boost_system STATIC
         ${boost_src}/libs/system/src/error_code.cpp
