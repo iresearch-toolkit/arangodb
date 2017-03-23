@@ -33,6 +33,7 @@
 #include "store/data_output.hpp"
 #include "utils/attributes.hpp"
 #include "analysis/token_streams.hpp"
+#include "search/filter.hpp"
 
 namespace arangodb {
 namespace iresearch {
@@ -52,13 +53,13 @@ class Field {
     return *_name;
   }
 
-  irs::flags const features() const {
+  irs::flags const& features() const {
     return irs::flags::empty_instance();
   }
 
   irs::token_stream& get_tokens() const {
-    static irs::null_token_stream stream;
-    return stream;
+    TRI_ASSERT(_tokenizer);
+    return *_tokenizer;
   }
 
   float_t boost() const {
@@ -69,6 +70,7 @@ class Field {
  private:
   friend class FieldIterator;
 
+  irs::analysis::analyzer::ptr _tokenizer;
   std::shared_ptr<std::string> _name; // buffer for field name
   IResearchLinkMeta const* _meta{};
 }; // Field
@@ -76,6 +78,9 @@ class Field {
 class FieldIterator : public std::iterator<std::forward_iterator_tag, const Field> {
  public:
   static FieldIterator END;
+
+  static irs::filter::ptr filter(TRI_voc_cid_t cid);
+  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
   FieldIterator() = default;
 
@@ -113,8 +118,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   }
 
   // support range based traversal
-  FieldIterator& begin() { return *this; }
-  FieldIterator& end() { return END; };
+  FieldIterator& begin() noexcept { return *this; }
+  FieldIterator& end() noexcept { return END; };
 
  private:
   typedef bool(*Filter)(
@@ -157,10 +162,29 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
 
+  IResearchLinkMeta::Tokenizers::iterator _begin;
+  IResearchLinkMeta::Tokenizers::iterator _end;
   std::vector<Level> _stack;
   IResearchViewMeta const* _meta{};
   Field _value; // iterator's value
 }; // FieldIterator
+
+// stored ArangoDB document primary key
+class DocumentPrimaryKey {
+ public:
+  static irs::string_ref const& PK();
+
+  DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
+
+  irs::string_ref const& name() const noexcept { return PK(); }
+  bool write(irs::data_output& out) const;
+
+  DocumentPrimaryKey const* begin() const noexcept { return this; }
+  DocumentPrimaryKey const* end() const noexcept { return 1 + this; }
+
+ private:
+  uint64_t _keys[2]; // TRI_voc_cid_t + TRI_voc_rid_t
+}; // DocumentPrimaryKey
 
 } // iresearch
 } // arangodb

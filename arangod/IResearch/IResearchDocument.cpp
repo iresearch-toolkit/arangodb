@@ -25,6 +25,9 @@
 #include "IResearchDocument.h"
 #include "IResearchViewMeta.h"
 
+#include "search/boolean_filter.hpp"
+#include "search/term_filter.hpp"
+
 #include "utils/log.hpp"
 
 namespace arangodb {
@@ -32,17 +35,23 @@ namespace iresearch {
 
 namespace {
 
-// wrapper for use of iResearch bstring with the iResearch unbounded_object_pool
-struct Buffer : public std::string {
-  typedef std::shared_ptr<std::string> ptr;
+irs::string_ref const CID_FIELD("@_CID");
+irs::string_ref const RID_FIELD("@_REV");
+irs::string_ref const PK_COLUMN("@_PK");
 
-  static ptr make() {
-    return std::make_shared<std::string>();
-  }
-};
+// wrapper for use objects with the IResearch unbounded_object_pool
+template<typename T>
+struct AnyFactory {
+  typedef std::shared_ptr<T> ptr;
+
+  static ptr make() { return std::make_shared<T>(); }
+}; // AnyFactory
 
 const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
-irs::unbounded_object_pool<Buffer> s_pool(DEFAULT_POOL_SIZE);
+irs::unbounded_object_pool<AnyFactory<std::string>> BufferPool(DEFAULT_POOL_SIZE);
+irs::unbounded_object_pool<AnyFactory<irs::null_token_stream>> NullStreamPool(DEFAULT_POOL_SIZE);
+irs::unbounded_object_pool<AnyFactory<irs::boolean_token_stream>> BoolStreamPool(DEFAULT_POOL_SIZE);
+irs::unbounded_object_pool<AnyFactory<irs::numeric_token_stream>> NumericStreamPool(DEFAULT_POOL_SIZE);
 
 // appends the specified 'value' to 'out'
 inline void append(std::string& out, size_t value) {
@@ -169,7 +178,7 @@ Field::Field(Field const& rhs) {
 Field& Field::operator=(Field const& rhs) {
   if (this != &rhs) {
     if (rhs._name) {
-      _name = s_pool.emplace(); // init buffer for name
+      _name = BufferPool.emplace(); // init buffer for name
       *_name = *rhs._name; // copy content
     }
     _meta = rhs._meta;
@@ -188,6 +197,39 @@ Field& Field::operator=(Field&& rhs) {
 
 /*static*/ FieldIterator FieldIterator::END;
 
+/*static*/ irs::filter::ptr FieldIterator::filter(TRI_voc_cid_t cid) {
+  irs::bytes_ref const cidTerm(reinterpret_cast<irs::byte_type*>(&cid), sizeof(cid));
+
+  auto filter = irs::by_term::make();
+
+  // filter matching on cid
+  static_cast<irs::by_term&>(*filter)
+    .field(CID_FIELD) // set field
+    .term(cidTerm); // set value
+
+  return std::move(filter);
+}
+
+/*static*/ irs::filter::ptr FieldIterator::filter(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid) {
+  irs::bytes_ref const cidTerm(reinterpret_cast<irs::byte_type*>(&cid), sizeof(cid));
+  irs::bytes_ref const ridTerm(reinterpret_cast<irs::byte_type*>(&rid), sizeof(rid));
+
+  auto filter = irs::And::make();
+
+  // filter matching on cid and rid
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(CID_FIELD) // set field
+    .term(cidTerm);   // set value
+
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(RID_FIELD) // set field
+    .term(ridTerm);   // set value
+
+  return std::move(filter);
+}
+
 FieldIterator::FieldIterator(
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
@@ -195,7 +237,7 @@ FieldIterator::FieldIterator(
   : _meta(&viewMeta) {
 
   // initialize iterator's value
-  _value._name = s_pool.emplace();
+  _value._name = BufferPool.emplace();
   _value._name->clear();
   _value._meta = &linkMeta;
 
@@ -256,6 +298,11 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
 void FieldIterator::next() {
   TRI_ASSERT(valid());
 
+//  if (++_begin != _end) {
+//    _value._tokenizer = _begin->tokenizer();
+//    return;
+//  }
+
   IResearchLinkMeta const* context;
 
   do {
@@ -263,7 +310,7 @@ void FieldIterator::next() {
     context = nextTop();
 
     // pop all exhausted iterators
-    for (; !top().it.valid(); context = nextTop()) {
+    for (; !top().it.valid(); context = nextTop()) { // || context->Tokenizers.empty(); context = nextTop()) {
       _stack.pop_back();
 
       if (!valid()) {
@@ -275,10 +322,37 @@ void FieldIterator::next() {
       nameBuffer().resize(top().nameLength);
     }
 
-  } while (!push(top().it.value().value, context));
+  } while (!push(top().it.value().value, context)); // && context->Tokenizers.empty());
+
+//  TRI_ASSERT(!context->Tokenizers.empty());
+
+//  // refresh tokenizers
+//  _begin = context->Tokenizers.begin();
+//  _end = context->Tokenizers.end();
 
   // refresh value
   _value._meta = context;
+//  _value._tokenizer = _begin->tokenizer();
+}
+
+/* static */ irs::string_ref const& DocumentPrimaryKey::PK() {
+  return PK_COLUMN;
+}
+
+DocumentPrimaryKey::DocumentPrimaryKey(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid) noexcept
+  : _keys{ cid, rid } {
+  static_assert(sizeof(_keys) == sizeof(cid) + sizeof(rid), "Invalid size");
+}
+
+bool DocumentPrimaryKey::write(irs::data_output& out) const {
+  out.write_bytes(
+    reinterpret_cast<const irs::byte_type*>(_keys),
+    sizeof(_keys)
+  );
+
+  return true;
 }
 
 } // iresearch

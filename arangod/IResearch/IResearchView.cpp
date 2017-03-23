@@ -23,7 +23,7 @@
 
 #include "formats/formats.hpp"
 
-#include "IResearchFieldIterator.h"
+#include "IResearchDocument.h"
 #include "IResearchLink.h"
 
 #include "VocBase/LogicalCollection.h"
@@ -49,40 +49,6 @@ NS_LOCAL
 
 typedef irs::async_utils::read_write_mutex::read_mutex ReadMutex;
 typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
-
-// stored ArangoDB document primary key
-class DocumentPrimaryKey {
-public:
-  DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
-
-  irs::string_ref const& name() const noexcept;
-  bool write(irs::data_output& out) const;
-
-private:
-  static irs::string_ref const _name; // stored column name
-  uint64_t _keys[2]; // TRI_voc_cid_t + TRI_voc_rid_t
-};
-
-irs::string_ref const DocumentPrimaryKey::_name("_pk");
-
-DocumentPrimaryKey::DocumentPrimaryKey(
-  TRI_voc_cid_t cid, TRI_voc_rid_t rid
-) noexcept: _keys{ cid, rid } {
-  static_assert(sizeof(_keys) == sizeof(cid) + sizeof(rid), "Invalid size");
-}
-
-irs::string_ref const& DocumentPrimaryKey::name() const noexcept {
-  return _name;
-}
-
-bool DocumentPrimaryKey::write(irs::data_output& out) const {
-  out.write_bytes(
-    reinterpret_cast<const irs::byte_type*>(_keys),
-    sizeof(_keys)
-  );
-
-  return true;
-}
 
 NS_END
 
@@ -355,8 +321,7 @@ void IResearchView::drop() {
 }
 
 int IResearchView::drop(TRI_voc_cid_t cid) {
-  auto filter = IResearchFieldIterator::filter(cid);
-  std::shared_ptr<irs::filter> shared_filter(std::move(filter));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid));
   ReadMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -396,16 +361,14 @@ std::string const& IResearchView::name() const noexcept {
 }
 
 int IResearchView::insert(
-  TRI_voc_fid_t fid,
-  TRI_voc_tid_t tid,
-  TRI_voc_cid_t cid,
-  TRI_voc_rid_t rid,
-  arangodb::velocypack::Slice const& doc,
-  IResearchLinkMeta const& meta
-) {
-  DocumentPrimaryKey attribute(cid, rid);
-  auto begin = IResearchFieldIterator(cid, rid, doc, _meta, meta);
-  auto end = IResearchFieldIterator();
+    TRI_voc_fid_t fid,
+    TRI_voc_tid_t tid,
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid,
+    arangodb::velocypack::Slice const& doc,
+    IResearchLinkMeta const& meta) {
+  iresearch::DocumentPrimaryKey attribute(cid, rid);
+  iresearch::FieldIterator fields(doc, meta, _meta);
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid]._storeByFid[fid];
@@ -413,7 +376,7 @@ int IResearchView::insert(
   mutex.unlock(true); // downgrade to a read-lock
 
   try {
-    if (store._writer->insert(end, end, &attribute, &attribute + 1)) {
+    if (store._writer->insert(fields.begin(), fields.end(), attribute.begin(), attribute.end())) {
       return TRI_ERROR_NO_ERROR;
     }
 
@@ -529,8 +492,7 @@ int IResearchView::remove(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  auto filter = IResearchFieldIterator::filter(cid, rid);
-  std::shared_ptr<irs::filter> shared_filter(std::move(filter));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid, rid));
   WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid];
