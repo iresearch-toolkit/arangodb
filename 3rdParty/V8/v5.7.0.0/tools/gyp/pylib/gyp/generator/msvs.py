@@ -359,6 +359,8 @@ def _BuildCommandLineForRuleRaw(spec, cmd, cygwin_shell, has_input_path,
     # Convert cat --> type to mimic unix.
     if cmd[0] == 'cat':
       command = ['type']
+    elif quote_cmd:
+      command = ['"' + cmd[0].replace('/', '\\') + '"']
     else:
       command = [cmd[0].replace('/', '\\')]
     # Add call before command to ensure that commands can be tied together one
@@ -1530,8 +1532,15 @@ def _AdjustSourcesAndConvertToFilterHierarchy(
   # Find the excluded ones, minus the precompiled header related ones.
   fully_excluded = [i for i in excluded_sources if i not in precompiled_related]
 
+  full_sources = sources
+  sources = []
+
   # Convert to folders and the right slashes.
-  sources = [i.split('\\') for i in sources]
+  for i in full_sources:
+    # Prevent executables from being added as filters
+    if not i.endswith('.exe'):
+      sources.append(i.split('\\'))
+
   sources = _ConvertSourcesToFilterHierarchy(sources, excluded=fully_excluded,
                                              list_excluded=list_excluded,
                                              msvs_version=version)

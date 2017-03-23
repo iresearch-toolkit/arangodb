@@ -502,6 +502,9 @@ target_link_libraries(${BIN_ARANGOD}
   arangoserver
 )
 
+# otherwise GCC reports lib/Basics/asio-helper.h:66:25: error: 'boost::asio::ssl::error' has not been declared
+target_compile_definitions(${BIN_ARANGOD} PRIVATE "ARANGODB_BASICS_ASIO_HELPER_H_2=1")
+
 install(
   TARGETS ${BIN_ARANGOD}
   RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
