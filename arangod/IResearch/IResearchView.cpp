@@ -27,6 +27,7 @@
 #include "IResearchLink.h"
 
 #include "VocBase/LogicalCollection.h"
+#include "VocBase/LogicalView.h"
 
 #include "Basics/Result.h"
 #include "Basics/files.h"
@@ -35,7 +36,8 @@
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 
-#include "Utils/SingleCollectionTransaction.h"
+#include "Utils/CollectionNameResolver.h"
+#include "Utils/UserTransaction.h"
 
 #include "Transaction/StandaloneContext.h"
 
@@ -261,13 +263,6 @@ IResearchView::IResearchView(
   : ViewImplementation(view, info) {
 }
 
-arangodb::Result IResearchView::updateProperties(
-    arangodb::velocypack::Slice const& slice,
-    bool doSync) {
-  // FIXME TODO
-  return {};
-}
-
 void IResearchView::getPropertiesVPack(arangodb::velocypack::Builder&) const {
   // FIXME TODO
 }
@@ -407,71 +402,130 @@ bool IResearchView::modify(VPackSlice const& definition) {
   return false; // FIXME TODO
 }
 
-bool IResearchView::properties(VPackSlice const& props, TRI_vocbase_t* vocbase) {
-  std::string error; // TODO: should somehow push it to the caller
-  IResearchViewMeta meta;
+arangodb::Result IResearchView::updateProperties(VPackSlice const& slice, bool doSync) {
+  std::string error;
 
-  if (!meta.init(props, error)) {
-    return false;
+  IResearchViewMeta meta;
+  if (!meta.init(slice, error)) {
+    return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
   }
 
   static std::string const LINKS = "links";
   static std::string const PROPERTIES = "properties";
+  static std::string const COLLECTION = "properties";
 
-  auto const collections = props.get(LINKS);
+  auto const collections = slice.get(LINKS);
 
   if (!collections.isArray()) {
-    return false;
+    // FIXME specify error message
+    return arangodb::Result(TRI_ERROR_BAD_PARAMETER);
   }
 
-  for (auto const& collection : VPackArrayIterator(collections)) {
+  VPackArrayIterator it(collections);
+  std::vector<std::string> collectionsToLock;
+  collectionsToLock.reserve(it.size());
+  std::vector<VPackSlice> props;
+  props.reserve(it.size());
+
+  IResearchLinkMeta linkMeta;
+  for (auto const& collection : it) {
     if (!collection.isObject()) {
-      return false;
+      // not an object, can't parse it
+      // FIXME specify error message
+      return arangodb::Result(TRI_ERROR_BAD_PARAMETER);
     }
 
-    auto const cid = basics::VelocyPackHelper::extractIdValue(collection);
+    auto const name = collection.get(COLLECTION);
 
-    if (0 == cid) {
-      // can't extract cid
-      return false;
+    if (!name.isString()) {
+      // wrong type for collection name
+      // FIXME specify error message
+      return arangodb::Result(TRI_ERROR_BAD_PARAMETER);
     }
 
-    auto const linkProp = collection.get(PROPERTIES);
+    auto const info = collection.get(PROPERTIES);
 
-    if (linkProp.isNone()) {
-      return false;
+    if (!info.isObject()) {
+      // not an object, can't parse it
+      // FIXME specify error message
+      return arangodb::Result(TRI_ERROR_BAD_PARAMETER);
     }
 
-    SingleCollectionTransaction trx(
-      transaction::StandaloneContext::Create(vocbase),
-      cid,
-      AccessMode::Type::WRITE
+    if (!linkMeta.init(info, error)) {
+      // can't parse metadata
+      return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
+    }
+
+    collectionsToLock.emplace_back(name.copyString());
+    props.emplace_back(info);
+  }
+
+  TRI_ASSERT(collectionsToLock.size() == props.size());
+
+  if (!collectionsToLock.empty()) {
+
+    static std::vector<std::string> const EMPTY;
+    constexpr static double defaultLockTimeout = 10.0 * 60.0; // (same as MMFileCollection.h:127)
+    TRI_vocbase_t* vocbase = _logicalView->vocbase();
+
+    UserTransaction trx(
+       transaction::StandaloneContext::Create(vocbase),
+       EMPTY,
+       EMPTY,
+       collectionsToLock,
+       defaultLockTimeout,
+       doSync, // waitForSync
+       false // allowImplicitCollections
     );
 
-    auto const res = trx.begin();
+    int res = trx.begin();
 
     if (TRI_ERROR_NO_ERROR != res) {
       // can't start a transaction
-      return false;
+      return arangodb::Result(res);
     }
 
-    auto created = false;
-    auto index = trx.documentCollection()->createIndex(&trx, linkProp, created);
+    auto const* resolver = trx.resolver();
+    TRI_ASSERT(resolver);
 
-    if (!index) {
-      // something went wrong
-      return false;
+    for (size_t i = 0, size = collectionsToLock.size(); i < size; ++i) {
+      auto const& name = collectionsToLock[i];
+      auto const& info = props[i];
+
+      // resolve cid
+      TRI_voc_cid_t const cid = resolver->getCollectionId(name);
+
+      // get a collection
+      LogicalCollection* collection = trx.documentCollection(cid);
+      TRI_ASSERT(collection);
+
+      auto created = false;
+      auto index = collection->createIndex(&trx, info, created);
+
+      if (!index) {
+        // something went wrong
+        // FIXME specify error message && appropriate error code
+        return arangodb::Result(TRI_ERROR_BAD_PARAMETER);
+      }
+
+      if (created) {
+        _links.insert(std::static_pointer_cast<IResearchLink>(index));
+      }
     }
 
-    if (created) {
-      _links.insert(std::static_pointer_cast<IResearchLink>(index));
+    res = trx.commit();
+
+    if (TRI_ERROR_NO_ERROR != res) {
+      // can't commit a transaction
+      return arangodb::Result(res);
     }
   }
 
+  // success
+
   // noexcept
   _meta = std::move(meta);
-
-  return true;
+  return arangodb::Result(); // should use default ctor here since it is noexcept
 }
 
 bool IResearchView::properties(VPackBuilder& props) const {

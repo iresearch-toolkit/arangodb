@@ -167,7 +167,7 @@ class IResearchView final : public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   bool modify(VPackSlice const& definition);
 
-  bool properties(VPackSlice const& props, TRI_vocbase_t* vocbase);
+  bool properties(VPackSlice const& props);
   bool properties(arangodb::velocypack::Builder& props) const;
 
   ////////////////////////////////////////////////////////////////////////////////
