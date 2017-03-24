@@ -93,7 +93,7 @@ class UnorderedRefKeyMap {
   void clear();
 
   template<typename... Args>
-  std::pair<Iterator, bool> emplace(KeyType const&, Args&&... args);
+  std::pair<Iterator, bool> emplace(KeyType const& key, Args&&... args);
   template<typename... Args>
   std::pair<Iterator, bool> emplace(typename KeyType::base_t const& key, Args&&... args);
 
@@ -289,7 +289,7 @@ void UnorderedRefKeyMap<CharType, V>::clear() {
 template<typename CharType, typename V>
 template<typename... Args>
 std::pair<typename UnorderedRefKeyMap<CharType, V>::Iterator, bool> UnorderedRefKeyMap<CharType, V>::emplace(
-  typename UnorderedRefKeyMap<CharType, V>::KeyType const&, Args&&... args
+  typename UnorderedRefKeyMap<CharType, V>::KeyType const& key, Args&&... args
 ) {
   auto res = irs::map_utils::try_emplace_update_key(
     _map,
@@ -298,7 +298,7 @@ std::pair<typename UnorderedRefKeyMap<CharType, V>::Iterator, bool> UnorderedRef
     std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(std::forward<Args>(args)...) // MapType::value_type
   );
 
-  return std::make_pair(Iterator(res.first) res.second);
+  return std::make_pair(Iterator(res.first), res.second);
 }
 
 template<typename CharType, typename V>
