@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -30,7 +29,7 @@
 
 #include "VocBase/ViewImplementation.h"
 
-#include "store/memory_directory.hpp"
+#include "store/directory.hpp"
 #include "index/index_writer.hpp"
 #include "index/directory_reader.hpp"
 #include "utils/async_utils.hpp"
@@ -102,17 +101,6 @@ class IResearchView final: public arangodb::ViewImplementation {
   typedef std::unique_ptr<arangodb::ViewImplementation> ptr;
 
   ///////////////////////////////////////////////////////////////////////////////
-  /// @brief fill and return a JSON description of a IResearchView object
-  ///        only fields describing the view itself, not 'link' descriptions
-  ////////////////////////////////////////////////////////////////////////////////
-  void getPropertiesVPack(arangodb::velocypack::Builder& builder) const override;
-
-  ///////////////////////////////////////////////////////////////////////////////
-  /// @brief opens an existing view when the server is restarted
-  ///////////////////////////////////////////////////////////////////////////////
-  void open() override;
-
-  ///////////////////////////////////////////////////////////////////////////////
   /// @brief drop this iResearch View
   ///////////////////////////////////////////////////////////////////////////////
   void drop() override;
@@ -121,6 +109,12 @@ class IResearchView final: public arangodb::ViewImplementation {
   /// @brief drop collection matching 'cid' from the iResearch View
   ////////////////////////////////////////////////////////////////////////////////
   int drop(TRI_voc_cid_t cid);
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief fill and return a JSON description of a IResearchView object
+  ///        only fields describing the view itself, not 'link' descriptions
+  ////////////////////////////////////////////////////////////////////////////////
+  void getPropertiesVPack(arangodb::velocypack::Builder& builder) const override;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief insert a document into the iResearch View
@@ -165,6 +159,11 @@ class IResearchView final: public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   std::string const& name() const noexcept;
 
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief opens an existing view when the server is restarted
+  ///////////////////////////////////////////////////////////////////////////////
+  void open() override;
+
   bool properties(arangodb::velocypack::Builder& props) const;
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -204,37 +203,33 @@ class IResearchView final: public arangodb::ViewImplementation {
   ) override;
 
  private:
-  template<typename Directory>
   struct DataStore {
-    Directory _directory;
+    irs::directory::ptr _directory;
     //irs::unbounded_object_pool<irs::directory_reader> _readerPool;
     irs::index_writer::ptr _writer;
-
-    template<typename... Args>
-    DataStore(Args&&... args): _directory(std::forward<Args>(args)...) {
-      auto format = irs::formats::get("1_0");
-
-      // create writer before reader to ensure data directory is present
-      _writer = irs::index_writer::make(_directory, format, irs::OM_CREATE_APPEND);
-      _writer->commit(); // initialize 'store'
-    }
+    operator bool() const noexcept;
   };
 
-  struct FidStore {
-    std::unordered_map<TRI_voc_fid_t, DataStore<irs::memory_directory>> _storeByFid;
+  struct MemoryStore: public DataStore {
+    MemoryStore(); // initialize _directory and _writer during allocation
   };
 
-  struct TidStore: public FidStore {
+  typedef std::unordered_map<TRI_voc_fid_t, MemoryStore> MemoryStoreByFid;
+
+  struct TidStore {
     mutable std::mutex _mutex; // for use with '_removals' (allow use in const functions)
     std::vector<std::shared_ptr<irs::filter>> _removals; // removal filters to be applied to during merge
+    MemoryStoreByFid _storeByFid;
   };
+
+  typedef std::unordered_map<TRI_voc_tid_t, TidStore> MemoryStoreByTid;
 
   std::unordered_set<std::shared_ptr<IResearchLink>> _links;
   IResearchViewMeta _meta;
   mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets
-  std::unordered_map<TRI_voc_tid_t, TidStore> _storeByTid;
-  FidStore _storeByWalFid;
-  DataStore<irs::memory_directory> _storePersisted;
+  MemoryStoreByTid _storeByTid;
+  MemoryStoreByFid _storeByWalFid;
+  DataStore _storePersisted;
   irs::async_utils::thread_pool _threadPool;
 
   IResearchView(

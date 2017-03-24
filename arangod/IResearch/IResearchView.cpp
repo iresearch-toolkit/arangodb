@@ -22,6 +22,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "formats/formats.hpp"
+#include "store/memory_directory.hpp"
+#include "store/fs_directory.hpp"
 #include "utils/memory.hpp"
 
 #include "IResearchDocument.h"
@@ -100,10 +102,10 @@ size_t directoryMemory(irs::directory const& directory, std::string const& viewN
       return true;
     });
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch '" << viewName << "': " << e.what();
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch view '" << viewName << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch '" << viewName << "'";
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch view '" << viewName << "'";
     IR_EXCEPTION();
   }
 
@@ -306,23 +308,24 @@ void IndexStore::close() noexcept {
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
+IResearchView::DataStore::operator bool() const noexcept {
+  return _directory && _writer;
+}
+
+IResearchView::MemoryStore::MemoryStore() {
+  auto format = irs::formats::get("1_0");
+
+  _directory = irs::directory::make<irs::memory_directory>();
+
+  // create writer before reader to ensure data directory is present
+  _writer = irs::index_writer::make(*_directory, format, irs::OM_CREATE_APPEND);
+  _writer->commit(); // initialize 'store'
+}
+
 IResearchView::IResearchView(
-    arangodb::LogicalView* view,
-    arangodb::velocypack::Slice const& info
+  arangodb::LogicalView* view,
+  arangodb::velocypack::Slice const& info
 ) noexcept: ViewImplementation(view, info) {
-}
-
-void IResearchView::getPropertiesVPack(
-  arangodb::velocypack::Builder& builder
-) const {
-  ReadMutex mutex(_mutex);
-  SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
-
-  _meta.json(builder);
-}
-
-void IResearchView::open() {
-  // FIXME TODO
 }
 
 void IResearchView::drop() {
@@ -335,41 +338,28 @@ void IResearchView::drop() {
   // if an exception occurs below than a drop retry would most likely happen
   // ...........................................................................
   try {
-    for (auto& tidStore: _storeByTid) {
-      for (auto& fidStore: tidStore.second._storeByFid) {
-        fidStore.second._writer->close();
-        fidStore.second._directory.close();
-      }
-
-      SCOPED_LOCK(tidStore.second._mutex);
-      tidStore.second._removals.clear();
-    }
-
     _storeByTid.clear();
+    _storeByWalFid.clear();
 
-    for (auto& fidStore: _storeByWalFid._storeByFid) {
-      fidStore.second._writer->close();
-      fidStore.second._directory.close();
+    if (_storePersisted) {
+      _storePersisted._writer->close();
+      _storePersisted._directory->close();
     }
-
-    _storeByWalFid._storeByFid.clear();
-    _storePersisted._writer->close();
-    _storePersisted._directory.close();
 
     if (TRI_ERROR_NO_ERROR == TRI_RemoveDirectory(_meta._dataPath.c_str())) {
       return; // success
     }
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch view '" << name() << "': " << e.what();
     IR_EXCEPTION();
     throw;
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch '" << name() << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing iResearch view '" << name() << "'";
     IR_EXCEPTION();
     throw;
   }
 
-  throw std::runtime_error(std::string("Failed to drop vew '") + name() + "'");
+  throw std::runtime_error(std::string("failed to remove iResearch view '") + name() + "'");
 }
 
 int IResearchView::drop(TRI_voc_cid_t cid) {
@@ -382,34 +372,38 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   // ...........................................................................
   try {
     for (auto& tidStore: _storeByTid) {
-      for (auto& fidStore : tidStore.second._storeByFid) {
+      for (auto& fidStore: tidStore.second._storeByFid) {
         fidStore.second._writer->remove(shared_filter);
       }
     }
 
-    for (auto& fidStore: _storeByWalFid._storeByFid) {
+    for (auto& fidStore: _storeByWalFid) {
       fidStore.second._writer->remove(shared_filter);
     }
 
-    _storePersisted._writer->remove(shared_filter);
+    if (_storePersisted) {
+      _storePersisted._writer->remove(shared_filter);
+    }
 
     return TRI_ERROR_NO_ERROR;
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch view '" << name() << "', collection '" << cid << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch view '" << name() << "', collection '" << cid << "'";
     IR_EXCEPTION();
   }
 
   return TRI_ERROR_INTERNAL;
 }
 
-std::string const& IResearchView::name() const noexcept {
-  ReadMutex mutex(_mutex); // '_meta' can be asynchronously updated
-  SCOPED_LOCK(mutex);
+void IResearchView::getPropertiesVPack(
+  arangodb::velocypack::Builder& builder
+) const {
+  ReadMutex mutex(_mutex);
+  SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
 
-  return _meta._name;
+  _meta.json(builder);
 }
 
 int IResearchView::insert(
@@ -433,12 +427,12 @@ int IResearchView::insert(
       return TRI_ERROR_NO_ERROR;
     }
 
-    LOG_TOPIC(WARN, Logger::FIXME) << "failed inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed inserting into iResearch view '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch view '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting into iResearch view '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
     IR_EXCEPTION();
   }
 
@@ -484,7 +478,7 @@ size_t IResearchView::memory() const {
 
     for (auto& fidEntry: tidEntry.second._storeByFid) {
       size += sizeof(fidEntry.first) + sizeof(fidEntry.second);
-      size += directoryMemory(fidEntry.second._directory, name());
+      size += directoryMemory(*(fidEntry.second._directory), name());
     }
 
     // no way to determine size of actual filter
@@ -492,12 +486,14 @@ size_t IResearchView::memory() const {
     size += tidEntry.second._removals.size() * (sizeof(decltype(tidEntry.second._removals)::pointer) + sizeof(decltype(tidEntry.second._removals)::value_type));
   }
 
-  for (auto& fidEntry: _storeByWalFid._storeByFid) {
+  for (auto& fidEntry: _storeByWalFid) {
     size += sizeof(fidEntry.first) + sizeof(fidEntry.second);
-    size += directoryMemory(fidEntry.second._directory, name());
+    size += directoryMemory(*(fidEntry.second._directory), name());
   }
 
-  size += directoryMemory(_storePersisted._directory, name());
+  if (_storePersisted) {
+    size += directoryMemory(*(_storePersisted._directory), name());
+  }
 
   return size;
 }
@@ -506,6 +502,53 @@ bool IResearchView::modify(VPackSlice const& definition) {
   return false; // FIXME TODO
 }
 
+std::string const& IResearchView::name() const noexcept {
+  ReadMutex mutex(_mutex); // '_meta' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+
+  return _meta._name;
+}
+
+void IResearchView::open() {
+  WriteMutex mutex(_mutex); // '_meta' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+
+  if (_storePersisted) {
+    return; // view already open
+  }
+
+  try {
+    auto format = irs::formats::get("1_0");
+
+    if (format) {
+      _storePersisted._directory =
+        irs::directory::make<irs::fs_directory>(_meta._dataPath);
+
+      if (_storePersisted._directory) {
+        // create writer before reader to ensure data directory is present
+        _storePersisted._writer =
+          irs::index_writer::make(*(_storePersisted._directory), format, irs::OM_CREATE_APPEND);
+
+        if (_storePersisted._writer) {
+          _storePersisted._writer->commit(); // initialize 'store'
+
+          return; // success
+        }
+      }
+    }
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+    throw;
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "'";
+    IR_EXCEPTION();
+    throw;
+  }
+
+  LOG_TOPIC(WARN, Logger::FIXME) << "failed to open iResearch view '" << name() << "'";
+  throw std::runtime_error(std::string("failed to open iResearch view '") + name() + "'");
+}
 
 bool IResearchView::properties(VPackBuilder& props) const {
   return _meta.json(props);
@@ -546,10 +589,10 @@ int IResearchView::remove(
 
     return TRI_ERROR_NO_ERROR;
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch view '" << name() << "', collection '" << cid << "', revision '" << rid << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while removing from iResearch view '" << name() << "', collection '" << cid << "', revision '" << rid << "'";
     IR_EXCEPTION();
   }
 
@@ -566,18 +609,20 @@ bool IResearchView::sync() {
       }
     }
 
-    for (auto& fidStore: _storeByWalFid._storeByFid) {
+    for (auto& fidStore: _storeByWalFid) {
       fidStore.second._writer->commit();
     }
 
-    _storePersisted._writer->commit();
+    if (_storePersisted) {
+      _storePersisted._writer->commit();
+    }
 
     return true;
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch '" << name() << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch view '" << name() << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch '" << name() << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch view '" << name() << "'";
     IR_EXCEPTION();
   }
 
