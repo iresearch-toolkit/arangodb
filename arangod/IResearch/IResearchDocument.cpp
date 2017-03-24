@@ -44,7 +44,10 @@ template<typename T>
 struct AnyFactory {
   typedef std::shared_ptr<T> ptr;
 
-  static ptr make() { return std::make_shared<T>(); }
+  template<typename... Args>
+  static ptr make(Args&&... args) {
+    return std::make_shared<T>(std::forward<Args>(args)...);
+  }
 }; // AnyFactory
 
 const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
@@ -136,7 +139,7 @@ typedef bool(*Filter)(
   IteratorValue const& value
 );
 
-Filter valueAcceptors[] = {
+Filter const valueAcceptors[] = {
   &inObjectFiltered, // type == Object, nestListValues == false, includeAllValues == false
   &inObject,         // type == Object, nestListValues == false, includeAllValues == true
   &inObjectFiltered, // type == Object, nestListValues == true , includeAllValues == false
@@ -157,6 +160,82 @@ inline Filter getFilter(
       + 2 * meta._nestListValues
       + meta._includeAllFields
    ];
+}
+
+typedef std::shared_ptr<irs::token_stream>(*TokenizerFactory)(
+  VPackSlice const& value,
+  IResearchLinkMeta::TokenizerPool* pool
+);
+
+std::shared_ptr<irs::token_stream> noopFactory(
+    VPackSlice const& /*value*/,
+    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+  return nullptr;
+}
+
+std::shared_ptr<irs::token_stream> nullTokenizerFactory(
+    VPackSlice const& value,
+    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+  TRI_ASSERT(value.isNull());
+  return NullStreamPool.emplace();
+}
+
+std::shared_ptr<irs::token_stream> boolTokenizerFactory(
+    VPackSlice const& value,
+    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+  TRI_ASSERT(value.isBool());
+
+  auto tokenizer = BoolStreamPool.emplace();
+  tokenizer->reset(value.getBool());
+
+  return tokenizer;
+}
+
+std::shared_ptr<irs::token_stream> numericTokenizerFactory(
+    VPackSlice const& value,
+    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+  TRI_ASSERT(value.isNumber());
+
+  auto tokenizer = NumericStreamPool.emplace();
+  tokenizer->reset(value.getNumber<double>());
+
+  return tokenizer;
+}
+
+std::shared_ptr<irs::token_stream> stringTokenizerFactory(
+    VPackSlice const& value,
+    IResearchLinkMeta::TokenizerPool* pool) {
+  TRI_ASSERT(value.isString());
+
+  auto tokenizer = pool->tokenizer();
+  tokenizer->reset(getStringRef(value));
+
+  return tokenizer;
+}
+
+TokenizerFactory const TokenizerFactories[] {
+  &noopFactory,             // None
+  &noopFactory,             // Illegal
+  &nullTokenizerFactory,    // Null
+  &boolTokenizerFactory,    // Bool
+  &noopFactory,             // Array
+  &noopFactory,             // Object
+  &numericTokenizerFactory, // Double
+  &noopFactory,             // UTCDate
+  &noopFactory,             // External
+  &noopFactory,             // MinKey
+  &noopFactory,             // MaxKey
+  &numericTokenizerFactory, // Int
+  &numericTokenizerFactory, // UInt
+  &numericTokenizerFactory, // SmallInt
+  &stringTokenizerFactory,  // String
+  &noopFactory,             // Binary
+  &noopFactory,             // BCD
+  &noopFactory,             // Custom
+};
+
+inline TokenizerFactory getTokenizerFactory(VPackSlice const& value) noexcept {
+  return TokenizerFactories[size_t(value.type())];
 }
 
 }
@@ -298,10 +377,12 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
 void FieldIterator::next() {
   TRI_ASSERT(valid());
 
-//  if (++_begin != _end) {
-//    _value._tokenizer = _begin->tokenizer();
-//    return;
-//  }
+  VPackSlice value = top().it.value().value;
+
+  if (++_begin != _end) {
+    _value._tokenizer = getTokenizerFactory(value)(value, _begin);
+    return;
+  }
 
   IResearchLinkMeta const* context;
 
@@ -322,7 +403,9 @@ void FieldIterator::next() {
       nameBuffer().resize(top().nameLength);
     }
 
-  } while (!push(top().it.value().value, context)); // && context->Tokenizers.empty());
+    value = top().it.value().value;
+
+  } while (!push(value, context)); // && context->Tokenizers.empty());
 
 //  TRI_ASSERT(!context->Tokenizers.empty());
 
@@ -330,9 +413,11 @@ void FieldIterator::next() {
 //  _begin = context->Tokenizers.begin();
 //  _end = context->Tokenizers.end();
 
+  TRI_ASSERT(_begin != _end);
+
   // refresh value
   _value._meta = context;
-//  _value._tokenizer = _begin->tokenizer();
+  _value._tokenizer = getTokenizerFactory(value)(value, _begin);
 }
 
 /* static */ irs::string_ref const& DocumentPrimaryKey::PK() {

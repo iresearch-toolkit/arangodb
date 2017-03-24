@@ -70,7 +70,7 @@ class Field {
  private:
   friend class FieldIterator;
 
-  irs::analysis::analyzer::ptr _tokenizer;
+  std::shared_ptr<irs::token_stream>_tokenizer;
   std::shared_ptr<std::string> _name; // buffer for field name
   IResearchLinkMeta const* _meta{};
 }; // Field
@@ -122,6 +122,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   FieldIterator& end() noexcept { return END; };
 
  private:
+  typedef IResearchLinkMeta::TokenizerPool* TokenizerIterator;
+
   typedef bool(*Filter)(
     std::string& buffer,
     IResearchLinkMeta const*& rootMeta,
@@ -162,8 +164,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
 
-  IResearchLinkMeta::Tokenizers::iterator _begin;
-  IResearchLinkMeta::Tokenizers::iterator _end;
+  TokenizerIterator _begin{};
+  TokenizerIterator _end{};
   std::vector<Level> _stack;
   IResearchViewMeta const* _meta{};
   Field _value; // iterator's value
