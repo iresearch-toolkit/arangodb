@@ -58,7 +58,7 @@ void IResearchFeature::prepare() {
 
   // register 'iresearch' view
   ViewTypesFeature::registerViewImplementation(
-     IResearchView::type,
+     IResearchView::type(),
      IResearchView::make
    );
 }

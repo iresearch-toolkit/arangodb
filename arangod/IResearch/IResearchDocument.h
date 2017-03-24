@@ -35,8 +35,8 @@
 #include "analysis/token_streams.hpp"
 #include "search/filter.hpp"
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 struct IResearchViewMeta;
 
@@ -85,6 +85,14 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   FieldIterator() = default;
 
   FieldIterator(
+    VPackSlice const& doc,
+    IResearchLinkMeta const& linkMeta,
+    IResearchViewMeta const& viewMeta
+  );
+
+  FieldIterator(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta
@@ -186,7 +194,6 @@ class DocumentPrimaryKey {
   uint64_t _keys[2]; // TRI_voc_cid_t + TRI_voc_rid_t
 }; // DocumentPrimaryKey
 
-} // iresearch
-} // arangodb
-
+NS_END // iresearch
+NS_END // arangodb
 #endif

@@ -30,10 +30,7 @@
 
 #include "utils/log.hpp"
 
-namespace arangodb {
-namespace iresearch {
-
-namespace {
+NS_LOCAL
 
 irs::string_ref const CID_FIELD("@_CID");
 irs::string_ref const RID_FIELD("@_REV");
@@ -62,25 +59,23 @@ inline void append(std::string& out, size_t value) {
 }
 
 // returns 'context' in case if can't find the specified 'field'
-inline IResearchLinkMeta const* findMeta(
-    irs::string_ref const& key,
-    IResearchLinkMeta const* context) {
+inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
+  irs::string_ref const& key,
+  arangodb::iresearch::IResearchLinkMeta const* context
+) {
   TRI_ASSERT(context);
-
-  auto& fields = context->_fields;
-
-  auto const it = fields.find(std::string(key)); // TODO: use string_ref
-  return fields.end() == it ? context : &(it->second);
+  return context->_fields.findPtr(key);
 }
 
 inline bool inObjectFiltered(
-    std::string& buffer,
-    IResearchLinkMeta const*& context,
-    IResearchViewMeta const& /*viewMeta*/,
-    IteratorValue const& value) {
+  std::string& buffer,
+  arangodb::iresearch::IResearchLinkMeta const*& context,
+  arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
+  arangodb::iresearch::IteratorValue const& value
+) {
   TRI_ASSERT(value.key.isString());
 
-  auto const key = getStringRef(value.key);
+  auto const key = arangodb::iresearch::getStringRef(value.key);
 
   auto const meta = findMeta(key, context);
 
@@ -95,11 +90,12 @@ inline bool inObjectFiltered(
 }
 
 inline bool inObject(
-    std::string& buffer,
-    IResearchLinkMeta const*& context,
-    IResearchViewMeta const& /*viewMeta*/,
-    IteratorValue const& value) {
-  auto const key = getStringRef(value.key);
+  std::string& buffer,
+  arangodb::iresearch::IResearchLinkMeta const*& context,
+  arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
+  arangodb::iresearch::IteratorValue const& value
+) {
+  auto const key = arangodb::iresearch::getStringRef(value.key);
 
   buffer.append(key.c_str(), key.size());
   context = findMeta(key, context);
@@ -108,11 +104,11 @@ inline bool inObject(
 }
 
 inline bool inArrayOrdered(
-    std::string& buffer,
-    IResearchLinkMeta const*& /*context*/,
-    IResearchViewMeta const& viewMeta,
-    IteratorValue const& value) {
-
+  std::string& buffer,
+  arangodb::iresearch::IResearchLinkMeta const*& /*context*/,
+  arangodb::iresearch::IResearchViewMeta const& viewMeta,
+  arangodb::iresearch::IteratorValue const& value
+) {
   buffer += viewMeta._nestingListOffsetPrefix;
   append(buffer, value.pos);
   buffer += viewMeta._nestingListOffsetSuffix;
@@ -121,19 +117,20 @@ inline bool inArrayOrdered(
 }
 
 inline bool inArray(
-    std::string& /*buffer*/,
-    IResearchLinkMeta const*& /*context*/,
-    IResearchViewMeta const& /*viewMeta*/,
-    IteratorValue const& /*value*/) noexcept {
+  std::string& /*buffer*/,
+  arangodb::iresearch::IResearchLinkMeta const*& /*context*/,
+  arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
+  arangodb::iresearch::IteratorValue const& /*value*/
+) noexcept {
   // does nothing
   return true;
 }
 
 typedef bool(*Filter)(
   std::string& buffer,
-  IResearchLinkMeta const*& context,
-  IResearchViewMeta const& viewMeta,
-  IteratorValue const& value
+  arangodb::iresearch::IResearchLinkMeta const*& context,
+  arangodb::iresearch::IResearchViewMeta const& viewMeta,
+  arangodb::iresearch::IteratorValue const& value
 );
 
 Filter valueAcceptors[] = {
@@ -148,9 +145,10 @@ Filter valueAcceptors[] = {
 };
 
 inline Filter getFilter(
-    VPackSlice value,
-    IResearchLinkMeta const& meta) noexcept {
-  TRI_ASSERT(isArrayOrObject(value));
+  VPackSlice value,
+  arangodb::iresearch::IResearchLinkMeta const& meta
+) noexcept {
+  TRI_ASSERT(arangodb::iresearch::isArrayOrObject(value));
 
   return valueAcceptors[
     4 * value.isArray()
@@ -159,7 +157,10 @@ inline Filter getFilter(
    ];
 }
 
-}
+NS_END
+
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 // ----------------------------------------------------------------------------
 // --SECTION--                                     FieldIterator implementation
@@ -228,6 +229,16 @@ Field& Field::operator=(Field&& rhs) {
     .term(ridTerm);   // set value
 
   return std::move(filter);
+}
+
+FieldIterator::FieldIterator(
+  TRI_voc_cid_t cid,
+  TRI_voc_rid_t rid,
+  VPackSlice const& doc,
+  IResearchLinkMeta const& linkMeta,
+  IResearchViewMeta const& viewMeta
+) {
+  // TODO FIXME must putout system fields (cid/rid) as well to allow for building a filter on CID/RID
 }
 
 FieldIterator::FieldIterator(
@@ -355,5 +366,9 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   return true;
 }
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
+
+// -----------------------------------------------------------------------------
+// --SECTION--                                                       END-OF-FILE
+// -----------------------------------------------------------------------------

@@ -26,7 +26,8 @@
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/PhysicalCollection.h"
+#include "VocBase/LogicalView.h"
+#include "VocBase/PhysicalView.h"
 
 #include "IResearchLink.h"
 
@@ -141,7 +142,7 @@ bool IResearchLink::isSorted() const {
   VPackSlice const& definition
 ) noexcept {  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
   try {
-    IResearchView* view;
+    IResearchView* view = nullptr;
     std::string viewName;
 
     if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
@@ -151,7 +152,7 @@ bool IResearchLink::isSorted() const {
       if (vocbase && name.isString()) {
         viewName = definition.copyString();
 
-        auto logicalView = vocbase->lookupCollection(viewName); // search for view in same vocbase
+        auto logicalView = vocbase->lookupView(viewName); // search for view in same vocbase
 
         if (logicalView) {
           auto physicalView = logicalView->getPhysical();

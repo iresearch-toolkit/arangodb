@@ -287,7 +287,7 @@ bool IResearchLinkMeta::operator==(
   auto itr = other._fields.begin();
 
   for (auto& entry: _fields) {
-    if (itr->first != entry.first || itr->second != entry.second) {
+    if (itr.key() != entry.key() || itr.value() != entry.value()) {
       return false; // values do not match
     }
 
@@ -558,13 +558,13 @@ bool IResearchLinkMeta::json(
       subDefaults._fields.clear(); // do not inherit fields and overrides overrides from this field
 
       for(auto& entry: _fields) {
-        mask._fields = !entry.second._fields.empty(); // do not output empty fields on subobjects
+        mask._fields = !entry.value()._fields.empty(); // do not output empty fields on subobjects
 
-        if (!entry.second.json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
+        if (!entry.value().json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
           return false;
         }
 
-        fieldsBuilderWrapper->add(entry.first, fieldBuilder.slice());
+        fieldsBuilderWrapper->add(entry.key(), fieldBuilder.slice());
         fieldBuilder.clear();
       }
     }
@@ -638,8 +638,8 @@ size_t IResearchLinkMeta::memory() const {
   size += _fields.size() * sizeof(decltype(_fields)::value_type);
 
   for (auto& entry: _fields) {
-    size += entry.first.size();
-    size += entry.second.memory();
+    size += entry.key().size();
+    size += entry.value().memory();
   }
 
   size += _tokenizers.size() * sizeof(decltype(_tokenizers)::value_type);

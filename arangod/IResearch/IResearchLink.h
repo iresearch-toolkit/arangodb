@@ -121,7 +121,7 @@ class IResearchLink final: public Index {
 
  private:
   IResearchLinkMeta _meta; // how this collection should be indexed
-  IResearchView* _view; // effectively the index itself
+  IResearchView* _view; // effectively the index itself (nullptr == not associated)
 }; // IResearchLink
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -25,11 +25,13 @@
 #define ARANGODB_IRESEARCH__IRESEARCH_LINK_META_H 1
 
 #include <locale>
-#include <map>
+#include <unordered_map>
 #include <mutex>
 
 #include "analysis/analyzer.hpp"
 #include "utils/object_pool.hpp"
+
+#include "Containers.hpp"
 
 NS_LOCAL
 
@@ -104,8 +106,8 @@ struct IResearchLinkMeta {
     mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };
 
+  typedef UnorderedRefKeyMap<char, IResearchLinkMeta> Fields;
   typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
-  typedef std::map<std::string, IResearchLinkMeta> Fields;
 
   float_t _boost;
   Fields _fields;

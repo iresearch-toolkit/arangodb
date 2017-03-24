@@ -104,14 +104,14 @@ SECTION("test_inheritDefaults") {
   CHECK(1U == meta._fields.size());
 
   for (auto& field: meta._fields) {
-    CHECK(1U == expectedFields.erase(field.first));
-    CHECK(1U == field.second._fields.size());
+    CHECK(1U == expectedFields.erase(field.key()));
+    CHECK(1U == field.value()._fields.size());
 
-    for (auto& fieldOverride: field.second._fields) {
-      auto& actual = fieldOverride.second;
-      CHECK(1U == expectedOverrides.erase(fieldOverride.first));
+    for (auto& fieldOverride: field.value()._fields) {
+      auto& actual = fieldOverride.value();
+      CHECK(1U == expectedOverrides.erase(fieldOverride.key()));
 
-      if ("xyz" == fieldOverride.first) {
+      if ("xyz" == fieldOverride.key()) {
         CHECK(1.f == actual._boost);
         CHECK(true == actual._fields.empty());
         CHECK(false == actual._includeAllFields);
@@ -186,14 +186,14 @@ SECTION("test_readCustomizedValues") {
     CHECK(3U == meta._fields.size());
 
     for (auto& field: meta._fields) {
-      CHECK(1U == expectedFields.erase(field.first));
+      CHECK(1U == expectedFields.erase(field.key()));
 
-      for (auto& fieldOverride: field.second._fields) {
-        auto& actual = fieldOverride.second;
+      for (auto& fieldOverride: field.value()._fields) {
+        auto& actual = fieldOverride.value();
 
-        CHECK(1U == expectedOverrides.erase(fieldOverride.first));
+        CHECK(1U == expectedOverrides.erase(fieldOverride.key()));
 
-        if ("default" == fieldOverride.first) {
+        if ("default" == fieldOverride.key()) {
           CHECK(1.f == actual._boost);
           CHECK(true == actual._fields.empty());
           CHECK(false == actual._includeAllFields);
@@ -203,7 +203,7 @@ SECTION("test_readCustomizedValues") {
           CHECK("identity" == actual._tokenizers.begin()->name());
           CHECK("" == actual._tokenizers.begin()->args());
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
-        } else if ("all" == fieldOverride.first) {
+        } else if ("all" == fieldOverride.key()) {
           CHECK(11. == actual._boost);
           CHECK(2U == actual._fields.size());
           CHECK(true == (actual._fields.find("d") != actual._fields.end()));
@@ -215,7 +215,7 @@ SECTION("test_readCustomizedValues") {
           CHECK("empty" == actual._tokenizers.begin()->name());
           CHECK("en" == actual._tokenizers.begin()->args());
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
-        } else if ("some" == fieldOverride.first) {
+        } else if ("some" == fieldOverride.key()) {
           CHECK(12. == actual._boost);
           CHECK(true == actual._fields.empty()); // not inherited
           CHECK(true == actual._includeAllFields); // inherited
@@ -230,7 +230,7 @@ SECTION("test_readCustomizedValues") {
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
           CHECK(false == !itr->tokenizer());
-        } else if ("none" == fieldOverride.first) {
+        } else if ("none" == fieldOverride.key()) {
           CHECK(10. == actual._boost); // inherited
           CHECK(true == actual._fields.empty()); // not inherited
           CHECK(true == actual._includeAllFields); // inherited
