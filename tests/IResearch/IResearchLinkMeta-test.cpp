@@ -67,6 +67,7 @@ struct IResearchLinkMetaSetup { };
 
 TEST_CASE("IResearchLinkMetaTest", "[iresearch-linkmeta]") {
   IResearchLinkMetaSetup s;
+  UNUSED(s);
 
 SECTION("test_defaults") {
   arangodb::iresearch::IResearchLinkMeta meta;

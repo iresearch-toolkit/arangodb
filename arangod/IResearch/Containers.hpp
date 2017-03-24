@@ -215,13 +215,7 @@ typename UnorderedRefKeyMap<CharType, V>::MapType::key_type UnorderedRefKeyMap<C
 ) const {
   return MapType::key_type(key.hash(), value.first);
 }
-/*
-template<typename CharType, typename V>
-/*static* / const typename UnorderedRefKeyMap<CharType, V>::KeyGenerator UnorderedRefKeyMap<CharType, V>::_generator;
 
-template<typename CharType, typename V>
-/*static* / const typename UnorderedRefKeyMap<CharType, V>::KeyGenerator UnorderedRefKeyMap<CharType, V>::_hasher;
-*/
 template<typename CharType, typename V>
 UnorderedRefKeyMap<CharType, V>::UnorderedRefKeyMap() {
 }
@@ -263,7 +257,10 @@ V& UnorderedRefKeyMap<CharType, V>::operator[](
   typename UnorderedRefKeyMap<CharType, V>::KeyType const& key
 ) {
   return irs::map_utils::try_emplace_update_key(
-    _map, _generator, key
+    _map,
+    _generator,
+    key, // use same key for MapType::key_type and MapType::value_type.first
+    std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple() // MapType::value_type
   ).first->second.second;
 }
 
@@ -295,7 +292,10 @@ std::pair<typename UnorderedRefKeyMap<CharType, V>::Iterator, bool> UnorderedRef
   typename UnorderedRefKeyMap<CharType, V>::KeyType const&, Args&&... args
 ) {
   auto res = irs::map_utils::try_emplace_update_key(
-    _map, _generator, key std::forward<Args>(args)...
+    _map,
+    _generator,
+    key, // use same key for MapType::key_type and MapType::value_type.first
+    std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(std::forward<Args>(args)...) // MapType::value_type
   );
 
   return std::make_pair(Iterator(res.first) res.second);
