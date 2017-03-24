@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -64,7 +63,9 @@ inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
   arangodb::iresearch::IResearchLinkMeta const* context
 ) {
   TRI_ASSERT(context);
-  return context->_fields.findPtr(key);
+  auto* meta = context->_fields.findPtr(key);
+
+  return meta ? meta : context;
 }
 
 inline bool inObjectFiltered(

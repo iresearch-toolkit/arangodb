@@ -24,6 +24,7 @@
 #include "catch.hpp"
 
 #include "analysis/analyzers.hpp"
+#include "analysis/token_attributes.hpp"
 #include "utils/locale_utils.hpp"
 
 #include "IResearch/IResearchLinkMeta.h"
@@ -33,10 +34,20 @@
 
 NS_LOCAL
 
+struct TestAttribute: public irs::attribute {
+  DECLARE_ATTRIBUTE_TYPE();
+  DECLARE_FACTORY_DEFAULT();
+  TestAttribute() noexcept: irs::attribute(TestAttribute::type()) {}
+  virtual void clear() override {}
+};
+
+DEFINE_ATTRIBUTE_TYPE(TestAttribute);
+DEFINE_FACTORY_DEFAULT(TestAttribute);
+
 class EmptyTokenizer: public irs::analysis::analyzer {
 public:
   DECLARE_ANALYZER_TYPE();
-  EmptyTokenizer(): irs::analysis::analyzer(EmptyTokenizer::type()) {}
+  EmptyTokenizer(): irs::analysis::analyzer(EmptyTokenizer::type()) { _attrs.add<TestAttribute>(); }
   virtual iresearch::attributes const& attributes() const NOEXCEPT override { return _attrs; }
   static ptr make(irs::string_ref const&) { PTR_NAMED(EmptyTokenizer, ptr); return ptr; }
   virtual bool next() override { return false; }
@@ -80,6 +91,7 @@ SECTION("test_defaults") {
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
+  CHECK(irs::flags({irs::term_attribute::type()}) == *(meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -121,6 +133,7 @@ SECTION("test_inheritDefaults") {
         CHECK(1U == actual._tokenizers.size());
         CHECK("identity" == actual._tokenizers.begin()->name());
         CHECK("" == actual._tokenizers.begin()->args());
+        CHECK(irs::flags({irs::term_attribute::type()}) == *(actual._tokenizers.begin()->features()));
         CHECK(false == !actual._tokenizers.begin()->tokenizer());
       }
     }
@@ -135,6 +148,7 @@ SECTION("test_inheritDefaults") {
   CHECK(1U == meta._tokenizers.size());
   CHECK("empty" == meta._tokenizers.begin()->name());
   CHECK("en" == meta._tokenizers.begin()->args());
+  CHECK(irs::flags({TestAttribute::type()}) == *(meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -152,6 +166,7 @@ SECTION("test_readDefaults") {
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
+  CHECK(irs::flags({irs::term_attribute::type()}) == *(meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -203,6 +218,7 @@ SECTION("test_readCustomizedValues") {
           CHECK(1U == actual._tokenizers.size());
           CHECK("identity" == actual._tokenizers.begin()->name());
           CHECK("" == actual._tokenizers.begin()->args());
+          CHECK(irs::flags({irs::term_attribute::type()}) == *(actual._tokenizers.begin()->features()));
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("all" == fieldOverride.key()) {
           CHECK(11. == actual._boost);
@@ -215,6 +231,7 @@ SECTION("test_readCustomizedValues") {
           CHECK(1U == actual._tokenizers.size());
           CHECK("empty" == actual._tokenizers.begin()->name());
           CHECK("en" == actual._tokenizers.begin()->args());
+          CHECK(irs::flags({TestAttribute::type()}) == *(actual._tokenizers.begin()->features()));
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("some" == fieldOverride.key()) {
           CHECK(12. == actual._boost);
@@ -226,10 +243,12 @@ SECTION("test_readCustomizedValues") {
           auto itr = actual._tokenizers.begin();
           CHECK("empty" == itr->name());
           CHECK("en" == itr->args());
+          CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
           CHECK(false == !itr->tokenizer());
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
+          CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
           CHECK(false == !itr->tokenizer());
         } else if ("none" == fieldOverride.key()) {
           CHECK(10. == actual._boost); // inherited
@@ -240,10 +259,12 @@ SECTION("test_readCustomizedValues") {
           auto itr = actual._tokenizers.begin();
           CHECK("empty" == itr->name());
           CHECK("en" == itr->args());
+          CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
           CHECK(false == !itr->tokenizer());
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
+          CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
           CHECK(false == !itr->tokenizer());
         }
       }
@@ -257,10 +278,12 @@ SECTION("test_readCustomizedValues") {
     auto itr = meta._tokenizers.begin();
     CHECK("empty" == itr->name());
     CHECK("en" == itr->args());
+    CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
     CHECK(false == !itr->tokenizer());
     ++itr;
     CHECK("identity" == itr->name());
     CHECK("" == itr->args());
+    CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
     CHECK(false == !itr->tokenizer());
   }
 }

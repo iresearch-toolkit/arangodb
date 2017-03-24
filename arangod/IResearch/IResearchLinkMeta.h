@@ -97,11 +97,13 @@ struct IResearchLinkMeta {
     TokenizerPool(std::string const& name, std::string const& args);
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
+    irs::flags const* features() const; // (nullptr == tokenizer instantiation failure)
     std::string const& name() const noexcept;
     irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
 
    private:
     std::string const _args;
+    mutable irs::flags _features; // mutable because lazy-initialized
     std::string const _name;
     mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };

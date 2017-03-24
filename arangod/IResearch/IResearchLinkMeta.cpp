@@ -38,8 +38,9 @@
 
 NS_LOCAL
 
-const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
-const irs::string_ref IDENTITY_TOKENIZER_NAME("identity");
+static const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
+static const irs::string_ref IDENTITY_TOKENIZER_NAME("identity");
+static const irs::attribute::type_id UNSET_ATTRIBUTE_TYPE("marker to triger reset of attributes");
 
 class IdentityValue: public irs::term_attribute {
 public:
@@ -211,7 +212,10 @@ size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& v
 
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
   std::string const& name, std::string const& args
-): _args(args), _name(name), _pool(getTokenizerPool(name, args)) {
+): _args(args),
+   _features({UNSET_ATTRIBUTE_TYPE}),
+   _name(name),
+   _pool(getTokenizerPool(name, args)) {
 }
 
 bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) const noexcept {
@@ -220,6 +224,20 @@ bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) co
 
 std::string const& IResearchLinkMeta::TokenizerPool::args() const noexcept {
   return _args;
+}
+
+irs::flags const* IResearchLinkMeta::TokenizerPool::features() const {
+  if (_features.check(UNSET_ATTRIBUTE_TYPE)) {
+    auto instance = tokenizer();
+
+    if (!instance) {
+      return nullptr;
+    }
+
+    _features = instance->attributes().features();
+  }
+
+  return &_features;
 }
 
 std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
