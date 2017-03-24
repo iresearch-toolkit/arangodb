@@ -37,7 +37,6 @@
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 
-//#include "Utils/SingleCollectionTransaction.h"
 #include "Utils/CollectionNameResolver.h"
 #include "Utils/UserTransaction.h"
 
@@ -86,6 +85,29 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   );
 
   return true;
+}
+
+// @brief approximate iResearch directory instance size
+size_t directoryMemory(irs::directory const& directory, std::string const& viewName) noexcept {
+  size_t size = 0;
+
+  try {
+    directory.visit([&directory, &size](std::string& file)->bool {
+      uint64_t length;
+
+      size += directory.length(length, file) ? length : 0;
+
+      return true;
+    });
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch '" << viewName << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while calculating size of iResearch '" << viewName << "'";
+    IR_EXCEPTION();
+  }
+
+  return size;
 }
 
 NS_END
@@ -290,8 +312,13 @@ IResearchView::IResearchView(
 ) noexcept: ViewImplementation(view, info) {
 }
 
-void IResearchView::getPropertiesVPack(arangodb::velocypack::Builder&) const {
-  // FIXME TODO
+void IResearchView::getPropertiesVPack(
+  arangodb::velocypack::Builder& builder
+) const {
+  ReadMutex mutex(_mutex);
+  SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+  _meta.json(builder);
 }
 
 void IResearchView::open() {
@@ -302,6 +329,7 @@ void IResearchView::drop() {
   _threadPool.stop();
 
   WriteMutex mutex(_mutex);
+  SCOPED_LOCK(mutex); // members can be asynchronously updated
 
   // ...........................................................................
   // if an exception occurs below than a drop retry would most likely happen
@@ -437,7 +465,41 @@ size_t IResearchView::linkCount() const noexcept {
 }
 
 size_t IResearchView::memory() const {
-  return 0;  // FIXME TODO
+  WriteMutex mutex(_mutex); // view members can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  size_t size = sizeof(IResearchView);
+
+  for (auto& entry: _links) {
+    size += sizeof(entry.get()); sizeof(*(entry.get()));
+
+    if (entry) {
+      size += entry->memory();
+    }
+  }
+
+  size += _meta.memory();
+
+  for (auto& tidEntry: _storeByTid) {
+    size += sizeof(tidEntry.first) + sizeof(tidEntry.second);
+
+    for (auto& fidEntry: tidEntry.second._storeByFid) {
+      size += sizeof(fidEntry.first) + sizeof(fidEntry.second);
+      size += directoryMemory(fidEntry.second._directory, name());
+    }
+
+    // no way to determine size of actual filter
+    SCOPED_LOCK(tidEntry.second._mutex);
+    size += tidEntry.second._removals.size() * (sizeof(decltype(tidEntry.second._removals)::pointer) + sizeof(decltype(tidEntry.second._removals)::value_type));
+  }
+
+  for (auto& fidEntry: _storeByWalFid._storeByFid) {
+    size += sizeof(fidEntry.first) + sizeof(fidEntry.second);
+    size += directoryMemory(fidEntry.second._directory, name());
+  }
+
+  size += directoryMemory(_storePersisted._directory, name());
+
+  return size;
 }
 
 bool IResearchView::modify(VPackSlice const& definition) {

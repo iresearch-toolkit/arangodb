@@ -105,7 +105,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   /// @brief fill and return a JSON description of a IResearchView object
   ///        only fields describing the view itself, not 'link' descriptions
   ////////////////////////////////////////////////////////////////////////////////
-  void getPropertiesVPack(arangodb::velocypack::Builder&) const override;
+  void getPropertiesVPack(arangodb::velocypack::Builder& builder) const override;
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief opens an existing view when the server is restarted
@@ -225,7 +225,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   };
 
   struct TidStore: public FidStore {
-    std::mutex _mutex; // for use with '_removals'
+    mutable std::mutex _mutex; // for use with '_removals' (allow use in const functions)
     std::vector<std::shared_ptr<irs::filter>> _removals; // removal filters to be applied to during merge
   };
 
