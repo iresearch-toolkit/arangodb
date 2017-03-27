@@ -94,34 +94,22 @@ class IndexStore {
   irs::directory_reader _reader;
 }; // IndexStore
 
-class IResearchView final : public arangodb::ViewImplementation {
+///////////////////////////////////////////////////////////////////////////////
+/// --SECTION--                                              ViewImplementation
+///////////////////////////////////////////////////////////////////////////////
+class IResearchView final: public arangodb::ViewImplementation {
  public:
-  ///////////////////////////////////////////////////////////////////////////////
-  /// @brief type of the view
-  ///////////////////////////////////////////////////////////////////////////////
-  static std::string type;
+  typedef std::unique_ptr<arangodb::ViewImplementation> ptr;
 
   ///////////////////////////////////////////////////////////////////////////////
-  /// @brief view factory
-  /// @returns initialized view object
-  ///////////////////////////////////////////////////////////////////////////////
-  static std::unique_ptr<ViewImplementation> make(
-    arangodb::LogicalView*,
-    arangodb::velocypack::Slice const& info,
-    bool isNew
-  );
+  /// @brief fill and return a JSON description of a IResearchView object
+  ///        only fields describing the view itself, not 'link' descriptions
+  ////////////////////////////////////////////////////////////////////////////////
+  void getPropertiesVPack(arangodb::velocypack::Builder& builder) const override;
 
   ///////////////////////////////////////////////////////////////////////////////
-  /// --SECTION--                                              ViewImplementation
+  /// @brief opens an existing view when the server is restarted
   ///////////////////////////////////////////////////////////////////////////////
-
-  arangodb::Result updateProperties(
-    arangodb::velocypack::Slice const& slice,
-    bool doSync
-  ) override;
-
-  void getPropertiesVPack(arangodb::velocypack::Builder&) const override;
-
   void open() override;
 
   ///////////////////////////////////////////////////////////////////////////////
@@ -133,11 +121,6 @@ class IResearchView final : public arangodb::ViewImplementation {
   /// @brief drop collection matching 'cid' from the iResearch View
   ////////////////////////////////////////////////////////////////////////////////
   int drop(TRI_voc_cid_t cid);
-
-  ////////////////////////////////////////////////////////////////////////////////
-  /// @brief the name identifying the current iResearch View
-  ////////////////////////////////////////////////////////////////////////////////
-  std::string const& name() const noexcept;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief insert a document into the iResearch View
@@ -157,6 +140,16 @@ class IResearchView final : public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   size_t linkCount() const noexcept;
 
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief view factory
+  /// @returns initialized view object
+  ///////////////////////////////////////////////////////////////////////////////
+  static ptr make(
+    arangodb::LogicalView* view,
+    arangodb::velocypack::Slice const& info,
+    bool isNew
+  );
+
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief amount of memory in bytes occupied by this iResearch Link
   ////////////////////////////////////////////////////////////////////////////////
@@ -167,7 +160,11 @@ class IResearchView final : public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   bool modify(VPackSlice const& definition);
 
-  bool properties(VPackSlice const& props);
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief the name identifying the current iResearch View
+  ////////////////////////////////////////////////////////////////////////////////
+  std::string const& name() const noexcept;
+
   bool properties(arangodb::velocypack::Builder& props) const;
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -193,12 +190,20 @@ class IResearchView final : public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   bool sync();
 
- private:
-  IResearchView(
-    arangodb::LogicalView*,
-    arangodb::velocypack::Slice const& info
-  ) noexcept;
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief the view type as used when selecting which view to instantiate
+  ////////////////////////////////////////////////////////////////////////////////
+  static std::string const& type() noexcept;
 
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief called when a view's properties are updated (i.e. overriden)
+  ///////////////////////////////////////////////////////////////////////////////
+  arangodb::Result updateProperties(
+    arangodb::velocypack::Slice const& slice,
+    bool doSync
+  ) override;
+
+ private:
   template<typename Directory>
   struct DataStore {
     Directory _directory;
@@ -220,7 +225,7 @@ class IResearchView final : public arangodb::ViewImplementation {
   };
 
   struct TidStore: public FidStore {
-    std::mutex _mutex; // for use with '_removals'
+    mutable std::mutex _mutex; // for use with '_removals' (allow use in const functions)
     std::vector<std::shared_ptr<irs::filter>> _removals; // removal filters to be applied to during merge
   };
 
@@ -231,6 +236,11 @@ class IResearchView final : public arangodb::ViewImplementation {
   FidStore _storeByWalFid;
   DataStore<irs::memory_directory> _storePersisted;
   irs::async_utils::thread_pool _threadPool;
+
+  IResearchView(
+    arangodb::LogicalView*,
+    arangodb::velocypack::Slice const& info
+  ) noexcept;
 };
 
 NS_END // iresearch

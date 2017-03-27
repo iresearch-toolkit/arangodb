@@ -48,6 +48,7 @@ struct IResearchDocumentSetup { };
 
 TEST_CASE("IResearchDocumentTest", "[iresearch-document]") {
   IResearchDocumentSetup s;
+  UNUSED(s);
 
 SECTION("static_checks") {
   static_assert(

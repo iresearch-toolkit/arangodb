@@ -54,7 +54,8 @@ class Field {
   }
 
   irs::flags const& features() const {
-    return irs::flags::empty_instance();
+    TRI_ASSERT(_features);
+    return *_features;
   }
 
   irs::token_stream& get_tokens() const {
@@ -70,6 +71,7 @@ class Field {
  private:
   friend class FieldIterator;
 
+  irs::flags const* _features{};
   std::shared_ptr<irs::token_stream>_tokenizer;
   std::shared_ptr<std::string> _name; // buffer for field name
   IResearchLinkMeta const* _meta{};
@@ -85,6 +87,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   FieldIterator() = default;
 
   FieldIterator(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta

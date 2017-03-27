@@ -31,6 +31,8 @@
 #include "analysis/analyzer.hpp"
 #include "utils/object_pool.hpp"
 
+#include "Containers.hpp"
+
 NS_LOCAL
 
 struct TokenizerBuilder; // forward declaration
@@ -96,16 +98,18 @@ struct IResearchLinkMeta {
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
     std::string const& name() const noexcept;
+    irs::flags const* features() const; // (nullptr == tokenizer instantiation failure)
     irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
 
    private:
     std::string const _args;
+    mutable irs::flags _features; // mutable because lazy-initialized
     std::string const _name;
     mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };
 
+  typedef UnorderedRefKeyMap<char, IResearchLinkMeta> Fields;
   typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
-  typedef std::map<std::string, IResearchLinkMeta> Fields;
 
   float_t _boost;
   Fields _fields;
@@ -181,8 +185,9 @@ struct IResearchLinkMeta {
   /// @brief amount of memory in bytes occupied by this iResearch Link meta
   ////////////////////////////////////////////////////////////////////////////////
   size_t memory() const;
-};
+}; // IResearchLinkMeta
 
 NS_END // iresearch
 NS_END // arangodb
+
 #endif

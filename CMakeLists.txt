@@ -264,7 +264,6 @@ if(USE_IRESEARCH)
   add_definitions("-DUSE_IRESEARCH=1")
 
   set(LIB_ARANGO_IRESEARCH arango_iresearch)
-  set(TEST_IRESEARCH_SUITE iresearch_suite)
 endif()
 
 ################################################################################
