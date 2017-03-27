@@ -21,7 +21,7 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "Containers.hpp"
+#include "Containers.h"
 
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)

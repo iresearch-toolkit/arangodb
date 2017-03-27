@@ -46,7 +46,7 @@ if (USE_IRESEARCH)
   find_package(IResearch REQUIRED)
 
   add_library(${LIB_ARANGO_IRESEARCH}
-    IResearch/Containers.cpp IResearch/Containers.hpp
+    IResearch/Containers.cpp IResearch/Containers.h
     IResearch/IResearchLink.cpp IResearch/IResearchLink.h
     IResearch/IResearchLinkMeta.cpp IResearch/IResearchLinkMeta.h
     IResearch/IResearchView.cpp IResearch/IResearchView.h

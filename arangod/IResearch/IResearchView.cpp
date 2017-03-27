@@ -415,7 +415,7 @@ int IResearchView::insert(
   IResearchLinkMeta const& meta
 ) {
   DocumentPrimaryKey attribute(cid, rid);
-  FieldIterator fields(cid, rid, doc, meta, _meta);
+  FieldIterator fields(/*cid, rid,*/ doc, meta, _meta);
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid]._storeByFid[fid];

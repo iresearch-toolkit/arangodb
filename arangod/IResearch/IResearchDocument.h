@@ -87,8 +87,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   FieldIterator() = default;
 
   FieldIterator(
-    TRI_voc_cid_t cid,
-    TRI_voc_rid_t rid,
+//    TRI_voc_cid_t cid,
+//    TRI_voc_rid_t rid,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta
@@ -126,7 +126,7 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   FieldIterator& end() noexcept { return END; };
 
  private:
-  typedef IResearchLinkMeta::TokenizerPool* TokenizerIterator;
+  typedef IResearchLinkMeta::TokenizerPool const* TokenizerIterator;
 
   typedef bool(*Filter)(
     std::string& buffer,

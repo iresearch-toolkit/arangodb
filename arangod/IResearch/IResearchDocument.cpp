@@ -87,6 +87,7 @@ inline bool canHandleValue(
     case VPackValueType::Binary:
     case VPackValueType::BCD:
     case VPackValueType::Custom:
+    default:
       return false;
   }
 }
@@ -97,7 +98,7 @@ inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
     arangodb::iresearch::IResearchLinkMeta const* context) {
   TRI_ASSERT(context);
   auto const* meta = context->_fields.findPtr(key);
-  return meta ? meta : context;
+  return meta ? meta->get() : context;
 }
 
 inline bool inObjectFiltered(
@@ -129,7 +130,7 @@ inline bool inObject(
   buffer.append(key.c_str(), key.size());
   context = findMeta(key, context);
 
-  return canHandleValue(value.value, context);
+  return canHandleValue(value.value, *context);
 }
 
 inline bool inArrayOrdered(
@@ -141,7 +142,7 @@ inline bool inArrayOrdered(
   append(buffer, value.pos);
   buffer += viewMeta._nestingListOffsetSuffix;
 
-  return canHandleValue(value.value, context);
+  return canHandleValue(value.value, *context);
 }
 
 inline bool inArray(
@@ -149,7 +150,7 @@ inline bool inArray(
     arangodb::iresearch::IResearchLinkMeta const*& context,
     arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
     arangodb::iresearch::IteratorValue const& value) noexcept {
-  return canHandleValue(value.value, context);
+  return canHandleValue(value.value, *context);
 }
 
 typedef bool(*Filter)(
@@ -183,27 +184,25 @@ inline Filter getFilter(
    ];
 }
 
+typedef arangodb::iresearch::IResearchLinkMeta::TokenizerPool const* TokenizerPoolPtr;
+
 typedef std::shared_ptr<irs::token_stream>(*TokenizerFactory)(
-  VPackSlice const& value,
-  IResearchLinkMeta::TokenizerPool* pool
+  VPackSlice const& value, TokenizerPoolPtr pool
 );
 
 std::shared_ptr<irs::token_stream> noopFactory(
-    VPackSlice const& /*value*/,
-    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+    VPackSlice const& /*value*/, TokenizerPoolPtr /*pool*/) {
   return nullptr;
 }
 
 std::shared_ptr<irs::token_stream> nullTokenizerFactory(
-    VPackSlice const& value,
-    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+    VPackSlice const& value, TokenizerPoolPtr /*pool*/) {
   TRI_ASSERT(value.isNull());
   return NullStreamPool.emplace();
 }
 
 std::shared_ptr<irs::token_stream> boolTokenizerFactory(
-    VPackSlice const& value,
-    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+    VPackSlice const& value, TokenizerPoolPtr /*pool*/) {
   TRI_ASSERT(value.isBool());
 
   auto tokenizer = BoolStreamPool.emplace();
@@ -213,8 +212,7 @@ std::shared_ptr<irs::token_stream> boolTokenizerFactory(
 }
 
 std::shared_ptr<irs::token_stream> numericTokenizerFactory(
-    VPackSlice const& value,
-    IResearchLinkMeta::TokenizerPool* /*pool*/) {
+    VPackSlice const& value, TokenizerPoolPtr /*pool*/) {
   TRI_ASSERT(value.isNumber());
 
   auto tokenizer = NumericStreamPool.emplace();
@@ -224,12 +222,11 @@ std::shared_ptr<irs::token_stream> numericTokenizerFactory(
 }
 
 std::shared_ptr<irs::token_stream> stringTokenizerFactory(
-    VPackSlice const& value,
-    IResearchLinkMeta::TokenizerPool* pool) {
+    VPackSlice const& value, TokenizerPoolPtr pool) {
   TRI_ASSERT(value.isString());
 
   auto tokenizer = pool->tokenizer();
-  tokenizer->reset(getStringRef(value));
+  tokenizer->reset(arangodb::iresearch::getStringRef(value));
 
   return tokenizer;
 }
@@ -335,8 +332,8 @@ Field& Field::operator=(Field&& rhs) {
 
 // TODO FIXME must putout system fields (cid/rid) as well to allow for building a filter on CID/RID
 FieldIterator::FieldIterator(
-    TRI_voc_cid_t,
-    TRI_voc_rid_t,
+//    TRI_voc_cid_t,
+//    TRI_voc_rid_t,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta)
@@ -435,8 +432,8 @@ void FieldIterator::next() {
   } while (!push(value, context));
 
   // refresh tokenizers
-  _begin = context->Tokenizers.begin();
-  _end = context->Tokenizers.end();
+  _begin = context->_tokenizers.data();
+  _end = _begin + context->_tokenizers.size();
 
   // refresh value
   _value._meta = context;
