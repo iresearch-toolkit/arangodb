@@ -93,7 +93,7 @@ class UnorderedRefKeyMap {
   void clear();
 
   template<typename... Args>
-  std::pair<Iterator, bool> emplace(KeyType const&, Args&&... args);
+  std::pair<Iterator, bool> emplace(KeyType const& key, Args&&... args);
   template<typename... Args>
   std::pair<Iterator, bool> emplace(typename KeyType::base_t const& key, Args&&... args);
 
