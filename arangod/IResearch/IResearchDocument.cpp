@@ -60,6 +60,37 @@ inline void append(std::string& out, size_t value) {
   out.resize(size + written);
 }
 
+inline bool canHandleValue(
+    VPackSlice const& value,
+    arangodb::iresearch::IResearchLinkMeta const& context) noexcept {
+  switch (value.type()) {
+    case VPackValueType::None:
+    case VPackValueType::Illegal:
+      return false;
+    case VPackValueType::Null:
+    case VPackValueType::Bool:
+    case VPackValueType::Array:
+    case VPackValueType::Object:
+    case VPackValueType::Double:
+      return true;
+    case VPackValueType::UTCDate:
+    case VPackValueType::External:
+    case VPackValueType::MinKey:
+    case VPackValueType::MaxKey:
+      return false;
+    case VPackValueType::Int:
+    case VPackValueType::UInt:
+    case VPackValueType::SmallInt:
+      return true;
+    case VPackValueType::String:
+      return context._tokenizers.empty();
+    case VPackValueType::Binary:
+    case VPackValueType::BCD:
+    case VPackValueType::Custom:
+      return false;
+  }
+}
+
 // returns 'context' in case if can't find the specified 'field'
 inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
     irs::string_ref const& key,
@@ -74,8 +105,6 @@ inline bool inObjectFiltered(
     arangodb::iresearch::IResearchLinkMeta const*& context,
     arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
     arangodb::iresearch::IteratorValue const& value) {
-  TRI_ASSERT(value.key.isString());
-
   auto const key = arangodb::iresearch::getStringRef(value.key);
 
   auto const* meta = findMeta(key, context);
@@ -87,7 +116,7 @@ inline bool inObjectFiltered(
   buffer.append(key.c_str(), key.size());
   context = meta;
 
-  return true;
+  return canHandleValue(value.value, *context);
 }
 
 inline bool inObject(
@@ -100,28 +129,27 @@ inline bool inObject(
   buffer.append(key.c_str(), key.size());
   context = findMeta(key, context);
 
-  return true;
+  return canHandleValue(value.value, context);
 }
 
 inline bool inArrayOrdered(
     std::string& buffer,
-    arangodb::iresearch::IResearchLinkMeta const*& /*context*/,
+    arangodb::iresearch::IResearchLinkMeta const*& context,
     arangodb::iresearch::IResearchViewMeta const& viewMeta,
     arangodb::iresearch::IteratorValue const& value) {
   buffer += viewMeta._nestingListOffsetPrefix;
   append(buffer, value.pos);
   buffer += viewMeta._nestingListOffsetSuffix;
 
-  return true;
+  return canHandleValue(value.value, context);
 }
 
 inline bool inArray(
     std::string& /*buffer*/,
-    arangodb::iresearch::IResearchLinkMeta const*& /*context*/,
+    arangodb::iresearch::IResearchLinkMeta const*& context,
     arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
-    arangodb::iresearch::IteratorValue const& /*value*/) noexcept {
-  // does nothing
-  return true;
+    arangodb::iresearch::IteratorValue const& value) noexcept {
+  return canHandleValue(value.value, context);
 }
 
 typedef bool(*Filter)(
@@ -333,7 +361,7 @@ IResearchLinkMeta const* FieldIterator::nextTop() {
   auto const filter = level.filter;
 
   name.resize(level.nameLength);
-  while (it.next() && !filter(name, context, *_meta, it.value())) {
+  while (it.next() &&  !filter(name, context, *_meta, it.value())) {
     // filtered out
     name.resize(level.nameLength);
   }
@@ -390,7 +418,7 @@ void FieldIterator::next() {
     context = nextTop();
 
     // pop all exhausted iterators
-    for (; !top().it.valid(); context = nextTop()) { // || context->Tokenizers.empty(); context = nextTop()) {
+    for (; !top().it.valid(); context = nextTop()) {
       _stack.pop_back();
 
       if (!valid()) {
@@ -404,16 +432,11 @@ void FieldIterator::next() {
 
     value = top().it.value().value;
 
-  } while (!push(value, context)); // && context->Tokenizers.empty());
+  } while (!push(value, context));
 
-//  TRI_ASSERT(!context->Tokenizers.empty());
-
-//  // refresh tokenizers
-//  _begin = context->Tokenizers.begin();
-//  _end = context->Tokenizers.end();
-  setTokenizers(context);
-
-  TRI_ASSERT(_begin != _end);
+  // refresh tokenizers
+  _begin = context->Tokenizers.begin();
+  _end = context->Tokenizers.end();
 
   // refresh value
   _value._meta = context;
