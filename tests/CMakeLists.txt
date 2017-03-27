@@ -8,10 +8,11 @@ endforeach()
 
 if (USE_IRESEARCH)
   set(IRESEARCH_TESTS_SOURCES
-    IResearch/VelocyPackHelper-test.cpp
+    IResearch/Containers-test.cpp
     IResearch/IResearchLinkMeta-test.cpp
     IResearch/IResearchViewMeta-test.cpp
     IResearch/IResearchDocument-test.cpp
+    IResearch/VelocyPackHelper-test.cpp
   )
 endif ()
 

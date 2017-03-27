@@ -218,6 +218,49 @@ IResearchLinkMeta::TokenizerPool::TokenizerPool(
    _pool(getTokenizerPool(name, args)) {
 }
 
+IResearchLinkMeta::TokenizerPool::TokenizerPool(
+  IResearchLinkMeta::TokenizerPool const& other
+): _args(other._args),
+   _features(other._features),
+   _name(other._name),
+   _pool(other._pool) {
+}
+
+IResearchLinkMeta::TokenizerPool::TokenizerPool(
+  IResearchLinkMeta::TokenizerPool&& other
+) noexcept
+ : _args(std::move(other._args)),
+   _features(std::move(other._features)),
+   _name(std::move(other._name)),
+   _pool(std::move(other._pool)) {
+}
+
+IResearchLinkMeta::TokenizerPool& IResearchLinkMeta::TokenizerPool::operator=(
+  IResearchLinkMeta::TokenizerPool const& other
+) {
+  if (this != &other) {
+    _args = other._args;
+    _features = other._features;
+    _name = other._name;
+    _pool = other._pool;
+  }
+
+  return *this;
+}
+
+IResearchLinkMeta::TokenizerPool& IResearchLinkMeta::TokenizerPool::operator=(
+  IResearchLinkMeta::TokenizerPool&& other
+) noexcept {
+  if (this != &other) {
+    _args = std::move(other._args);
+    _features = std::move(other._features);
+    _name = std::move(other._name);
+    _pool = std::move(other._pool);
+  }
+
+  return *this;
+}
+
 bool IResearchLinkMeta::TokenizerPool::operator==(TokenizerPool const& other) const noexcept {
   return _name == other._name && _args == other._args;
 }
@@ -254,7 +297,7 @@ IResearchLinkMeta::IResearchLinkMeta()
     _includeAllFields(false), // true to match all encountered fields, false match only fields in '_fields'
     _locale(std::locale::classic()),
     _nestListValues(false) { // treat '_nestListValues' as SQL-IN
-  _tokenizers.emplace(IDENTITY_TOKENIZER_NAME, ""); // identity-only tokenization
+  _tokenizers.emplace_back(IDENTITY_TOKENIZER_NAME, ""); // identity-only tokenization
 }
 
 IResearchLinkMeta::IResearchLinkMeta(IResearchLinkMeta const& other) {
@@ -480,9 +523,9 @@ bool IResearchLinkMeta::init(
           auto entry = entryItr.value();
 
           if (entry.isString()) {
-            _tokenizers.emplace(name, entry.copyString());
+            _tokenizers.emplace_back(name, entry.copyString());
           } else if (entry.isObject()) {
-            _tokenizers.emplace(name, entry.toJson());
+            _tokenizers.emplace_back(name, entry.toJson());
           } else {
             errorField = fieldName + "=>" + name + "=>[" + arangodb::basics::StringUtils::itoa(entryItr.index()) + "]";
 
@@ -539,7 +582,7 @@ bool IResearchLinkMeta::init(
 
         std::string childErrorField;
 
-        if (!_fields[name].init(value, errorField, subDefaults)) {
+        if (!_fields[name]->init(value, errorField, subDefaults)) {
           errorField = fieldName + "=>" + name + "=>" + childErrorField;
 
           return false;
@@ -576,9 +619,9 @@ bool IResearchLinkMeta::json(
       subDefaults._fields.clear(); // do not inherit fields and overrides overrides from this field
 
       for(auto& entry: _fields) {
-        mask._fields = !entry.value()._fields.empty(); // do not output empty fields on subobjects
+        mask._fields = !entry.value()->_fields.empty(); // do not output empty fields on subobjects
 
-        if (!entry.value().json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
+        if (!entry.value()->json(arangodb::velocypack::ObjectBuilder(&fieldBuilder), &subDefaults, &mask)) {
           return false;
         }
 
@@ -657,7 +700,7 @@ size_t IResearchLinkMeta::memory() const {
 
   for (auto& entry: _fields) {
     size += entry.key().size();
-    size += entry.value().memory();
+    size += entry.value()->memory();
   }
 
   size += _tokenizers.size() * sizeof(decltype(_tokenizers)::value_type);

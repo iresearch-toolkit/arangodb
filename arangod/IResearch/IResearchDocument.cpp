@@ -65,7 +65,7 @@ inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
   TRI_ASSERT(context);
   auto* meta = context->_fields.findPtr(key);
 
-  return meta ? meta : context;
+  return meta ? meta->get() : context;
 }
 
 inline bool inObjectFiltered(

@@ -25,13 +25,13 @@
 #define ARANGODB_IRESEARCH__IRESEARCH_LINK_META_H 1
 
 #include <locale>
-#include <unordered_map>
 #include <mutex>
+#include <vector>
 
 #include "analysis/analyzer.hpp"
 #include "utils/object_pool.hpp"
 
-#include "Containers.hpp"
+#include "Containers.h"
 
 NS_LOCAL
 
@@ -95,6 +95,10 @@ struct IResearchLinkMeta {
     };
 
     TokenizerPool(std::string const& name, std::string const& args);
+    TokenizerPool(TokenizerPool const& other);
+    TokenizerPool(TokenizerPool&& other) noexcept;
+    TokenizerPool& operator=(TokenizerPool const& other);
+    TokenizerPool& operator=(TokenizerPool&& other) noexcept;
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
     irs::flags const* features() const; // (nullptr == tokenizer instantiation failure)
@@ -102,14 +106,14 @@ struct IResearchLinkMeta {
     irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
 
    private:
-    std::string const _args;
+    std::string _args;
     mutable irs::flags _features; // mutable because lazy-initialized
-    std::string const _name;
+    std::string _name;
     mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };
 
-  typedef UnorderedRefKeyMap<char, IResearchLinkMeta> Fields;
-  typedef std::unordered_set<TokenizerPool, TokenizerPool::Hash> Tokenizers;
+  typedef UnorderedRefKeyMap<char, UniqueHeapInstance<IResearchLinkMeta>> Fields;
+  typedef std::vector<TokenizerPool> Tokenizers;
 
   float_t _boost;
   Fields _fields;

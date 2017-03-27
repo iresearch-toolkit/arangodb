@@ -24,6 +24,7 @@
 #ifndef ARANGODB_IRESEARCH__IRESEARCH_CONTAINERS_H
 #define ARANGODB_IRESEARCH__IRESEARCH_CONTAINERS_H 1
 
+#include <memory>
 #include <unordered_map>
 
 #include "utils/hash_utils.hpp"
@@ -38,6 +39,122 @@ struct Hasher {
   size_t operator()(T const& value) const;
 };
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief a wrapper around a type, placing the value on the heap to allow
+///        declaration of map member variables whos' values are of the type
+///        being declared
+////////////////////////////////////////////////////////////////////////////////
+template<typename T>
+class UniqueHeapInstance {
+ public:
+  template<typename... Args>
+  UniqueHeapInstance(Args&&... args);
+  UniqueHeapInstance(UniqueHeapInstance const& other);
+  UniqueHeapInstance(UniqueHeapInstance&& other) noexcept;
+  UniqueHeapInstance& operator=(UniqueHeapInstance const& other);
+  UniqueHeapInstance& operator=(UniqueHeapInstance&& other) noexcept;
+  T& operator=(T const& other);
+  T& operator=(T&& other);
+  T& operator*() const noexcept;
+  T* operator->() const noexcept;
+  bool operator==(UniqueHeapInstance const& other) const;
+  bool operator!=(UniqueHeapInstance const& other) const;
+  T* get() noexcept;
+  T const* get() const noexcept;
+
+ private:
+  std::unique_ptr<T> _instance;
+};
+
+template<typename T>
+template<typename... Args>
+UniqueHeapInstance<T>::UniqueHeapInstance(Args&&... args)
+  : _instance(std::make_unique<T>(std::forward<Args>(args)...)) {
+}
+
+template<typename T>
+UniqueHeapInstance<T>::UniqueHeapInstance(UniqueHeapInstance const& other)
+  : _instance(std::make_unique<T>(*(other._instance))) {
+}
+
+template<typename T>
+UniqueHeapInstance<T>::UniqueHeapInstance(UniqueHeapInstance&& other) noexcept
+  : _instance(std::move(other._instance)) {
+}
+
+template<typename T>
+UniqueHeapInstance<T>& UniqueHeapInstance<T>::operator=(
+  UniqueHeapInstance const& other
+) {
+  if (this != &other) {
+    _instance = std::make_unique<T>(*(other._instance));
+  }
+
+  return *this;
+}
+
+template<typename T>
+UniqueHeapInstance<T>& UniqueHeapInstance<T>::operator=(
+  UniqueHeapInstance&& other
+  )  noexcept {
+  if (this != &other) {
+    _instance = std::move(other);
+  }
+
+  return *this;
+}
+
+template<typename T>
+T& UniqueHeapInstance<T>::operator=(T const& other) {
+  *_instance = other;
+
+  return *_instance;
+}
+
+template<typename T>
+T& UniqueHeapInstance<T>::operator=(T&& other) {
+  *_instance = std::move(other);
+
+  return *_instance;
+}
+
+template<typename T>
+T& UniqueHeapInstance<T>::operator*() const noexcept {
+  return *_instance;
+}
+
+template<typename T>
+T* UniqueHeapInstance<T>::operator->() const noexcept {
+  return _instance.get();
+}
+
+template<typename T>
+bool UniqueHeapInstance<T>::operator==(UniqueHeapInstance const& other) const {
+  return _instance
+    ? (other._instance && *_instance == *(other._instance)) : !other._instance;
+}
+
+template<typename T>
+bool UniqueHeapInstance<T>::operator!=(UniqueHeapInstance const& other) const {
+  return !(*this == other);
+}
+
+template<typename T>
+T* UniqueHeapInstance<T>::get() noexcept {
+  return _instance.get();
+}
+
+template<typename T>
+T const* UniqueHeapInstance<T>::get() const noexcept {
+  return _instance.get();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief a map whose key is an irs::hashed_basic_string_ref and the actual
+///        key memory is in an std::pair beside the value
+///        allowing the use of the map with an irs::basic_string_ref without
+///        the need to allocaate memmory during find(...)
+////////////////////////////////////////////////////////////////////////////////
 template<typename CharType, typename V>
 class UnorderedRefKeyMap {
   typedef std::unordered_map<irs::hashed_basic_string_ref<CharType>, std::pair<std::basic_string<CharType>, V>> MapType;
