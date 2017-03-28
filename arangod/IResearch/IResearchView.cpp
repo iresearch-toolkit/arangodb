@@ -35,7 +35,7 @@
 #include "Basics/Result.h"
 #include "Basics/files.h"
 #include "Basics/VelocyPackHelper.h"
-
+#include "Indexes/Index.h"
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 
@@ -51,6 +51,18 @@
 #include "IResearchView.h"
 
 NS_LOCAL
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the name of the field in the iResearch View link definition denoting
+///        the link collection
+////////////////////////////////////////////////////////////////////////////////
+static const std::string LINK_COLLECTION_FIELD("collection");
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the name of the field in the iResearch View definition denoting the
+///        corresponding link definitions
+////////////////////////////////////////////////////////////////////////////////
+static const std::string LINKS_FIELD("links");
 
 typedef irs::async_utils::read_write_mutex::read_mutex ReadMutex;
 typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
@@ -404,6 +416,98 @@ void IResearchView::getPropertiesVPack(
   SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
 
   _meta.json(builder);
+
+  if (!_logicalView) {
+    return; // nothing more to output
+  }
+
+  std::vector<std::string> collections;
+
+  // add CIDs of fully indexed collections to list
+  for (auto& entry: _meta._collections) {
+    collections.emplace_back(arangodb::basics::StringUtils::itoa(entry));
+  }
+
+  // add CIDs of registered collections to list
+  for (auto& entry: _links) {
+    if (entry) {
+      auto* collection = entry->collection();
+
+      if (collection) {
+        collections.emplace_back(arangodb::basics::StringUtils::itoa(collection->cid()));
+      }
+    }
+  }
+
+  arangodb::velocypack::Builder linksBuilder;
+
+  try {
+    static std::vector<std::string> const EMPTY;
+    UserTransaction trx(
+      transaction::StandaloneContext::Create(_logicalView->vocbase()),
+      collections, // readCollections
+      EMPTY, // writeCollections
+      EMPTY, // exclusiveCollections
+      transaction::Methods::DefaultLockTimeout, // lockTimeout
+      false, // waitForSync
+      false // allowImplicitCollections
+    );
+
+    auto res = trx.begin();
+
+    if (TRI_ERROR_NO_ERROR != res) {
+      return; // nothing more to output
+    }
+
+    auto* state = trx.state();
+
+    if (!state) {
+      return; // nothing more to output
+    }
+
+    arangodb::velocypack::ObjectBuilder linksBuilderWrapper(&linksBuilder);
+
+    for (auto& collectionName: state->collectionNames()) {
+      for (auto& index: trx.indexesForCollection(collectionName)) {
+        if (index && arangodb::Index::IndexType::TRI_IDX_TYPE_IRESEARCH_LINK == index->type()) {
+          // TODO FIXME find a better way to retrieve an iResearch Link
+          #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+            auto* ptr = reinterpret_cast<IResearchLink*>(index.get());
+
+            if (!ptr) {
+              continue; // nothing to output for this index
+            }
+          #else
+            auto* ptr = static_cast<IResearchLink*>(index.get());
+          #endif
+
+          auto* ptrView = ptr->view();
+
+          if (!ptrView || ptrView->name() != name()) {
+            continue; // the index is not a link for the current view
+          }
+
+          arangodb::velocypack::Builder linkBuilder;
+
+          linkBuilder.openObject();
+          ptr->toVelocyPack(linkBuilder, false);
+          builder.add(LINK_COLLECTION_FIELD, arangodb::velocypack::Value(collectionName));
+          linkBuilder.close();
+          linksBuilderWrapper->add(linkBuilder.slice());
+        }
+      }
+    }
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while generating json for iResearch view '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+    return; // do not add 'links' section
+  } catch (...) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while generating json for iResearch view '" << name() << "'";
+    IR_EXCEPTION();
+    return; // do not add 'links' section
+  }
+
+  builder.add(LINKS_FIELD, linksBuilder.slice());
 }
 
 int IResearchView::insert(

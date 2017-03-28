@@ -155,12 +155,12 @@ bool IResearchLink::isSorted() const {
         auto logicalView = vocbase->lookupView(viewName); // search for view in same vocbase
 
         if (logicalView) {
-          auto physicalView = logicalView->getPhysical();
-
-          if (physicalView && typeid(physicalView) == typeid(IResearchView)) {
-            // TODO FIXME find a better way to look up an iResearch View
-            view = reinterpret_cast<IResearchView*>(physicalView);
-          }
+          // TODO FIXME find a better way to look up an iResearch View
+          #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+            view = reinterpret_cast<IResearchView*>(logicalView->getImplementation());
+          #else
+            view = static_cast<IResearchView*>(logicalView->getImplementation());
+          #endif
         }
       }
     }
@@ -288,6 +288,10 @@ int IResearchLink::unload() {
   _view = nullptr; // release reference to the iResearch View
 
   return TRI_ERROR_NO_ERROR;
+}
+
+IResearchView* IResearchLink::view() const {
+  return _view;
 }
 
 int EnhanceJsonIResearchLink(
