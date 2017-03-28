@@ -95,7 +95,7 @@ SECTION("static_checks") {
 SECTION("default_ctor") {
   arangodb::iresearch::FieldIterator it;
   CHECK(!it.valid());
-  CHECK(arangodb::iresearch::FieldIterator() == it);
+  CHECK(it == arangodb::iresearch::FieldIterator());
 }
 
 SECTION("traverse_complex_object_custom_nested_delimiter") {
@@ -151,8 +151,9 @@ std::unordered_map<std::string, size_t> expectedValues {
       expectedValues.erase(expectedValue);
     }
 
-    auto const prev = it;
-    CHECK(prev == it++);
+    ++it;
+//    auto const prev = it;
+//    CHECK(prev == it++);
   }
 
   CHECK(expectedValues.empty());
@@ -303,7 +304,8 @@ SECTION("traverse_complex_object_ordered_all_filtered") {
     \"boost\" : 10, \
     \"includeAllFields\" : false, \
     \"nestListValues\" : true, \
-    \"fields\" : { \"boost\" : { \"boost\" : 10 } } \
+    \"fields\" : { \"boost\" : { \"boost\" : 10 } }, \
+    \"tokenizers\" : { \"identity\": [\"\"] } \
   }");
 
   auto const slice = json->slice();
@@ -314,8 +316,8 @@ SECTION("traverse_complex_object_ordered_all_filtered") {
   REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-  CHECK(it.valid());
-  CHECK(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
 
   auto& value = *it;
   CHECK("boost" == value.name());

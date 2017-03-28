@@ -43,9 +43,8 @@ struct IResearchViewMeta;
 class Field {
  public:
   Field() = default;
+  Field(Field const&) = default;
   Field(Field&& rhs);
-  Field(Field const& rhs);
-  Field& operator=(Field const& rhs);
   Field& operator=(Field&& rhs);
 
   irs::string_ref name() const noexcept {
@@ -79,7 +78,7 @@ class Field {
 
 class FieldIterator : public std::iterator<std::forward_iterator_tag, const Field> {
  public:
-  static FieldIterator END;
+  static FieldIterator END; // unified end for all field iterators
 
   static irs::filter::ptr filter(TRI_voc_cid_t cid);
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
@@ -103,11 +102,9 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
     return *this;
   }
 
-  FieldIterator operator++(int) {
-    FieldIterator tmp = *this;
-    next();
-    return std::move(tmp);
-  }
+  // We don't support postfix increment since it requires
+  // deep copy of all buffers and tokenizers which is quite
+  // expensive and useless
 
   bool valid() const noexcept {
     return !_stack.empty();
@@ -159,6 +156,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
     return _stack.back();
   }
 
+  IteratorValue const& topValue() noexcept {
+    return top().it.value();
+  }
+
   std::string& nameBuffer() noexcept {
     TRI_ASSERT(_value._name);
     return *_value._name;
@@ -167,11 +168,18 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   void next();
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
+  bool setValue(VPackSlice const& value, IResearchLinkMeta const& context);
+
+  void resetTokenizers(IResearchLinkMeta const& context) {
+    auto const& tokenizers = context._tokenizers;
+    _begin = tokenizers.data();
+    _end = _begin + tokenizers.size();
+  }
 
   TokenizerIterator _begin{};
-  TokenizerIterator _end{};
-  std::vector<Level> _stack;
+  TokenizerIterator _end{1 + _begin}; // prevent invalid behaviour on first 'next'
   IResearchViewMeta const* _meta{};
+  std::vector<Level> _stack;
   Field _value; // iterator's value
 }; // FieldIterator
 
