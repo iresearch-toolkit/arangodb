@@ -32,6 +32,8 @@
 #include "velocypack/Parser.h"
 #include "velocypack/velocypack-aliases.h"
 
+#include "analysis/analyzers.hpp"
+
 // -----------------------------------------------------------------------------
 // --SECTION--                                                 setup / tear-down
 // -----------------------------------------------------------------------------
@@ -141,8 +143,12 @@ std::unordered_map<std::string, size_t> expectedValues {
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(it != arangodb::iresearch::FieldIterator());
 
+  // default analyzer
+  auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+
   while (it.valid()) {
-    std::string const actualName = std::string((*it).name());
+    auto& field = *it;
+    std::string const actualName = std::string(field.name());
     auto const expectedValue = expectedValues.find(actualName);
     REQUIRE(expectedValues.end() != expectedValue);
 
@@ -151,9 +157,12 @@ std::unordered_map<std::string, size_t> expectedValues {
       expectedValues.erase(expectedValue);
     }
 
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(linkMeta._boost == field.boost());
+
     ++it;
-//    auto const prev = it;
-//    CHECK(prev == it++);
   }
 
   CHECK(expectedValues.empty());
@@ -202,8 +211,12 @@ std::unordered_map<std::string, size_t> expectedValues {
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(it != arangodb::iresearch::FieldIterator());
 
+  // default analyzer
+  auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+
   while (it.valid()) {
-    std::string const actualName = std::string((*it).name());
+    auto& field = *it;
+    std::string const actualName = std::string(field.name());
     auto const expectedValue = expectedValues.find(actualName);
     REQUIRE(expectedValues.end() != expectedValue);
 
@@ -211,6 +224,11 @@ std::unordered_map<std::string, size_t> expectedValues {
     if (!--refs) {
       expectedValues.erase(expectedValue);
     }
+
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(linkMeta._boost == field.boost());
 
     ++it;
   }
@@ -275,9 +293,17 @@ SECTION("traverse_complex_object_ordered_all_fields") {
   linkMeta._includeAllFields = true; // include all fields
   linkMeta._nestListValues = true; // allow indexes in field names
 
+  // default analyzer
+  auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+
   for (auto const& field : arangodb::iresearch::FieldIterator(slice, linkMeta, viewMeta)) {
     std::string const actualName = std::string(field.name());
     CHECK(1 == expectedValues.erase(actualName));
+
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(linkMeta._boost == field.boost());
   }
 
   CHECK(expectedValues.empty());
@@ -321,6 +347,10 @@ SECTION("traverse_complex_object_ordered_all_filtered") {
 
   auto& value = *it;
   CHECK("boost" == value.name());
+  const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+  auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+  CHECK(expected_analyzer->attributes().features() == value.features());
+  CHECK(&expected_analyzer->type() == &analyzer.type());
   CHECK(10.f == value.boost());
 
   ++it;
@@ -418,9 +448,18 @@ SECTION("traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_su
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(it != arangodb::iresearch::FieldIterator());
 
+  // default analyzer
+  auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+
   for (arangodb::iresearch::FieldIterator const end; it != end; ++it) {
-    std::string const actualName = std::string((*it).name());
+    auto& field = *it;
+    std::string const actualName = std::string(field.name());
     CHECK(1 == expectedValues.erase(actualName));
+
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(linkMeta._boost == field.boost());
   }
 
   CHECK(expectedValues.empty());
