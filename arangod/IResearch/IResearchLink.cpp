@@ -167,7 +167,7 @@ bool IResearchLink::isSorted() const {
 
     if (!view) {
       LOG_TOPIC(WARN, Logger::FIXME) << "error finding view: " << viewName;
-      TRI_set_errno(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+      TRI_set_errno(TRI_ERROR_ARANGO_VIEW_NOT_FOUND);
 
       return nullptr; // no view to link with
     }
