@@ -71,8 +71,9 @@ struct IResearchViewMetaSetup {
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-TEST_CASE("IResearchViewMetaTest", "[iresearch-viewmeta]") {
+TEST_CASE("IResearchViewMetaTest", "[iresearch][iresearch-viewmeta]") {
   IResearchViewMetaSetup s;
+  UNUSED(s);
 
 SECTION("test_defaults") {
   arangodb::iresearch::IResearchViewMeta meta;

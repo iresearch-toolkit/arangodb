@@ -46,7 +46,7 @@ struct IResearchDocumentSetup { };
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-TEST_CASE("IResearchDocumentTest", "[iresearch-document]") {
+TEST_CASE("IResearchDocumentTest", "[iresearch][iresearch-document]") {
   IResearchDocumentSetup s;
   UNUSED(s);
 

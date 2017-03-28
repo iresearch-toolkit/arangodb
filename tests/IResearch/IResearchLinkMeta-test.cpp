@@ -76,7 +76,7 @@ struct IResearchLinkMetaSetup { };
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-TEST_CASE("IResearchLinkMetaTest", "[iresearch-linkmeta]") {
+TEST_CASE("IResearchLinkMetaTest", "[iresearch][iresearch-linkmeta]") {
   IResearchLinkMetaSetup s;
   UNUSED(s);
 
@@ -108,8 +108,8 @@ SECTION("test_inheritDefaults") {
   defaults._locale = irs::locale_utils::locale("ru");
   defaults._nestListValues = true;
   defaults._tokenizers.clear();
-  defaults._tokenizers.emplace("empty", "en");
-  defaults._fields["abc"]._fields["xyz"] = std::move(arangodb::iresearch::IResearchLinkMeta());
+  defaults._tokenizers.emplace_back("empty", "en");
+  defaults._fields["abc"]->_fields["xyz"] = std::move(arangodb::iresearch::IResearchLinkMeta());
 
   auto json = arangodb::velocypack::Parser::fromJson("{}");
   CHECK(true == meta.init(json->slice(), tmpString, defaults));
@@ -118,10 +118,10 @@ SECTION("test_inheritDefaults") {
 
   for (auto& field: meta._fields) {
     CHECK(1U == expectedFields.erase(field.key()));
-    CHECK(1U == field.value()._fields.size());
+    CHECK(1U == field.value()->_fields.size());
 
-    for (auto& fieldOverride: field.value()._fields) {
-      auto& actual = fieldOverride.value();
+    for (auto& fieldOverride: field.value()->_fields) {
+      auto& actual = *(fieldOverride.value());
       CHECK(1U == expectedOverrides.erase(fieldOverride.key()));
 
       if ("xyz" == fieldOverride.key()) {
@@ -204,8 +204,8 @@ SECTION("test_readCustomizedValues") {
     for (auto& field: meta._fields) {
       CHECK(1U == expectedFields.erase(field.key()));
 
-      for (auto& fieldOverride: field.value()._fields) {
-        auto& actual = fieldOverride.value();
+      for (auto& fieldOverride: field.value()->_fields) {
+        auto& actual = *(fieldOverride.value());
 
         CHECK(1U == expectedOverrides.erase(fieldOverride.key()));
 
@@ -330,23 +330,23 @@ SECTION("test_writeCustomizedValues") {
   meta._locale = irs::locale_utils::locale("en_UK.UTF-8");
   meta._nestListValues = true;
   meta._tokenizers.clear();
-  meta._tokenizers.emplace("identity", "");
-  meta._tokenizers.emplace("empty", "en");
+  meta._tokenizers.emplace_back("identity", "");
+  meta._tokenizers.emplace_back("empty", "en");
   meta._fields["a"] = meta; // copy from meta
-  meta._fields["a"]._fields.clear(); // do not inherit fields to match jSon inheritance
+  meta._fields["a"]->_fields.clear(); // do not inherit fields to match jSon inheritance
   meta._fields["b"] = meta; // copy from meta
-  meta._fields["b"]._fields.clear(); // do not inherit fields to match jSon inheritance
+  meta._fields["b"]->_fields.clear(); // do not inherit fields to match jSon inheritance
   meta._fields["c"] = meta; // copy from meta
-  meta._fields["c"]._fields.clear(); // do not inherit fields to match jSon inheritance
-  meta._fields["c"]._fields["default"]; // default values
-  meta._fields["c"]._fields["all"]; // will override values below
-  meta._fields["c"]._fields["some"] = meta._fields["c"]; // initialize with parent, override below
-  meta._fields["c"]._fields["none"] = meta._fields["c"]; // initialize with parent
+  meta._fields["c"]->_fields.clear(); // do not inherit fields to match jSon inheritance
+  meta._fields["c"]->_fields["default"]; // default values
+  meta._fields["c"]->_fields["all"]; // will override values below
+  meta._fields["c"]->_fields["some"] = meta._fields["c"]; // initialize with parent, override below
+  meta._fields["c"]->_fields["none"] = meta._fields["c"]; // initialize with parent
 
-  auto& overrideDefault = meta._fields["c"]._fields["default"];
-  auto& overrideAll = meta._fields["c"]._fields["all"];
-  auto& overrideSome = meta._fields["c"]._fields["some"];
-  auto& overrideNone = meta._fields["c"]._fields["none"];
+  auto& overrideDefault = *(meta._fields["c"]->_fields["default"]);
+  auto& overrideAll = *(meta._fields["c"]->_fields["all"]);
+  auto& overrideSome = *(meta._fields["c"]->_fields["some"]);
+  auto& overrideNone = *(meta._fields["c"]->_fields["none"]);
 
   overrideAll._boost = 11.;
   overrideAll._fields.clear(); // do not inherit fields to match jSon inheritance
@@ -356,7 +356,7 @@ SECTION("test_writeCustomizedValues") {
   overrideAll._locale = irs::locale_utils::locale("en_US.UTF-8");
   overrideAll._nestListValues = false;
   overrideAll._tokenizers.clear();
-  overrideAll._tokenizers.emplace("empty", "en");
+  overrideAll._tokenizers.emplace_back("empty", "en");
   overrideSome._boost = 12;
   overrideSome._fields.clear(); // do not inherit fields to match jSon inheritance
   overrideSome._nestListValues = false;

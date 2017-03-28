@@ -44,8 +44,9 @@ struct IResearchVelocyPackHelperSetup { };
 /// @brief setup
 ////////////////////////////////////////////////////////////////////////////////
 
-TEST_CASE("IResearchVelocyPackHelperTest", "[iresearch-vpack]") {
+TEST_CASE("IResearchVelocyPackHelperTest", "[iresearch][iresearch-vpack]") {
   IResearchVelocyPackHelperSetup s;
+  UNUSED(s);
 
 SECTION("test_defaults") {
   arangodb::iresearch::ObjectIterator it;
