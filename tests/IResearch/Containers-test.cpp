@@ -141,6 +141,127 @@ TEST_CASE("ContainersTest", "[iresearch][iresearch-containers]") {
     }
   }
 
+  SECTION("test_UnorderedRefKeyMap") {
+    static size_t counter = 0;
+    struct TestStruct {
+      size_t id;
+      int value;
+      TestStruct(): id(++counter), value(-1) {}
+      TestStruct(int v): id(++counter), value(v) {}
+    };
+
+    arangodb::iresearch::UnorderedRefKeyMap<char, TestStruct> map;
+    CHECK(true == (0 == counter));
+    CHECK(true == (map.empty()));
+    CHECK(true == (0 == map.size()));
+
+    // new element via operator
+    {
+      auto& value = map["abc"];
+      CHECK(true == (1 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (1 == map.size()));
+      CHECK(true == (1 == value.id));
+      CHECK(true == (-1 == value.value));
+    }
+
+    // new element via emplace no args
+    {
+      auto itr = map.emplace("def");
+      CHECK(true == (2 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (2 == map.size()));
+      CHECK(true == (itr.second));
+      CHECK(true == (irs::string_ref("def") == itr.first.key()));
+      CHECK(true == (2 == itr.first.value().id));
+      CHECK(true == (-1 == itr.first.value().value));
+    }
+
+    // new element via emplace with args
+    {
+      auto itr = map.emplace("ghi", 42);
+      CHECK(true == (3 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (3 == map.size()));
+      CHECK(true == (itr.second));
+      CHECK(true == (irs::string_ref("ghi") == itr.first.key()));
+      CHECK(true == (3 == itr.first.value().id));
+      CHECK(true == (42 == itr.first.value().value));
+    }
+
+    // duplicate element via operator
+    {
+      auto& value = map["ghi"];
+      CHECK(true == (3 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (3 == map.size()));
+      CHECK(true == (3 == value.id));
+      CHECK(true == (42 == value.value));
+    }
+
+    // duplicate element via emplace no args
+    {
+      auto itr = map.emplace("ghi");
+      CHECK(true == (3 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (3 == map.size()));
+      CHECK(false == (itr.second));
+      CHECK(true == (irs::string_ref("ghi") == itr.first.key()));
+      CHECK(true == (3 == itr.first.value().id));
+      CHECK(true == (42 == itr.first.value().value));
+    }
+
+    // duplicate element via emplace with args
+    {
+      auto itr = map.emplace("def", 1234);
+      CHECK(true == (3 == counter));
+      CHECK(false == (map.empty()));
+      CHECK(true == (3 == map.size()));
+      CHECK(false == (itr.second));
+      CHECK(true == (irs::string_ref("def") == itr.first.key()));
+      CHECK(true == (2 == itr.first.value().id));
+      CHECK(true == (-1 == itr.first.value().value));
+    }
+
+    // search via iterator
+    {
+      auto itr = map.find("ghi");
+      CHECK(false == (map.end() == itr));
+      CHECK(true == (irs::string_ref("ghi") == itr.key()));
+      CHECK(true == (3 == itr.value().id));
+      CHECK(true == (42 == itr.value().value));
+
+      itr = map.find("xyz");
+      CHECK(true == (map.end() == itr));
+    }
+
+    // search via pointer
+    {
+      auto ptr = map.findPtr("ghi");
+      CHECK(false == (nullptr == ptr));
+      CHECK(true == (3 == ptr->id));
+      CHECK(true == (42 == ptr->value));
+
+      ptr = map.findPtr("xyz");
+      CHECK(true == (nullptr == ptr));
+    }
+
+    // validate iteration
+    {
+      std::set<std::string> expected({"abc", "def", "ghi"});
+
+      for (auto& entry: map) {
+        CHECK(true == (1 == expected.erase(entry.key())));
+      }
+
+      CHECK(true == (expected.empty()));
+    }
+
+    map.clear();
+    CHECK(true == (0 == map.size()));
+    CHECK(true == (map.begin() == map.end()));
+  }
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////
