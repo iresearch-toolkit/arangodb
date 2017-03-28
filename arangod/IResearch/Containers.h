@@ -128,22 +128,25 @@ class UniqueHeapInstance {
 ////////////////////////////////////////////////////////////////////////////////
 template<typename CharType, typename V>
 struct UnorderedRefKeyMapBase {
- protected:
+ public:
   typedef std::unordered_map<
     irs::hashed_basic_string_ref<CharType>,
     std::pair<std::basic_string<CharType>, V>
   > MapType;
 
+  typedef typename MapType::key_type KeyType;
+  typedef V value_type;
+
   struct KeyGenerator {
-    typename MapType::key_type operator()(
-      typename MapType::key_type const& key,
-      typename MapType::mapped_type const& value
+    KeyType operator()(
+        KeyType const& key,
+        typename MapType::mapped_type const& value
     ) const {
-      return MapType::key_type(key.hash(), value.first);
+      return KeyType(key.hash(), value.first);
     }
   };
 
-  struct KeyHasher: private Hasher {
+  struct KeyHasher : private Hasher {
     size_t operator()(typename MapType::key_type::base_t const& value) const {
       return static_cast<Hasher const&>(*this)(value);
     }
@@ -158,12 +161,15 @@ struct UnorderedRefKeyMapBase {
 ////////////////////////////////////////////////////////////////////////////////
 template<typename CharType, typename V>
 class UnorderedRefKeyMap:
-  public UnorderedRefKeyMapBase<CharType, V>,
-  private UnorderedRefKeyMapBase<CharType, V>::KeyGenerator,
-  private UnorderedRefKeyMapBase<CharType, V>::KeyHasher {
+    public UnorderedRefKeyMapBase<CharType, V>,
+    private UnorderedRefKeyMapBase<CharType, V>::KeyGenerator,
+    private UnorderedRefKeyMapBase<CharType, V>::KeyHasher {
  public:
-  typedef typename MapType::key_type KeyType;
-  typedef V value_type;
+  typedef UnorderedRefKeyMapBase<CharType, V> MyBase;
+  typedef typename MyBase::MapType MapType;
+  typedef typename MyBase::KeyType KeyType;
+  typedef typename MyBase::KeyGenerator KeyGenerator;
+  typedef typename MyBase::KeyHasher KeyHasher;
 
   class ConstIterator {
    public:
@@ -328,11 +334,11 @@ class UnorderedRefKeyMap:
   MapType _map;
 
   constexpr KeyGenerator const& keyGenerator() const noexcept {
-    return *static_cast<UnorderedRefKeyMapBase<CharType, V>::KeyGenerator const*>(this);
+    return static_cast<KeyGenerator const&>(*this);
   }
 
   constexpr KeyHasher const& keyHasher() const noexcept {
-    return *static_cast<UnorderedRefKeyMapBase<CharType, V>::KeyHasher const*>(this);
+    return static_cast<KeyHasher const&>(*this);
   }
 };
 
