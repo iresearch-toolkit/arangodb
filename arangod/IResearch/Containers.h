@@ -56,10 +56,12 @@ class UniqueHeapInstance {
  public:
   template<
     typename... Args,
-    typename = std::enable_if_t<
-      !std::is_same<typelist<UniqueHeapInstance>,
-      typelist<std::decay_t<Args>...>>::value
-    > // prevent matching of copy/move constructor
+    typename = typename std::enable_if<
+      !std::is_same<
+        typelist<UniqueHeapInstance>,
+        typelist<typename std::decay<Args>::type...>
+      >::value
+    >::type // prevent matching of copy/move constructor
   >
   UniqueHeapInstance(Args&&... args)
     : _instance(irs::memory::make_unique<T>(std::forward<Args>(args)...)) {
