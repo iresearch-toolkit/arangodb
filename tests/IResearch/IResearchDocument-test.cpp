@@ -34,6 +34,36 @@
 
 #include "analysis/analyzers.hpp"
 
+NS_LOCAL
+
+struct TestAttribute: public irs::attribute {
+  DECLARE_ATTRIBUTE_TYPE();
+  DECLARE_FACTORY_DEFAULT();
+  TestAttribute() noexcept: irs::attribute(TestAttribute::type()) {}
+  virtual void clear() override {}
+};
+
+DEFINE_ATTRIBUTE_TYPE(TestAttribute);
+DEFINE_FACTORY_DEFAULT(TestAttribute);
+
+class EmptyTokenizer: public irs::analysis::analyzer {
+public:
+  DECLARE_ANALYZER_TYPE();
+  EmptyTokenizer(): irs::analysis::analyzer(EmptyTokenizer::type()) { _attrs.add<TestAttribute>(); }
+  virtual iresearch::attributes const& attributes() const NOEXCEPT override { return _attrs; }
+  static ptr make(irs::string_ref const&) { PTR_NAMED(EmptyTokenizer, ptr); return ptr; }
+  virtual bool next() override { return false; }
+  virtual bool reset(irs::string_ref const& data) override { return true; }
+
+private:
+  irs::attributes _attrs;
+};
+
+DEFINE_ANALYZER_TYPE_NAMED(EmptyTokenizer, "iresearch-document-empty");
+REGISTER_ANALYZER(EmptyTokenizer);
+
+NS_END
+
 // -----------------------------------------------------------------------------
 // --SECTION--                                                 setup / tear-down
 // -----------------------------------------------------------------------------
@@ -425,20 +455,26 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
     \"nullValue\": null, \
     \"trueValue\": true, \
     \"falseValue\": false, \
-    \"intValue\": 10, \
-    \"doubleValue\": 20.123 \
+    \"smallIntValue\": 10, \
+    \"smallNegativeIntValue\": -5, \
+    \"bigIntValue\": 2147483647, \
+    \"bigNegativeIntValue\": -2147483648, \
+    \"smallDoubleValue\": 20.123, \
+    \"bigDoubleValue\": 1.79769e+308, \
+    \"bigNegativeDoubleValue\": -1.79769e+308 \
   }");
 
   auto const slice = json->slice();
 
   arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
+  linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
   linkMeta._includeAllFields = true; // include all fields
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(it != arangodb::iresearch::FieldIterator());
 
-  // stringValue
+  // stringValue (with IdentityTokenizer)
   {
     auto& field = *it;
     CHECK("stringValue" == field.name());
@@ -446,6 +482,22 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
     auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
     auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // stringValue (with EmptyTokenizer)
+  {
+    auto& field = *it;
+    CHECK("stringValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto const expected_analyzer = irs::analysis::analyzers::get("iresearch-document-empty", "en");
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(field.get_tokens());
     CHECK(&expected_analyzer->type() == &analyzer.type());
     CHECK(expected_analyzer->attributes().features() == field.features());
   }
@@ -496,10 +548,10 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
   REQUIRE(it.valid());
   REQUIRE(it != arangodb::iresearch::FieldIterator());
 
-  // intValue
+  // smallIntValue
   {
     auto& field = *it;
-    CHECK("intValue" == field.name());
+    CHECK("smallIntValue" == field.name());
     CHECK(1.f == field.boost());
 
     auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
@@ -510,10 +562,80 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
   REQUIRE(it.valid());
   REQUIRE(it != arangodb::iresearch::FieldIterator());
 
-  // doubleValue
+  // smallNegativeIntValue
   {
     auto& field = *it;
-    CHECK("doubleValue" == field.name());
+    CHECK("smallNegativeIntValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // bigIntValue
+  {
+    auto& field = *it;
+    CHECK("bigIntValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // bigNegativeIntValue
+  {
+    auto& field = *it;
+    CHECK("bigNegativeIntValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // smallDoubleValue
+  {
+    auto& field = *it;
+    CHECK("smallDoubleValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // bigDoubleValue
+  {
+    auto& field = *it;
+    CHECK("bigDoubleValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // bigNegativeDoubleValue
+  {
+    auto& field = *it;
+    CHECK("bigNegativeDoubleValue" == field.name());
     CHECK(1.f == field.boost());
 
     auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(field.get_tokens());
@@ -602,6 +724,57 @@ SECTION("traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_su
 
   CHECK(expectedValues.empty());
   CHECK(it == arangodb::iresearch::FieldIterator());
+}
+
+SECTION("traverse_complex_object_check_meta_inheritance") {
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"nested\": { \"foo\": \"str\" }, \
+    \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
+    \"tokenizers\": {}, \
+    \"boost\": \"10\", \
+    \"depth\": \"20\", \
+    \"fields\": { \"fieldA\" : { \"name\" : \"a\" }, \"fieldB\" : { \"name\" : \"b\" } }, \
+    \"listValuation\": \"ignored\", \
+    \"locale\": \"ru_RU.KOI8-R\", \
+    \"array\" : [ \
+      { \"id\" : \"1\", \"subarr\" : [ \"1\", \"2\", \"3\" ], \"subobj\" : { \"id\" : \"1\" } }, \
+      { \"subarr\" : [ \"4\", \"5\", \"6\" ], \"subobj\" : { \"name\" : \"foo\" }, \"id\" : \"2\" }, \
+      { \"id\" : \"3\", \"subarr\" : [ \"7\", \"8\", \"9\" ], \"subobj\" : { \"id\" : \"2\" } } \
+    ] \
+  }");
+
+
+  auto const slice = json->slice();
+
+//  auto linkMetaJson = arangodb::velocypack::Parser::fromJson("{ \
+//    \"boost\" : 1, \
+//    \"includeAllFields\" : true, \
+//    \"nestListValues\" : true, \
+//    \"fields\" : { \"boost\" : { \"boost\" : 10 } }, \
+//    \"tokenizers\" : { \"identity\": [\"\"] } \
+//  }");
+//
+//  arangodb::iresearch::IResearchViewMeta viewMeta;
+//  arangodb::iresearch::IResearchLinkMeta linkMeta;
+//
+//  std::string error;
+//  REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
+//
+//  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+//  REQUIRE(it.valid());
+//  REQUIRE(it != arangodb::iresearch::FieldIterator());
+//
+//  auto& value = *it;
+//  CHECK("boost" == value.name());
+//  const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+//  auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+//  CHECK(expected_analyzer->attributes().features() == value.features());
+//  CHECK(&expected_analyzer->type() == &analyzer.type());
+//  CHECK(10.f == value.boost());
+//
+//  ++it;
+//  CHECK(!it.valid());
+//  CHECK(it == arangodb::iresearch::FieldIterator());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
