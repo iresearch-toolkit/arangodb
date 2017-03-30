@@ -101,6 +101,19 @@ class IResearchView final: public arangodb::ViewImplementation {
   typedef std::unique_ptr<arangodb::ViewImplementation> ptr;
 
   ///////////////////////////////////////////////////////////////////////////////
+  /// @brief destructor to clean up resources
+  ///////////////////////////////////////////////////////////////////////////////
+  virtual ~IResearchView();
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief a garbage collection function for the view
+  /// @param maxMsec try not to exceed the specified time, casues partial cleanup
+  ///                0 == full cleanup
+  /// @return success
+  ///////////////////////////////////////////////////////////////////////////////
+  bool cleanup(size_t maxMsec = 0);
+
+  ///////////////////////////////////////////////////////////////////////////////
   /// @brief drop this iResearch View
   ///////////////////////////////////////////////////////////////////////////////
   void drop() override;
@@ -186,8 +199,11 @@ class IResearchView final: public arangodb::ViewImplementation {
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief wait for a flush of all index data to its respective stores
+  /// @param maxMsec try not to exceed the specified time, casues partial sync
+  ///                0 == full sync
+  /// @return success
   ////////////////////////////////////////////////////////////////////////////////
-  bool sync();
+  bool sync(size_t maxMsec = 0);
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief the view type as used when selecting which view to instantiate
@@ -195,7 +211,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   static std::string const& type() noexcept;
 
   ///////////////////////////////////////////////////////////////////////////////
-  /// @brief called when a view's properties are updated (i.e. overriden)
+  /// @brief called when a view's properties are updated (i.e. delta-modified)
   ///////////////////////////////////////////////////////////////////////////////
   arangodb::Result updateProperties(
     arangodb::velocypack::Slice const& slice,
@@ -205,7 +221,7 @@ class IResearchView final: public arangodb::ViewImplementation {
  private:
   struct DataStore {
     irs::directory::ptr _directory;
-    //irs::unbounded_object_pool<irs::directory_reader> _readerPool;
+    irs::directory_reader _reader;
     irs::index_writer::ptr _writer;
     operator bool() const noexcept;
   };
@@ -224,6 +240,10 @@ class IResearchView final: public arangodb::ViewImplementation {
 
   typedef std::unordered_map<TRI_voc_tid_t, TidStore> MemoryStoreByTid;
 
+  std::condition_variable _asyncCondition; // trigger reload of timeout settings for async jobs
+  std::atomic<size_t> _asyncMetaRevision; // arbitrary meta modification id, async jobs should reload if different
+  std::mutex _asyncMutex; // mutex used with '_asyncCondition' and associated timeouts
+  std::atomic<bool> _asyncTerminate; // trigger termination of long-running async jobs
   std::unordered_set<std::shared_ptr<IResearchLink>> _links;
   IResearchViewMeta _meta;
   mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets
@@ -235,7 +255,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   IResearchView(
     arangodb::LogicalView*,
     arangodb::velocypack::Slice const& info
-  ) noexcept;
+  );
 };
 
 NS_END // iresearch

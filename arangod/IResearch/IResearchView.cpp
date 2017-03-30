@@ -24,6 +24,7 @@
 #include "formats/formats.hpp"
 #include "store/memory_directory.hpp"
 #include "store/fs_directory.hpp"
+#include "utils/directory_utils.hpp"
 #include "utils/memory.hpp"
 
 #include "IResearchDocument.h"
@@ -56,13 +57,13 @@ NS_LOCAL
 /// @brief the name of the field in the iResearch View link definition denoting
 ///        the link collection
 ////////////////////////////////////////////////////////////////////////////////
-static const std::string LINK_COLLECTION_FIELD("collection");
+const std::string LINK_COLLECTION_FIELD("collection");
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief the name of the field in the iResearch View definition denoting the
 ///        corresponding link definitions
 ////////////////////////////////////////////////////////////////////////////////
-static const std::string LINKS_FIELD("links");
+const std::string LINKS_FIELD("links");
 
 typedef irs::async_utils::read_write_mutex::read_mutex ReadMutex;
 typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
@@ -337,13 +338,234 @@ IResearchView::MemoryStore::MemoryStore() {
 IResearchView::IResearchView(
   arangodb::LogicalView* view,
   arangodb::velocypack::Slice const& info
-) noexcept: ViewImplementation(view, info) {
+) : ViewImplementation(view, info),
+   _asyncMetaRevision(1),
+   _asyncTerminate(false) {
+  // add asynchronous commit job
+  _threadPool.run(
+    [this]()->void {
+    struct State {
+      struct PolicyState {
+        size_t _intervalCount;
+        size_t _intervalStep;
+        std::shared_ptr<irs::index_writer::consolidation_policy_t> _policy;
+        PolicyState(size_t intervalStep, std::shared_ptr<irs::index_writer::consolidation_policy_t> policy)
+          : _intervalCount(0), _intervalStep(intervalStep), _policy(policy) {
+        }
+      };
+
+      size_t _asyncMetaRevision;
+      size_t _cleanupIntervalStep;
+      size_t _cleanupIntervalCount;
+      size_t _commitTimeoutMsec;
+      std::vector<PolicyState> _consolidationPolicies;
+
+      State(): _asyncMetaRevision(0) {} // differs from IResearchView constructor above
+      State(IResearchViewMeta::CommitItemMeta const& meta)
+        : _asyncMetaRevision(0), // differs from IResearchView constructor above
+          _cleanupIntervalCount(0),
+          _cleanupIntervalStep(meta._cleanupIntervalStep),
+          _commitTimeoutMsec(meta._commitTimeoutMsec) {
+        for (auto& entry: meta._consolidationPolicies) {
+          if (entry.policy()) {
+            _consolidationPolicies.emplace_back(
+              entry.intervalStep(),
+              irs::memory::make_unique<irs::index_writer::consolidation_policy_t>(entry.policy())
+            );
+          }
+        }
+      }
+    };
+
+    State state;
+    ReadMutex mutex(_mutex); // '_meta' can be asynchronously modified
+
+    for(;;) {
+      // ...........................................................................
+      // here sleep untill timeout
+      // ...........................................................................
+      {
+        SCOPED_LOCK_NAMED(_asyncMutex, asyncLock);
+
+        if (_asyncTerminate.load()) {
+          break;
+        }
+
+        if (!_meta._commitItem._commitIntervalMsec) {
+          _asyncCondition.wait(asyncLock); // wait forever
+          continue;
+        }
+
+        auto startTime = std::chrono::system_clock::now();
+        auto endTime = startTime + std::chrono::milliseconds(_meta._commitItem._commitIntervalMsec);
+
+        while (!_asyncTerminate.load() && std::cv_status::timeout != _asyncCondition.wait_until(asyncLock, endTime)) {
+          endTime = startTime + std::chrono::milliseconds(_meta._commitItem._commitIntervalMsec); // update tome
+        }
+
+        if (_asyncTerminate.load()) {
+          break;
+        }
+      }
+
+      // .............................................................................
+      // reload state if required
+      // .............................................................................
+      if (_asyncMetaRevision.load() != state._asyncMetaRevision) {
+        SCOPED_LOCK(mutex);
+        state = State(_meta._commitItem);
+        state._asyncMetaRevision = _asyncMetaRevision.load();
+      }
+
+      char runId = 0; // value not used
+      auto thresholdMsec = TRI_microtime() * 1000 + state._commitTimeoutMsec;
+
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+      // .............................................................................
+      // apply consolidation policies
+      // .............................................................................
+      for (auto& entry: state._consolidationPolicies) {
+        if (!entry._intervalStep || ++entry._intervalCount < entry._intervalStep) {
+          continue; // skip if interval not reached or no valid policy to execute
+        }
+
+        entry._intervalCount = 0;
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+        try {
+          SCOPED_LOCK(mutex);
+
+          for (auto& tidStore: _storeByTid) {
+            for (auto& fidStore: tidStore.second._storeByFid) {
+              fidStore.second._writer->consolidate(entry._policy, false);
+            }
+          }
+
+          for (auto& fidStore: _storeByWalFid) {
+            fidStore.second._writer->consolidate(entry._policy, false);
+          }
+
+          if (_storePersisted) {
+            _storePersisted._writer->consolidate(entry._policy, false);
+          }
+
+          _storePersisted._writer->consolidate(entry._policy, false);
+        } catch (std::exception& e) {
+          LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "': " << e.what();
+          IR_EXCEPTION();
+        } catch (...) {
+          LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "'";
+          IR_EXCEPTION();
+        }
+
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+      }
+
+      // .............................................................................
+      // apply data store commit
+      // .............................................................................
+
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+      sync(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+      // .............................................................................
+      // apply cleanup
+      // .............................................................................
+      if (state._cleanupIntervalStep && ++state._cleanupIntervalCount >= state._cleanupIntervalStep) {
+        state._cleanupIntervalCount = 0;
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+        cleanup(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+      }
+
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+    }
+  });
+}
+
+IResearchView::~IResearchView() {
+  _asyncTerminate.store(true); // mark long-running async jobs for terminatation
+
+  {
+    SCOPED_LOCK(_asyncMutex);
+    _asyncCondition.notify_all(); // trigger reload of settings for async jobs
+  }
+
+  _threadPool.max_threads_delta(_threadPool.tasks_pending()); // finish ASAP
+  _threadPool.stop();
+
+  WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
+  SCOPED_LOCK(mutex);
+
+  if (_storePersisted) {
+    _storePersisted._writer->commit();
+    _storePersisted._writer->close();
+    _storePersisted._writer.reset();
+    _storePersisted._directory->close();
+    _storePersisted._directory.reset();
+  }
+}
+
+bool IResearchView::cleanup(size_t maxMsec /*= 0*/) {
+  ReadMutex mutex(_mutex);
+  auto thresholdSec = TRI_microtime() + maxMsec/1000.0;
+
+  try {
+    SCOPED_LOCK(mutex);
+
+    for (auto& tidStore: _storeByTid) {
+      for (auto& fidStore: tidStore.second._storeByFid) {
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting transaction-store cleanup for iResearch view '" << name() << "' tid '" << tidStore.first << "'" << "' fid '" << fidStore.first << "'";
+        irs::directory_utils::remove_all_unreferenced(*(fidStore.second._directory));
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished transaction-store cleanup for iResearch view '" << name() << "' tid '" << tidStore.first << "'" << "' fid '" << fidStore.first << "'";
+
+        if (maxMsec && TRI_microtime() >= thresholdSec) {
+          return true; // skip if timout exceeded
+        }
+      }
+    }
+
+    for (auto& fidStore: _storeByWalFid) {
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting memory-store cleanup for iResearch view '" << name() << "' fid '" << fidStore.first << "'";
+      fidStore.second._writer->commit();
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished memory-store cleanup for iResearch view '" << name() << "' fid '" << fidStore.first << "'";
+
+      if (maxMsec && TRI_microtime() >= thresholdSec) {
+        return true; // skip if timout exceeded
+      }
+    }
+
+    if (_storePersisted) {
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting persisted-store cleanup for iResearch view '" << name() << "'";
+      _storePersisted._writer->commit();
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished persisted-store cleanup for iResearch view '" << name() << "'";
+    }
+
+    return true;
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception during cleanup of iResearch view '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception during cleanup of iResearch view '" << name() << "'";
+    IR_EXCEPTION();
+  }
+
+  return false;
 }
 
 void IResearchView::drop() {
+  _asyncTerminate.store(true); // mark long-running async jobs for terminatation
+
+  {
+    SCOPED_LOCK(_asyncMutex);
+    _asyncCondition.notify_all(); // trigger reload of settings for async jobs
+  }
+
   _threadPool.stop();
 
-  WriteMutex mutex(_mutex);
+  WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
   SCOPED_LOCK(mutex); // members can be asynchronously updated
 
   // ...........................................................................
@@ -355,7 +577,9 @@ void IResearchView::drop() {
 
     if (_storePersisted) {
       _storePersisted._writer->close();
+      _storePersisted._writer.reset();
       _storePersisted._directory->close();
+      _storePersisted._directory.reset();
     }
 
     if (TRI_ERROR_NO_ERROR == TRI_RemoveDirectory(_meta._dataPath.c_str())) {
@@ -703,30 +927,47 @@ int IResearchView::remove(
   return TRI_ERROR_INTERNAL;
 }
 
-bool IResearchView::sync() {
+bool IResearchView::sync(size_t maxMsec /*= 0*/) {
   ReadMutex mutex(_mutex);
+  auto thresholdSec = TRI_microtime() + maxMsec/1000.0;
 
   try {
+    SCOPED_LOCK(mutex);
+
     for (auto& tidStore: _storeByTid) {
       for (auto& fidStore: tidStore.second._storeByFid) {
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting transaction-store sync for iResearch view '" << name() << "' tid '" << tidStore.first << "'" << "' fid '" << fidStore.first << "'";
         fidStore.second._writer->commit();
+        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished transaction-store sync for iResearch view '" << name() << "' tid '" << tidStore.first << "'" << "' fid '" << fidStore.first << "'";
+
+        if (maxMsec && TRI_microtime() >= thresholdSec) {
+          return true; // skip if timout exceeded
+        }
       }
     }
 
     for (auto& fidStore: _storeByWalFid) {
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting memory-store sync for iResearch view '" << name() << "' fid '" << fidStore.first << "'";
       fidStore.second._writer->commit();
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished memory-store sync for iResearch view '" << name() << "' fid '" << fidStore.first << "'";
+
+      if (maxMsec && TRI_microtime() >= thresholdSec) {
+        return true; // skip if timout exceeded
+      }
     }
 
     if (_storePersisted) {
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting persisted-sync cleanup for iResearch view '" << name() << "'";
       _storePersisted._writer->commit();
+      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished persisted-sync cleanup for iResearch view '" << name() << "'";
     }
 
     return true;
   } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch view '" << name() << "': " << e.what();
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception during sync of iResearch view '" << name() << "': " << e.what();
     IR_EXCEPTION();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while syncing iResearch view '" << name() << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception during sync of iResearch view '" << name() << "'";
     IR_EXCEPTION();
   }
 
@@ -744,12 +985,107 @@ arangodb::Result IResearchView::updateProperties(
   bool doSync
 ) {
   std::string error;
-
   IResearchViewMeta meta;
+  IResearchViewMeta::Mask mask;
 
-  if (!meta.init(slice, error)) {
+  if (!meta.init(slice, error, _meta, &mask)) {
     return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
   }
+
+  WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
+  SCOPED_LOCK(mutex);
+
+  // reset non-updatable values to match current meta
+  meta._collections = _meta._collections;
+  meta._iid = _meta._iid;
+  meta._name = _meta._name;
+
+  if (slice.hasKey(LINKS_FIELD)) {
+    auto links = slice.get(LINKS_FIELD);
+
+    if (!links.isArray()) {
+      return arangodb::Result(
+        TRI_ERROR_BAD_PARAMETER,
+        std::string("error parsing link parameters from json for iResearch view '") + name() + "'"
+      );
+    }
+
+    for (VPackArrayIterator linksItr(links); linksItr.valid(); ++linksItr) {
+      // FIXME TODO implement
+    }
+  }
+
+  if (mask._commitItem) {
+    _meta._commitItem = meta._commitItem;
+    SCOPED_LOCK(_asyncMutex);
+    _asyncCondition.notify_all(); // trigger reload of settings for async jobs
+  }
+
+  if (mask._dataPath) {
+    try {
+      auto directory = irs::directory::make<irs::fs_directory>(meta._dataPath);
+
+      if (!directory) {
+        return arangodb::Result(
+          TRI_ERROR_BAD_PARAMETER,
+          std::string("error creating persistent directry for iResearch view '") + name() + "' at path '" + meta._dataPath + "'"
+        );
+      }
+
+      auto format = irs::formats::get("1_0");
+      auto writer = irs::index_writer::make(*directory, format, irs::OM_CREATE_APPEND);
+
+      if (!writer) {
+        return arangodb::Result(
+          TRI_ERROR_BAD_PARAMETER,
+          std::string("error creating persistent writer for iResearch view '") + name() + "' at path '" + meta._dataPath + "'"
+        );
+      }
+
+      irs::all filter;
+
+      writer->remove(filter);
+      writer->commit(); // clear destination directory
+
+      if (_storePersisted) {
+        _storePersisted._reader = _storePersisted._reader.reopen();
+        writer->import(_storePersisted._reader);
+        writer->commit(); // initialize 'store' as a copy of the existing store
+      }
+
+      _storePersisted._writer.reset();
+      _storePersisted._directory.reset();
+      _storePersisted._directory = std::move(directory);
+      _storePersisted._reader = irs::directory_reader::open(*(_storePersisted._directory));
+      _storePersisted._writer = std::move(writer);
+    } catch (std::exception& e) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while moving iResearch view '" << name() << "': " << e.what();
+      IR_EXCEPTION();
+      return arangodb::Result(
+        TRI_ERROR_BAD_PARAMETER,
+        std::string("error moving iResearch view '") + name() + "' from '" + _meta._dataPath + "' to '" + meta._dataPath + "'"
+      );
+    } catch (...) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while moving iResearch view '" << name() << "'";
+      IR_EXCEPTION();
+      return arangodb::Result(
+        TRI_ERROR_BAD_PARAMETER,
+        std::string("error moving iResearch view '") + name() + "' from '" + _meta._dataPath + "' to '" + meta._dataPath + "'"
+      );
+    }
+  }
+
+  if (mask._threadsMaxIdle) {
+    _threadPool.max_idle(meta._threadsMaxIdle);
+    _meta._threadsMaxIdle = meta._threadsMaxIdle;
+  }
+
+  if (mask._threadsMaxTotal) {
+    _threadPool.max_threads(meta._threadsMaxTotal);
+    _meta._threadsMaxTotal = meta._threadsMaxTotal;
+  }
+
+
 
   static std::string const LINKS = "links";
   static std::string const PROPERTIES = "properties";
