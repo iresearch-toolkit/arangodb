@@ -732,49 +732,335 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
     \"tokenizers\": {}, \
     \"boost\": \"10\", \
-    \"depth\": \"20\", \
+    \"depth\": 20, \
     \"fields\": { \"fieldA\" : { \"name\" : \"a\" }, \"fieldB\" : { \"name\" : \"b\" } }, \
     \"listValuation\": \"ignored\", \
-    \"locale\": \"ru_RU.KOI8-R\", \
+    \"locale\": null, \
     \"array\" : [ \
-      { \"id\" : \"1\", \"subarr\" : [ \"1\", \"2\", \"3\" ], \"subobj\" : { \"id\" : \"1\" } }, \
+      { \"id\" : 1, \"subarr\" : [ \"1\", \"2\", \"3\" ], \"subobj\" : { \"id\" : 1 } }, \
       { \"subarr\" : [ \"4\", \"5\", \"6\" ], \"subobj\" : { \"name\" : \"foo\" }, \"id\" : \"2\" }, \
-      { \"id\" : \"3\", \"subarr\" : [ \"7\", \"8\", \"9\" ], \"subobj\" : { \"id\" : \"2\" } } \
+      { \"id\" : 3, \"subarr\" : [ \"7\", \"8\", \"9\" ], \"subobj\" : { \"id\" : 2 } } \
     ] \
   }");
 
-
   auto const slice = json->slice();
 
-//  auto linkMetaJson = arangodb::velocypack::Parser::fromJson("{ \
-//    \"boost\" : 1, \
-//    \"includeAllFields\" : true, \
-//    \"nestListValues\" : true, \
-//    \"fields\" : { \"boost\" : { \"boost\" : 10 } }, \
-//    \"tokenizers\" : { \"identity\": [\"\"] } \
-//  }");
-//
-//  arangodb::iresearch::IResearchViewMeta viewMeta;
-//  arangodb::iresearch::IResearchLinkMeta linkMeta;
-//
-//  std::string error;
-//  REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
-//
-//  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-//  REQUIRE(it.valid());
-//  REQUIRE(it != arangodb::iresearch::FieldIterator());
-//
-//  auto& value = *it;
-//  CHECK("boost" == value.name());
-//  const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
-//  auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
-//  CHECK(expected_analyzer->attributes().features() == value.features());
-//  CHECK(&expected_analyzer->type() == &analyzer.type());
-//  CHECK(10.f == value.boost());
-//
-//  ++it;
-//  CHECK(!it.valid());
-//  CHECK(it == arangodb::iresearch::FieldIterator());
+  auto linkMetaJson = arangodb::velocypack::Parser::fromJson("{ \
+    \"boost\" : 1, \
+    \"includeAllFields\" : true, \
+    \"nestListValues\" : true, \
+    \"fields\" : { \
+       \"boost\" : { \"boost\" : 10, \"tokenizers\" : { \"identity\" : [\"\"] } }, \
+       \"keys\" : { \"nestListValues\" : false, \"tokenizers\" : { \"identity\" : [\"\"] } }, \
+       \"depth\" : { \"boost\" : 5, \"nestListValues\" : true }, \
+       \"fields\" : { \"includeAllFields\" : false, \"boost\" : 3, \"fields\" : { \"fieldA\" : { \"includeAllFields\" : true } } }, \
+       \"listValuation\" : { \"includeAllFields\" : false }, \
+       \"array\" : { \
+         \"fields\" : { \"subarr\" : { \"nestListValues\" : false }, \"subobj\": { \"includeAllFields\" : false }, \"id\" : { \"boost\" : 2 } } \
+       } \
+     }, \
+    \"tokenizers\" : { \"iresearch-document-empty\" : [\"en\"], \"identity\": [\"\"] } \
+  }");
+
+  arangodb::iresearch::IResearchViewMeta viewMeta;
+  arangodb::iresearch::IResearchLinkMeta linkMeta;
+
+  std::string error;
+  REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
+
+  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // nested.foo (with IdentityTokenizer)
+  {
+    auto& value = *it;
+    CHECK("nested.foo" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // nested.foo (with EmptyTokenizer)
+  {
+    auto& value = *it;
+    CHECK("nested.foo" == value.name());
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+    CHECK(!analyzer.next());
+    CHECK(1.f == value.boost());
+  }
+
+  // keys[]
+  for (size_t i = 0; i < 4; ++i) {
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    auto& value = *it;
+    CHECK("keys" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // boost
+  {
+    auto& value = *it;
+    CHECK("boost" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(10.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // depth
+  {
+    auto& value = *it;
+    CHECK("depth" == value.name());
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(value.get_tokens());
+    CHECK(analyzer.next());
+    CHECK(5.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // fields.fieldA (with IdenitytTokenizer)
+  {
+    auto& value = *it;
+    CHECK("fields.fieldA.name" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(3.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // fields.fieldA (with EmptyTokenizer)
+  {
+    auto& value = *it;
+    CHECK("fields.fieldA.name" == value.name());
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+    CHECK(!analyzer.next());
+    CHECK(3.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // listValuation (with IdenitytTokenizer)
+  {
+    auto& value = *it;
+    CHECK("listValuation" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // listValuation (with EmptyTokenizer)
+  {
+    auto& value = *it;
+    CHECK("listValuation" == value.name());
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+    CHECK(!analyzer.next());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // locale
+  {
+    auto& value = *it;
+    CHECK("locale" == value.name());
+    auto& analyzer = dynamic_cast<irs::null_token_stream&>(value.get_tokens());
+    CHECK(analyzer.next());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // array[0].id
+  {
+    auto& value = *it;
+    CHECK("array[0].id" == value.name());
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(value.get_tokens());
+    CHECK(analyzer.next());
+    CHECK(2.f == value.boost());
+  }
+
+
+  // array[0].subarr[0-2]
+  for (size_t i = 0; i < 3; ++i) {
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // IdentityTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[0].subarr" == value.name());
+      const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+      auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+      CHECK(expected_analyzer->attributes().features() == value.features());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(1.f == value.boost());
+    }
+
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // EmptyTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[0].subarr" == value.name());
+      auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+      CHECK(!analyzer.next());
+      CHECK(1.f == value.boost());
+    }
+  }
+
+   // array[1].subarr[0-2]
+  for (size_t i = 0; i < 3; ++i) {
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // IdentityTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[1].subarr" == value.name());
+      const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+      auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+      CHECK(expected_analyzer->attributes().features() == value.features());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(1.f == value.boost());
+    }
+
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // EmptyTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[1].subarr" == value.name());
+      auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+      CHECK(!analyzer.next());
+      CHECK(1.f == value.boost());
+    }
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // array[1].id (IdentityTokenizer)
+  {
+    auto& value = *it;
+    CHECK("array[1].id" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(2.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // array[1].id (EmptyTokenizer)
+  {
+    auto& value = *it;
+    CHECK("array[1].id" == value.name());
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+    CHECK(!analyzer.next());
+    CHECK(2.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+  REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+  // array[2].id (IdentityTokenizer)
+  {
+    auto& value = *it;
+    CHECK("array[2].id" == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::numeric_token_stream&>(value.get_tokens());
+    CHECK(analyzer.next());
+    CHECK(2.f == value.boost());
+  }
+
+  // array[2].subarr[0-2]
+  for (size_t i = 0; i < 3; ++i) {
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // IdentityTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[2].subarr" == value.name());
+      const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+      auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+      CHECK(expected_analyzer->attributes().features() == value.features());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(1.f == value.boost());
+    }
+
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // EmptyTokenizer
+    {
+      auto& value = *it;
+      CHECK("array[2].subarr" == value.name());
+      auto& analyzer = dynamic_cast<EmptyTokenizer&>(value.get_tokens());
+      CHECK(!analyzer.next());
+      CHECK(1.f == value.boost());
+    }
+  }
+
+  ++it;
+  CHECK(!it.valid());
+  CHECK(it == arangodb::iresearch::FieldIterator());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

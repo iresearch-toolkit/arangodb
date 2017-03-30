@@ -202,7 +202,10 @@ void setNullValue(
 ) {
   TRI_ASSERT(value.isNull());
 
-  tokenizer = NullStreamPool.emplace();
+  auto stream = NullStreamPool.emplace();
+  stream->reset();
+
+  tokenizer = stream;
   features = &irs::flags::empty_instance();
 }
 
@@ -484,7 +487,7 @@ void FieldIterator::next() {
   } while (!push(value, context));
 
   TRI_ASSERT(context);
-  setValue(value, *context); // initialize value
+  setValue(topValue().value, *context); // initialize value
 }
 
 // ----------------------------------------------------------------------------
