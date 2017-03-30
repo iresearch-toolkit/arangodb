@@ -291,7 +291,7 @@ size_t IResearchViewMeta::CommitBaseMeta::ConsolidationPolicy::Hash::operator()(
 
   return std::hash<decltype(step)>{}(step)
     ^ std::hash<decltype(threshold)>{}(threshold)
-    ^ std::hash<decltype(type)>{}(type)
+    ^ std::hash<size_t>{}(size_t(type))
     ;
 }
 
@@ -873,10 +873,11 @@ bool IResearchViewMeta::init(
     static const std::string fieldName("scorers");
 
     mask->_scorers = slice.hasKey(fieldName);
-    _features |= defaults._features; // add features from default scorers
-    _scorers = defaults._scorers; // always add default scorers
 
-    if (mask->_scorers) {
+    if (!mask->_scorers) {
+      _features = defaults._features; // add features from default scorers
+      _scorers = defaults._scorers; // always add default scorers
+    } else {
       auto field = slice.get(fieldName);
 
       if (!field.isArray()) { // [ <scorerName 1> ... <scorerName N> ]
@@ -907,6 +908,17 @@ bool IResearchViewMeta::init(
           errorField = fieldName + "=>" + name;
 
           return false; // unknown scorer
+        }
+
+        _features.clear(); // reset to match read values exactly
+        _scorers.clear(); // reset to match read values exactly
+
+        // ensure default scorers and their features are always present
+        for (auto& scorer: allKnownScorers()) {
+          if (scorer.second._isDefault) {
+            _features |= scorer.second._features;
+            _scorers.emplace(scorer.first, scorer.second._scorer);
+          }
         }
 
         for (auto scorerItr = knownScorersItr.first; scorerItr != knownScorersItr.second; ++scorerItr) {

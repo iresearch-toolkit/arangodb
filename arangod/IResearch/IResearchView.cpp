@@ -357,6 +357,7 @@ IResearchView::IResearchView(
       size_t _asyncMetaRevision;
       size_t _cleanupIntervalStep;
       size_t _cleanupIntervalCount;
+      size_t _commitIntervalMsecRemainder;
       size_t _commitTimeoutMsec;
       std::vector<PolicyState> _consolidationPolicies;
 
@@ -365,6 +366,7 @@ IResearchView::IResearchView(
         : _asyncMetaRevision(0), // differs from IResearchView constructor above
           _cleanupIntervalCount(0),
           _cleanupIntervalStep(meta._cleanupIntervalStep),
+          _commitIntervalMsecRemainder(std::numeric_limits<size_t>::max()),
           _commitTimeoutMsec(meta._commitTimeoutMsec) {
         for (auto& entry: meta._consolidationPolicies) {
           if (entry.policy()) {
@@ -385,6 +387,7 @@ IResearchView::IResearchView(
       // here sleep untill timeout
       // ...........................................................................
       {
+        SCOPED_LOCK_NAMED(mutex, lock); // for '_meta._commitItem._commitIntervalMsec'
         SCOPED_LOCK_NAMED(_asyncMutex, asyncLock);
 
         if (_asyncTerminate.load()) {
@@ -392,15 +395,28 @@ IResearchView::IResearchView(
         }
 
         if (!_meta._commitItem._commitIntervalMsec) {
+          lock.unlock(); // do not hold read lock while waiting on condition
           _asyncCondition.wait(asyncLock); // wait forever
           continue;
         }
 
         auto startTime = std::chrono::system_clock::now();
-        auto endTime = startTime + std::chrono::milliseconds(_meta._commitItem._commitIntervalMsec);
+        auto endTime = startTime
+          + std::chrono::milliseconds(std::min(state._commitIntervalMsecRemainder, _meta._commitItem._commitIntervalMsec))
+          ;
 
-        while (!_asyncTerminate.load() && std::cv_status::timeout != _asyncCondition.wait_until(asyncLock, endTime)) {
-          endTime = startTime + std::chrono::milliseconds(_meta._commitItem._commitIntervalMsec); // update tome
+        lock.unlock(); // do not hold read lock while waiting on condition
+        state._commitIntervalMsecRemainder = std::numeric_limits<size_t>::max(); // longest possible time assuming an uninterrupted sleep
+
+        if (std::cv_status::timeout != _asyncCondition.wait_until(asyncLock, endTime)) {
+          auto nowTime = std::chrono::system_clock::now();
+
+          // if still need to sleep more then must relock '_meta' and sleep for min (remainder, interval)
+          if (nowTime < endTime) {
+            state._commitIntervalMsecRemainder = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - nowTime).count();
+
+            continue; // need to reaquire lock to chech for change in '_meta'
+          }
         }
 
         if (_asyncTerminate.load()) {
