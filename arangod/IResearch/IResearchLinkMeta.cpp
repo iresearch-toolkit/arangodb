@@ -133,18 +133,6 @@ size_t PairHash::operator()<irs::string_ref, irs::string_ref>(std::pair<irs::str
   return hasher(value.first) ^ hasher(value.second);
 }
 
-// wrapper for iResearch analyzer lookup, for use with irs::unbounded_object_pool
-struct TokenizerBuilder {
-  typedef irs::analysis::analyzer::ptr ptr;
-  static ptr make(irs::string_ref const& name, irs::string_ref const& args);
-};
-
-/*static*/ irs::analysis::analyzer::ptr TokenizerBuilder::make(
-  irs::string_ref const& name, irs::string_ref const& args
-) {
-  return irs::analysis::analyzers::get(name, args);
-}
-
 bool equalTokenizers(
   arangodb::iresearch::IResearchLinkMeta::Tokenizers const& lhs,
   arangodb::iresearch::IResearchLinkMeta::Tokenizers const& rhs
@@ -172,7 +160,7 @@ bool equalTokenizers(
   return true;
 }
 
-typedef irs::unbounded_object_pool<TokenizerBuilder> TokenizerBuilderPool;
+typedef irs::unbounded_object_pool<arangodb::iresearch::IResearchLinkMeta::TokenizerPool::TokenizerBuilder> TokenizerBuilderPool;
 
 std::shared_ptr<TokenizerBuilderPool> getTokenizerPool(
   std::string const& name, std::string const& args
@@ -208,6 +196,12 @@ IResearchLinkMeta::Mask::Mask(bool mask /*= false*/) noexcept
 size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& value) const {
   static irs::string_ref_hash_t hasher;
   return hasher(value._name) ^ hasher(value._args);
+}
+
+/*static*/ IResearchLinkMeta::TokenizerPool::TokenizerBuilder::ptr IResearchLinkMeta::TokenizerPool::TokenizerBuilder::make(
+    irs::string_ref const& name, irs::string_ref const& args
+) {
+  return irs::analysis::analyzers::get(name, args);
 }
 
 IResearchLinkMeta::TokenizerPool::TokenizerPool(

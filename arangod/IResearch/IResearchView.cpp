@@ -355,8 +355,8 @@ IResearchView::IResearchView(
       };
 
       size_t _asyncMetaRevision;
-      size_t _cleanupIntervalStep;
       size_t _cleanupIntervalCount;
+      size_t _cleanupIntervalStep;
       size_t _commitIntervalMsecRemainder;
       size_t _commitTimeoutMsec;
       std::vector<PolicyState> _consolidationPolicies;
@@ -731,9 +731,8 @@ void IResearchView::getPropertiesVPack(
 
           linkBuilder.openObject();
           ptr->toVelocyPack(linkBuilder, false);
-          builder.add(LINK_COLLECTION_FIELD, arangodb::velocypack::Value(collectionName));
           linkBuilder.close();
-          linksBuilderWrapper->add(linkBuilder.slice());
+          linksBuilderWrapper->add(collectionName, linkBuilder.slice());
         }
       }
     }
@@ -808,7 +807,7 @@ size_t IResearchView::memory() const {
   size_t size = sizeof(IResearchView);
 
   for (auto& entry: _links) {
-    size += sizeof(entry.get()); sizeof(*(entry.get()));
+    size += sizeof(entry.get()) + sizeof(*(entry.get()));
 
     if (entry) {
       size += entry->memory();
@@ -1019,14 +1018,23 @@ arangodb::Result IResearchView::updateProperties(
   if (slice.hasKey(LINKS_FIELD)) {
     auto links = slice.get(LINKS_FIELD);
 
-    if (!links.isArray()) {
+    if (!links.isObject()) {
       return arangodb::Result(
         TRI_ERROR_BAD_PARAMETER,
         std::string("error parsing link parameters from json for iResearch view '") + name() + "'"
       );
     }
 
-    for (VPackArrayIterator linksItr(links); linksItr.valid(); ++linksItr) {
+    for (VPackObjectIterator linksItr(links); linksItr.valid(); ++linksItr) {
+      auto collection = linksItr.key();
+
+      if (!collection.isString()) {
+        return arangodb::Result(
+          TRI_ERROR_BAD_PARAMETER,
+          std::string("error parsing link parameters from json for iResearch view '") + name() + "' offset '" + arangodb::basics::StringUtils::itoa(linksItr.index()) + '"'
+        );
+      }
+
       // FIXME TODO implement
     }
   }

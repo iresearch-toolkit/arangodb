@@ -200,7 +200,7 @@ bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
 
     auto name = slice.get(VIEW_NAME_FIELD);
     VPackValueLength nameLength;
-    auto nameValue = slice.getString(nameLength);
+    auto nameValue = name.getString(nameLength);
     irs::string_ref sliceName(nameValue, nameLength);
 
     if (sliceName != _view->name()) {
