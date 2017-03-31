@@ -272,7 +272,7 @@ void setStringValue(
   features = pool->features();
 }
 
-void setIDValue(
+void setIdValue(
     uint64_t& value,
     irs::token_stream& tokenizer
 ) {
@@ -311,24 +311,6 @@ Field& Field::operator=(Field&& rhs) {
     rhs._features = nullptr;
   }
   return *this;
-}
-
-// ----------------------------------------------------------------------------
-// --SECTION--                                       SystemField implementation
-// ----------------------------------------------------------------------------
-
-SystemField::SystemField() {
-  _tokenizer = StringStreamPool.emplace();
-}
-
-void SystemField::setCidValue(TRI_voc_cid_t cid) {
-  _name = CID_FIELD;
-  setIDValue(_value = cid, *_tokenizer);
-}
-
-void SystemField::setRidValue(TRI_voc_rid_t rid) {
-  _name = RID_FIELD;
-  setIDValue(_value = rid, *_tokenizer);
 }
 
 // ----------------------------------------------------------------------------
@@ -411,7 +393,7 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
   return true;
 }
 
-bool FieldIterator::setValue(
+void FieldIterator::setValue(
     VPackSlice const& value,
     IResearchLinkMeta const& context
 ) {
@@ -420,8 +402,6 @@ bool FieldIterator::setValue(
   TRI_ASSERT(1 == IResearchLinkMeta::DEFAULT()._tokenizers.size());
 
   resetTokenizers(IResearchLinkMeta::DEFAULT()); // set surrogate tokenizers
-  _value._boost = context._boost;                // set boost
-  _value._name = nameBuffer();                   // set name
 
   auto& tokenizer = _value._tokenizer;
   auto& features = _value._features;
@@ -429,39 +409,42 @@ bool FieldIterator::setValue(
   switch (value.type()) {
     case VPackValueType::None:
     case VPackValueType::Illegal:
-      return false;
+      break;
     case VPackValueType::Null:
       setNullValue(value, tokenizer, features);
-      return true;
+      break;
     case VPackValueType::Bool:
       setBoolValue(value, tokenizer, features);
-      return true;
+      break;
     case VPackValueType::Array:
     case VPackValueType::Object:
-      return false;
+      break;
     case VPackValueType::Double:
       setNumericValue(value, tokenizer, features);
-      return true;
+      break;
     case VPackValueType::UTCDate:
     case VPackValueType::External:
     case VPackValueType::MinKey:
     case VPackValueType::MaxKey:
-      return false;
+      break;
     case VPackValueType::Int:
     case VPackValueType::UInt:
     case VPackValueType::SmallInt:
       setNumericValue(value, tokenizer, features);
-      return true;
+      break;
     case VPackValueType::String:
       resetTokenizers(context); // reset string tokenizers
       setStringValue(value, tokenizer, features, _begin);
-      return true;
+      break;
     case VPackValueType::Binary:
     case VPackValueType::BCD:
     case VPackValueType::Custom:
     default:
-      return false;
+      break;
   }
+
+  _value._boost = context._boost;                // set boost
+  _value._name = nameBuffer();                   // set name
 }
 
 void FieldIterator::next() {
@@ -540,24 +523,47 @@ void FieldIterator::next() {
 }
 
 DocumentIterator::DocumentIterator(
-    TRI_voc_cid_t const cid, TRI_voc_rid_t const rid,
-    SystemField& header, FieldIterator& body
-) noexcept
-  : _body(&body), _values{ &(*body), &header }, _rid(rid) {
-  systemField().setCidValue(cid); // initialize CID field
-  _i += !_body->valid(); // check whether document body is valid
+    TRI_voc_cid_t const cid,
+    TRI_voc_rid_t const rid,
+    FieldIterator& body
+) : _body(&body), _value{ &_header },
+    _cid(cid), _rid(rid) {
+  // init system field
+  _header._tokenizer = StringStreamPool.emplace();
+  // init CID field
+  setCidValue();
 }
 
 void DocumentIterator::next() {
-  switch (_i) {
+  switch (_next) {
     case 0: {
+      setRidValue();
+      _next += (1 + (!_body->valid() << 1)); // skip empty body
+    } break;
+    case 1: {
+      TRI_ASSERT(_body->valid());
+      _value = &(**_body);
+      ++_next;
+    } break;
+    case 2: {
       TRI_ASSERT(_body->valid());
       ++(*_body);
-      _i += !_body->valid();
+      _next += (!_body->valid() << 1);
     } break;
-    case 1: ++_i; break; // has been already initialized in ctor
-    case 2: systemField().setRidValue(_rid); ++_i; break;
+    case 3: {
+      ++_next;
+    } break;
   }
+}
+
+void DocumentIterator::setCidValue() {
+  _header._name = CID_FIELD;
+  setIdValue(_cid, *_header._tokenizer);
+}
+
+void DocumentIterator::setRidValue() {
+  _header._name = RID_FIELD;
+  setIdValue(_rid, *_header._tokenizer);
 }
 
 // ----------------------------------------------------------------------------

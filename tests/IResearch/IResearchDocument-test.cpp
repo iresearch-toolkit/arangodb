@@ -329,7 +329,11 @@ SECTION("traverse_complex_object_ordered_all_fields") {
   // default analyzer
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
 
-  for (auto const& field : arangodb::iresearch::FieldIterator(slice, linkMeta, viewMeta)) {
+  arangodb::iresearch::FieldIterator doc(slice, linkMeta, viewMeta);
+  auto& begin = doc.begin();
+  auto& end = doc.end();
+  for (;begin != end; ++begin) {
+    auto& field = *begin;
     std::string const actualName = std::string(field.name());
     CHECK(1 == expectedValues.erase(actualName));
 
@@ -1064,6 +1068,131 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 }
 
 SECTION("DocumentIterator_default_ctor") {
+  CHECK(arangodb::iresearch::DocumentIterator::END == arangodb::iresearch::DocumentIterator::END.begin());
+  CHECK(arangodb::iresearch::DocumentIterator::END == arangodb::iresearch::DocumentIterator::END.end());
+}
+
+SECTION("DocumentIterator_empty_field_iterator") {
+  arangodb::iresearch::FieldIterator body;
+  arangodb::iresearch::DocumentIterator it(0, 1, body);
+
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+  REQUIRE(it == it.begin());
+  REQUIRE(it != it.end());
+
+  {
+    auto& field = *it;
+    CHECK("@_CID" == field.name());
+    CHECK(1.f == field.boost());
+    CHECK(irs::flags::empty_instance() == field.features());
+    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
+    CHECK(stream.next());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+
+  {
+    auto& field = *it;
+    CHECK("@_REV" == field.name());
+    CHECK(1.f == field.boost());
+    CHECK(irs::flags::empty_instance() == field.features());
+    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
+    CHECK(stream.next());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END == it);
+}
+
+SECTION("DocumentIterator_empty_field_iterator") {
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"stringValue\": \"string\", \
+    \"nullValue\": null \
+  }");
+
+  auto const slice = json->slice();
+
+  arangodb::iresearch::IResearchViewMeta viewMeta;
+  arangodb::iresearch::IResearchLinkMeta linkMeta;
+  linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
+  linkMeta._includeAllFields = true; // include all fields
+
+  arangodb::iresearch::FieldIterator body(slice, linkMeta, viewMeta);
+  CHECK(body != arangodb::iresearch::FieldIterator());
+
+  arangodb::iresearch::DocumentIterator it(0, 1, body);
+
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+  REQUIRE(it == it.begin());
+  REQUIRE(it != it.end());
+
+  {
+    auto& field = *it;
+    CHECK("@_CID" == field.name());
+    CHECK(1.f == field.boost());
+    CHECK(irs::flags::empty_instance() == field.features());
+    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
+    CHECK(stream.next());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+
+  {
+    auto& field = *it;
+    CHECK("@_REV" == field.name());
+    CHECK(1.f == field.boost());
+    CHECK(irs::flags::empty_instance() == field.features());
+    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
+    CHECK(stream.next());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+
+  // stringValue (with IdentityTokenizer)
+  {
+    auto& field = *it;
+    CHECK("stringValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+
+  // stringValue (with EmptyTokenizer)
+  {
+    auto& field = *it;
+    CHECK("stringValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto const expected_analyzer = irs::analysis::analyzers::get("iresearch-document-empty", "en");
+    auto& analyzer = dynamic_cast<EmptyTokenizer&>(field.get_tokens());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(expected_analyzer->attributes().features() == field.features());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END != it);
+
+  // nullValue
+  {
+    auto& field = *it;
+    CHECK("nullValue" == field.name());
+    CHECK(1.f == field.boost());
+
+    auto& analyzer = dynamic_cast<irs::null_token_stream&>(field.get_tokens());
+    CHECK(analyzer.next());
+  }
+
+  ++it;
+  REQUIRE(arangodb::iresearch::DocumentIterator::END == it);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

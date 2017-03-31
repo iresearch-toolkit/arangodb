@@ -43,6 +43,7 @@ struct IResearchViewMeta;
 class Field {
  public:
   Field() = default;
+  Field(Field const&) = default;
   Field(Field&& rhs);
   Field& operator=(Field&& rhs);
 
@@ -66,25 +67,13 @@ class Field {
 
  protected:
   friend class FieldIterator;
+  friend class DocumentIterator;
 
   irs::flags const* _features{ &irs::flags::empty_instance() };
   std::shared_ptr<irs::token_stream>_tokenizer;
   irs::string_ref _name;
   float_t _boost{1.f};
 }; // Field
-
-class SystemField : public Field {
- public:
-  SystemField();
-  void setCidValue(TRI_voc_cid_t cid);
-  void setRidValue(TRI_voc_rid_t rid);
-
- private:
-  static_assert(std::is_same<TRI_voc_cid_t, uint64_t>::value, "Invalid value type");
-  static_assert(std::is_same<TRI_voc_rid_t, uint64_t>::value, "Invalid value type");
-
-  uint64_t _value;
-}; // SystemField
 
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
@@ -177,7 +166,7 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   void next();
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
-  bool setValue(VPackSlice const& value, IResearchLinkMeta const& context);
+  void setValue(VPackSlice const& value, IResearchLinkMeta const& context);
 
   void resetTokenizers(IResearchLinkMeta const& context) {
     auto const& tokenizers = context._tokenizers;
@@ -201,12 +190,13 @@ class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field c
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
   DocumentIterator(
-    TRI_voc_cid_t const cid, TRI_voc_rid_t const rid,
-    SystemField& header, FieldIterator& body
-  ) noexcept;
+    TRI_voc_cid_t const cid,
+    TRI_voc_rid_t const rid,
+    FieldIterator& body
+  );
 
   Field const& operator*() const noexcept {
-    return *_values[_i > 0];
+    return *_value;
   }
 
   DocumentIterator& operator++() {
@@ -216,9 +206,9 @@ class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field c
 
   bool operator==(DocumentIterator const& rhs) const noexcept {
 #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-    return _i == rhs._i && _body == rhs._body
+    return _next == rhs._next && _body == rhs._body
 #else
-    return _i == rhs._i;
+    return _next == rhs._next;
 #endif
   }
 
@@ -231,19 +221,17 @@ class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field c
   DocumentIterator& end() { return END; }
 
  private:
-  DocumentIterator() noexcept : _i{3} { } // end
-
-  SystemField& systemField() {
-    return const_cast<SystemField&>(
-      static_cast<SystemField const&>(*_values[1])
-    );
-  }
+  DocumentIterator() noexcept : _next{4} { } // end
 
   void next();
+  void setCidValue();
+  void setRidValue();
 
+  Field _header;
   FieldIterator* _body{};
-  Field const* _values[2];
-  size_t _i{};
+  Field const* _value; // points to actual value
+  size_t _next{};
+  TRI_voc_rid_t _cid;
   TRI_voc_rid_t _rid;
 }; // DocumentIterator
 

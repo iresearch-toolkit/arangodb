@@ -1044,8 +1044,7 @@ int IResearchView::insert(
     return TRI_ERROR_NO_ERROR;
   }
 
-  SystemField sysField;
-  DocumentIterator fields(cid, rid, sysField, body);
+  DocumentIterator fields(cid, rid, body);
   DocumentPrimaryKey attributes(cid, rid);
 
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
