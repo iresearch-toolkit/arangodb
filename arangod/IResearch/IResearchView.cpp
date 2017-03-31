@@ -885,7 +885,7 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   }
 
   auto& metaStore = *(_logicalView->getPhysical());
-  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentIterator::filter(cid));
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -1030,15 +1030,24 @@ void IResearchView::getPropertiesVPack(
 }
 
 int IResearchView::insert(
-  TRI_voc_fid_t fid,
-  TRI_voc_tid_t tid,
-  TRI_voc_cid_t cid,
-  TRI_voc_rid_t rid,
-  arangodb::velocypack::Slice const& doc,
-  IResearchLinkMeta const& meta
+    TRI_voc_fid_t fid,
+    TRI_voc_tid_t tid,
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid,
+    arangodb::velocypack::Slice const& doc,
+    IResearchLinkMeta const& meta
 ) {
-  DocumentPrimaryKey attribute(cid, rid);
-  FieldIterator fields(/*cid, rid,*/ doc, meta, _meta);
+  FieldIterator body(doc, meta, _meta);
+
+  if (!body.valid()) {
+    // nothing to index
+    return TRI_ERROR_NO_ERROR;
+  }
+
+  SystemField sysField;
+  DocumentIterator fields(cid, rid, sysField, body);
+  DocumentPrimaryKey attributes(cid, rid);
+
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid]._storeByFid[fid];
@@ -1046,7 +1055,7 @@ int IResearchView::insert(
   mutex.unlock(true); // downgrade to a read-lock
 
   try {
-    if (store._writer->insert(fields.begin(), fields.end(), &attribute, &attribute + 1)) {
+    if (store._writer->insert(fields.begin(), fields.end(), attributes.begin(), attributes.end())) {
       return TRI_ERROR_NO_ERROR;
     }
 
@@ -1249,7 +1258,7 @@ int IResearchView::remove(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid, rid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentIterator::filter(cid, rid));
   WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid];

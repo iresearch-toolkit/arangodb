@@ -506,6 +506,10 @@ void FieldIterator::next() {
 // --SECTION--                                  DocumentIterator implementation
 // ----------------------------------------------------------------------------
 
+
+
+/*static*/ DocumentIterator DocumentIterator::END;
+
 /*static*/ irs::filter::ptr DocumentIterator::filter(TRI_voc_cid_t cid) {
   auto filter = irs::by_term::make();
 
@@ -536,10 +540,12 @@ void FieldIterator::next() {
 }
 
 DocumentIterator::DocumentIterator(
+    TRI_voc_cid_t const cid, TRI_voc_rid_t const rid,
     SystemField& header, FieldIterator& body
 ) noexcept
-  : _body(&body), _values{ &(*body), &header } {
-  _i += !body.valid();
+  : _body(&body), _values{ &(*body), &header }, _rid(rid) {
+  systemField().setCidValue(cid); // initialize CID field
+  _i += !_body->valid(); // check whether document body is valid
 }
 
 void DocumentIterator::next() {
@@ -549,12 +555,10 @@ void DocumentIterator::next() {
       ++(*_body);
       _i += !_body->valid();
     } break;
-    case 1: systemField().setCidValue(0); ++_i; break;
-    case 2: systemField().setRidValue(0); ++_i; break;
+    case 1: ++_i; break; // has been already initialized in ctor
+    case 2: systemField().setRidValue(_rid); ++_i; break;
   }
 }
-
-DocumentIterator DocumentIterator::END;
 
 // ----------------------------------------------------------------------------
 // --SECTION--                                DocumentPrimaryKey implementation

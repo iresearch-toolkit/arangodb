@@ -43,7 +43,6 @@ struct IResearchViewMeta;
 class Field {
  public:
   Field() = default;
-  Field(Field const&) = default;
   Field(Field&& rhs);
   Field& operator=(Field&& rhs);
 
@@ -157,6 +156,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     Filter filter;
   }; // Level
 
+  // disallow copy & assign
+  FieldIterator(FieldIterator const&) = delete;
+  FieldIterator& operator=(FieldIterator const&) = delete;
+
   Level& top() noexcept {
     TRI_ASSERT(!_stack.empty());
     return _stack.back();
@@ -197,7 +200,10 @@ class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field c
   static irs::filter::ptr filter(TRI_voc_cid_t cid);
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
-  DocumentIterator(SystemField& header, FieldIterator& body) noexcept;
+  DocumentIterator(
+    TRI_voc_cid_t const cid, TRI_voc_rid_t const rid,
+    SystemField& header, FieldIterator& body
+  ) noexcept;
 
   Field const& operator*() const noexcept {
     return *_values[_i > 0];
@@ -238,6 +244,7 @@ class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field c
   FieldIterator* _body{};
   Field const* _values[2];
   size_t _i{};
+  TRI_voc_rid_t _rid;
 }; // DocumentIterator
 
 // stored ArangoDB document primary key
