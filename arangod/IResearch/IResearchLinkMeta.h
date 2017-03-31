@@ -33,12 +33,6 @@
 
 #include "Containers.h"
 
-NS_LOCAL
-
-struct TokenizerBuilder; // forward declaration
-
-NS_END
-
 NS_BEGIN(iresearch)
 
 template<typename> class unbounded_object_pool; // forward declaration
@@ -92,6 +86,10 @@ struct IResearchLinkMeta {
    public:
     struct Hash {
       size_t operator()(TokenizerPool const& value) const;
+    };
+    struct TokenizerBuilder {
+      typedef irs::analysis::analyzer::ptr ptr;
+      DECLARE_FACTORY_DEFAULT(irs::string_ref const& name, irs::string_ref const& args);
     };
 
     TokenizerPool(std::string const& name, std::string const& args);

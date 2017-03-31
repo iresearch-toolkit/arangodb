@@ -28,6 +28,7 @@
 #include <unordered_set>
 
 #include "shared.hpp"
+#include "index/index_writer.hpp"
 #include "iql/parser_common.hpp"
 #include "utils/attributes.hpp"
 
@@ -51,28 +52,50 @@ NS_BEGIN(iresearch)
 // -----------------------------------------------------------------------------
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief enum of possible consolidation policy thresholds
-////////////////////////////////////////////////////////////////////////////////
-namespace ConsolidationPolicy {
-  enum Type {
-    BYTES, // {threshold} > segment_bytes / (all_segment_bytes / #segments)
-    BYTES_ACCUM, // {threshold} > (segment_bytes + sum_of_merge_candidate_segment_bytes) / all_segment_bytes
-    COUNT, // {threshold} > segment_docs{valid} / (all_segment_docs{valid} / #segments)
-    FILL,  // {threshold} > #segment_docs{valid} / (#segment_docs{valid} + #segment_docs{removed})
-    eLast
-  };
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// @brief metadata describing the IResearch view
 ////////////////////////////////////////////////////////////////////////////////
 struct IResearchViewMeta {
   struct CommitBaseMeta {
-    size_t _cleanupIntervalStep; // issue cleanup after <count> commits (0 == disable)
-    struct {
+    class ConsolidationPolicy {
+     public:
+      struct Hash {
+        size_t operator()(ConsolidationPolicy const& value) const;
+      };
+
+      ////////////////////////////////////////////////////////////////////////////////
+      /// @brief enum of possible consolidation policy thresholds
+      ////////////////////////////////////////////////////////////////////////////////
+      enum class Type {
+        BYTES, // {threshold} > segment_bytes / (all_segment_bytes / #segments)
+        BYTES_ACCUM, // {threshold} > (segment_bytes + sum_of_merge_candidate_segment_bytes) / all_segment_bytes
+        COUNT, // {threshold} > segment_docs{valid} / (all_segment_docs{valid} / #segments)
+        FILL,  // {threshold} > #segment_docs{valid} / (#segment_docs{valid} + #segment_docs{removed})
+      };
+
+      ConsolidationPolicy(Type type, size_t intervalStep, float threshold);
+      ConsolidationPolicy(ConsolidationPolicy const& other);
+      ConsolidationPolicy(ConsolidationPolicy&& other) noexcept;
+      ConsolidationPolicy& operator=(ConsolidationPolicy const& other);
+      ConsolidationPolicy& operator=(ConsolidationPolicy&& other) noexcept;
+      bool operator==(ConsolidationPolicy const& other) const noexcept;
+      static const ConsolidationPolicy& DEFAULT(Type type) noexcept; // default values for a given type
+      size_t intervalStep() const noexcept;
+      irs::index_writer::consolidation_policy_t const& policy() const noexcept;
+      float threshold() const noexcept;
+      Type type() const noexcept;
+
+     private:
       size_t _intervalStep; // apply consolidation policy with every Nth commit (0 == disable)
-      float _threshold;
-    } _consolidate[ConsolidationPolicy::eLast]; // consolidation thresholds
+      irs::index_writer::consolidation_policy_t _policy;
+      float _threshold; // consolidation policy threshold
+      Type _type;
+    };
+
+    typedef std::vector<ConsolidationPolicy> ConsolidationPolicies;
+
+    size_t _cleanupIntervalStep; // issue cleanup after <count> commits (0 == disable)
+    ConsolidationPolicies _consolidationPolicies;
+
     bool operator==(CommitBaseMeta const& other) const noexcept;
   };
 
@@ -84,6 +107,7 @@ struct IResearchViewMeta {
 
   struct CommitItemMeta: public CommitBaseMeta {
     size_t _commitIntervalMsec; // issue commit after <interval> milliseconds (0 == disable)
+    size_t _commitTimeoutMsec; // try to commit as much as possible before <timeout> milliseconds (0 == disable)
     bool operator==(CommitItemMeta const& other) const noexcept;
     bool operator!=(CommitItemMeta const& other) const noexcept;
   };

@@ -26,8 +26,6 @@
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/LogicalView.h"
-#include "VocBase/PhysicalView.h"
 
 #include "IResearchLink.h"
 
@@ -69,13 +67,28 @@ NS_BEGIN(iresearch)
 IResearchLink::IResearchLink(
   TRI_idx_iid_t iid,
   arangodb::LogicalCollection* collection,
-  IResearchLinkMeta&& meta,
-  IResearchView& view
+  IResearchLinkMeta&& meta
 ) : Index(iid, collection, emptyParentSlice()),
     _meta(std::move(meta)),
-    _view(&view) {
+    _view(nullptr) {
   _unique = false; // cannot be unique since multiple fields are indexed
   _sparse = true;  // always sparse
+}
+
+bool IResearchLink::operator==(IResearchView const& view) const noexcept {
+  return _view && _view->name() == view.name();
+}
+
+bool IResearchLink::operator!=(IResearchView const& view) const noexcept {
+  return !(*this == view);
+}
+
+bool IResearchLink::operator==(IResearchLinkMeta const& meta) const noexcept {
+  return _meta == meta;
+}
+
+bool IResearchLink::operator!=(IResearchLinkMeta const& meta) const noexcept {
+  return !(*this == meta);
 }
 
 bool IResearchLink::allowExpansion() const {
@@ -142,36 +155,6 @@ bool IResearchLink::isSorted() const {
   VPackSlice const& definition
 ) noexcept {  // TODO: should somehow pass an error to the caller (return nullptr means "Out of memory")
   try {
-    IResearchView* view = nullptr;
-    std::string viewName;
-
-    if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
-      auto name = definition.get(VIEW_NAME_FIELD);
-      auto vocbase = collection->vocbase();
-
-      if (vocbase && name.isString()) {
-        viewName = definition.copyString();
-
-        auto logicalView = vocbase->lookupView(viewName); // search for view in same vocbase
-
-        if (logicalView) {
-          // TODO FIXME find a better way to look up an iResearch View
-          #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-            view = reinterpret_cast<IResearchView*>(logicalView->getImplementation());
-          #else
-            view = static_cast<IResearchView*>(logicalView->getImplementation());
-          #endif
-        }
-      }
-    }
-
-    if (!view) {
-      LOG_TOPIC(WARN, Logger::FIXME) << "error finding view: " << viewName;
-      TRI_set_errno(TRI_ERROR_ARANGO_VIEW_NOT_FOUND);
-
-      return nullptr; // no view to link with
-    }
-
     std::string error;
     IResearchLinkMeta meta;
 
@@ -182,11 +165,36 @@ bool IResearchLink::isSorted() const {
       return nullptr; // failed to parse metadata
     }
 
-    return std::make_shared<IResearchLink>(iid, collection, std::move(meta), *view);
+    std::string viewName;
+
+    if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
+      auto name = definition.get(VIEW_NAME_FIELD);
+      auto vocbase = collection->vocbase();
+
+      if (vocbase && name.isString()) {
+        viewName = definition.copyString();
+
+        PTR_NAMED(IResearchLink, ptr, iid, collection, std::move(meta));
+        auto* view = IResearchView::linkRegister(*vocbase, viewName, ptr);
+
+        if (!view) {
+          LOG_TOPIC(WARN, Logger::FIXME) << "error finding view: '" << viewName << "' for link '" << iid << "'";
+
+          return nullptr;
+        }
+
+        ptr->_view = view;
+
+        return ptr;
+      }
+    }
+
+    LOG_TOPIC(WARN, Logger::FIXME) << "error finding view for link '" << iid << "'";
+    TRI_set_errno(TRI_ERROR_ARANGO_VIEW_NOT_FOUND);
   } catch (std::exception const& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link " << e.what();
+    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link '" << iid << "'" << e.what();
   } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link";
+    LOG_TOPIC(WARN, Logger::DEVEL) << "error creating view link '" << iid << "'";
   }
 
   return nullptr;
@@ -200,7 +208,7 @@ bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
 
     auto name = slice.get(VIEW_NAME_FIELD);
     VPackValueLength nameLength;
-    auto nameValue = slice.getString(nameLength);
+    auto nameValue = name.getString(nameLength);
     irs::string_ref sliceName(nameValue, nameLength);
 
     if (sliceName != _view->name()) {
@@ -288,10 +296,6 @@ int IResearchLink::unload() {
   _view = nullptr; // release reference to the iResearch View
 
   return TRI_ERROR_NO_ERROR;
-}
-
-IResearchView* IResearchLink::view() const {
-  return _view;
 }
 
 int EnhanceJsonIResearchLink(

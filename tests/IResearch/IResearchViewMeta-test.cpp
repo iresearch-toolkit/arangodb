@@ -74,6 +74,7 @@ struct IResearchViewMetaSetup {
 TEST_CASE("IResearchViewMetaTest", "[iresearch][iresearch-viewmeta]") {
   IResearchViewMetaSetup s;
   UNUSED(s);
+  typedef arangodb::iresearch::IResearchViewMeta::CommitBaseMeta::ConsolidationPolicy ConsolidationPolicy;
 
 SECTION("test_defaults") {
   arangodb::iresearch::IResearchViewMeta meta;
@@ -82,19 +83,30 @@ SECTION("test_defaults") {
   CHECK(10 == meta._commitBulk._cleanupIntervalStep);
   CHECK(10000 == meta._commitBulk._commitIntervalBatchSize);
 
-  for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
-    CHECK(10 == meta._commitBulk._consolidate[i]._intervalStep);
-    CHECK(0.85f == meta._commitBulk._consolidate[i]._threshold);
+  std::set<ConsolidationPolicy::Type> expectedBulk = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+  for (auto& entry: meta._commitBulk._consolidationPolicies) {
+    CHECK(true == (1 == expectedBulk.erase(entry.type())));
+    CHECK(true == (10 == entry.intervalStep()));
+    CHECK(true == (false == !entry.policy()));
+    CHECK(true == (0.85f == entry.threshold()));
   }
 
-  CHECK(10 == meta._commitItem._cleanupIntervalStep);
-  CHECK(60 * 1000 == meta._commitItem._commitIntervalMsec);
+  CHECK(true == (expectedBulk.empty()));
+  CHECK(true == (10 == meta._commitItem._cleanupIntervalStep));
+  CHECK(true == (60 * 1000 == meta._commitItem._commitIntervalMsec));
+  CHECK(true == (5 * 1000 == meta._commitItem._commitTimeoutMsec));
 
-  for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
-    CHECK(10 == meta._commitItem._consolidate[i]._intervalStep);
-    CHECK(0.85f == meta._commitItem._consolidate[i]._threshold);
+  std::set<ConsolidationPolicy::Type> expectedItem = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+  for (auto& entry: meta._commitItem._consolidationPolicies) {
+    CHECK(true == (1 == expectedItem.erase(entry.type())));
+    CHECK(true == (10 == entry.intervalStep()));
+    CHECK(true == (false == !entry.policy()));
+    CHECK(true == (0.85f == entry.threshold()));
   }
 
+  CHECK(true == (expectedItem.empty()));
   CHECK(std::string("") == meta._dataPath);
   CHECK(0 == meta._iid);
   CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
@@ -115,24 +127,19 @@ SECTION("test_inheritDefaults") {
   defaults._collections.insert(42);
   defaults._commitBulk._cleanupIntervalStep = 123;
   defaults._commitBulk._commitIntervalBatchSize = 321;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 10;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = .1f;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 15;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = .15f;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 20;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = .2f;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 30;
-  defaults._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = .3f;
+  defaults._commitBulk._consolidationPolicies.clear();
+  defaults._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 10, .1f);
+  defaults._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 15, .15f);
+  defaults._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 20, .2f);
+  defaults._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 30, .3f);
   defaults._commitItem._cleanupIntervalStep = 654;
   defaults._commitItem._commitIntervalMsec = 456;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 101;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = .11f;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 151;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = .151f;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 201;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = .21f;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 301;
-  defaults._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = .31f;
+  defaults._commitItem._commitTimeoutMsec = 789;
+  defaults._commitItem._consolidationPolicies.clear();
+  defaults._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 101, .11f);
+  defaults._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 151, .151f);
+  defaults._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 201, .21f);
+  defaults._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 301, .31f);
   defaults._dataPath = "path";
   defaults._iid = 10;
   defaults._locale = irs::locale_utils::locale("ru");
@@ -156,24 +163,71 @@ SECTION("test_inheritDefaults") {
     CHECK(42 == *(meta._collections.begin()));
     CHECK(123 == meta._commitBulk._cleanupIntervalStep);
     CHECK(321 == meta._commitBulk._commitIntervalBatchSize);
-    CHECK(10 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(.1f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(15 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(.15f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(20 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(.2f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(30 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(.3f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+
+    std::set<ConsolidationPolicy::Type> expectedBulk = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+    for (auto& entry: meta._commitBulk._consolidationPolicies) {
+      CHECK(true == (1 == expectedBulk.erase(entry.type())));
+
+      switch(entry.type()) {
+       case ConsolidationPolicy::Type::BYTES:
+        CHECK(true == (10 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.1f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::BYTES_ACCUM:
+        CHECK(true == (15 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.15f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::COUNT:
+        CHECK(true == (20 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.2f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::FILL:
+        CHECK(true == (30 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.3f == entry.threshold()));
+        break;
+      }
+    }
+
+    CHECK(true == (expectedBulk.empty()));
     CHECK(654 == meta._commitItem._cleanupIntervalStep);
     CHECK(456 == meta._commitItem._commitIntervalMsec);
-    CHECK(101 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(.11f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(151 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(.151f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(201 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(.21f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(301 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(.31f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+    CHECK(789 == meta._commitItem._commitTimeoutMsec);
+
+    std::set<ConsolidationPolicy::Type> expectedItem = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+    for (auto& entry: meta._commitItem._consolidationPolicies) {
+      CHECK(true == (1 == expectedItem.erase(entry.type())));
+
+      switch(entry.type()) {
+       case ConsolidationPolicy::Type::BYTES:
+        CHECK(true == (101 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.11f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::BYTES_ACCUM:
+        CHECK(true == (151 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.151f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::COUNT:
+        CHECK(true == (201 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.21f == entry.threshold()));
+        break;
+       case ConsolidationPolicy::Type::FILL:
+        CHECK(true == (301 == entry.intervalStep()));
+        CHECK(true == (false == !entry.policy()));
+        CHECK(true == (.31f == entry.threshold()));
+        break;
+      }
+    }
+
+    CHECK(true == (expectedItem.empty()));
     CHECK(std::string("path") == meta._dataPath);
     CHECK(10 == meta._iid);
     CHECK(std::string("ru") == irs::locale_utils::name(meta._locale));
@@ -205,17 +259,27 @@ SECTION("test_readDefaults") {
     CHECK(10 == meta._commitBulk._cleanupIntervalStep);
     CHECK(10000 == meta._commitBulk._commitIntervalBatchSize);
 
-    for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
-      CHECK(10 == meta._commitBulk._consolidate[i]._intervalStep);
-      CHECK(0.85f == meta._commitBulk._consolidate[i]._threshold);
+    std::set<ConsolidationPolicy::Type> expectedBulk = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+    for (auto& entry: meta._commitBulk._consolidationPolicies) {
+      CHECK(true == (1 == expectedBulk.erase(entry.type())));
+      CHECK(true == (10 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
     }
 
+    CHECK(true == (expectedBulk.empty()));
     CHECK(10 == meta._commitItem._cleanupIntervalStep);
     CHECK(60 * 1000 == meta._commitItem._commitIntervalMsec);
+    CHECK(5 * 1000 == meta._commitItem._commitTimeoutMsec);
 
-    for (size_t i = 0, count = arangodb::iresearch::ConsolidationPolicy::eLast; i < count; ++i) {
-      CHECK(10 == meta._commitItem._consolidate[i]._intervalStep);
-      CHECK(0.85f == meta._commitItem._consolidate[i]._threshold);
+    std::set<ConsolidationPolicy::Type> expectedItem = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+    for (auto& entry: meta._commitItem._consolidationPolicies) {
+      CHECK(true == (1 == expectedItem.erase(entry.type())));
+      CHECK(true == (10 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
     }
 
     CHECK(std::string("") == meta._dataPath);
@@ -407,22 +471,8 @@ SECTION("test_readCustomizedValues") {
       \"name\": \"abc\" \
     }");
     CHECK(true == meta.init(json->slice(), errorField));
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+    CHECK(true == (meta._commitBulk._consolidationPolicies.empty()));
+    CHECK(true == (meta._commitItem._consolidationPolicies.empty()));
     CHECK(std::string("abc") == meta._name);
   }
 
@@ -435,22 +485,8 @@ SECTION("test_readCustomizedValues") {
       \"name\": \"abc\" \
     }");
     CHECK(true == meta.init(json->slice(), errorField));
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(0.1f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(0.85f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(0 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-    CHECK(0.2f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-    CHECK(std::numeric_limits<float>::infinity() == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-    CHECK(0 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-    CHECK(0.85f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+    CHECK(true == (meta._commitBulk._consolidationPolicies.empty()));
+    CHECK(true == (meta._commitItem._consolidationPolicies.empty()));
     CHECK(std::string("abc") == meta._name);
   }
 
@@ -459,7 +495,7 @@ SECTION("test_readCustomizedValues") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
         \"collections\": [ 42 ], \
         \"commitBulk\": { \"commitIntervalBatchSize\": 321, \"cleanupIntervalStep\": 123, \"consolidate\": { \"bytes\": { \"intervalStep\": 100, \"threshold\": 0.1 }, \"bytes_accum\": { \"intervalStep\": 150, \"threshold\": 0.15 }, \"count\": { \"intervalStep\": 200 }, \"fill\": {} } }, \
-        \"commitItem\": { \"commitIntervalMsec\": 456, \"cleanupIntervalStep\": 654, \"consolidate\": { \"bytes\": { \"intervalStep\": 1001, \"threshold\": 0.11 }, \"bytes_accum\": { \"intervalStep\": 1501, \"threshold\": 0.151 }, \"count\": { \"intervalStep\": 2001 }, \"fill\": {} } }, \
+        \"commitItem\": { \"commitIntervalMsec\": 456, \"cleanupIntervalStep\": 654, \"commitTimeoutMsec\": 789, \"consolidate\": { \"bytes\": { \"intervalStep\": 1001, \"threshold\": 0.11 }, \"bytes_accum\": { \"intervalStep\": 1501, \"threshold\": 0.151 }, \"count\": { \"intervalStep\": 2001 }, \"fill\": {} } }, \
         \"id\": 10, \
         \"locale\": \"ru_RU.KOI8-R\", \
         \"name\": \"abc\", \
@@ -482,24 +518,71 @@ SECTION("test_readCustomizedValues") {
   CHECK(42 == *(meta._collections.begin()));
   CHECK(123 == meta._commitBulk._cleanupIntervalStep);
   CHECK(321 == meta._commitBulk._commitIntervalBatchSize);
-  CHECK(100 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-  CHECK(.1f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-  CHECK(150 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-  CHECK(.15f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-  CHECK(200 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-  CHECK(.85f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-  CHECK(10 == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-  CHECK(.85f == meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+
+  std::set<ConsolidationPolicy::Type> expectedBulk = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+  for (auto& entry: meta._commitBulk._consolidationPolicies) {
+    CHECK(true == (1 == expectedBulk.erase(entry.type())));
+
+    switch(entry.type()) {
+     case ConsolidationPolicy::Type::BYTES:
+      CHECK(true == (100 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.1f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::BYTES_ACCUM:
+      CHECK(true == (150 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.15f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::COUNT:
+      CHECK(true == (200 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::FILL:
+      CHECK(true == (10 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
+      break;
+    }
+  }
+
+  CHECK(true == (expectedBulk.empty()));
   CHECK(654 == meta._commitItem._cleanupIntervalStep);
   CHECK(456 == meta._commitItem._commitIntervalMsec);
-  CHECK(1001 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep);
-  CHECK(.11f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold);
-  CHECK(1501 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep);
-  CHECK(.151f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold);
-  CHECK(2001 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep);
-  CHECK(.85f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold);
-  CHECK(10 == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep);
-  CHECK(.85f == meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold);
+  CHECK(789 == meta._commitItem._commitTimeoutMsec);
+
+  std::set<ConsolidationPolicy::Type> expectedItem = { ConsolidationPolicy::Type::BYTES, ConsolidationPolicy::Type::BYTES_ACCUM, ConsolidationPolicy::Type::COUNT, ConsolidationPolicy::Type::FILL };
+
+  for (auto& entry: meta._commitItem._consolidationPolicies) {
+    CHECK(true == (1 == expectedItem.erase(entry.type())));
+
+    switch(entry.type()) {
+     case ConsolidationPolicy::Type::BYTES:
+      CHECK(true == (1001 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.11f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::BYTES_ACCUM:
+      CHECK(true == (1501 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.151f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::COUNT:
+      CHECK(true == (2001 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
+      break;
+     case ConsolidationPolicy::Type::FILL:
+      CHECK(true == (10 == entry.intervalStep()));
+      CHECK(true == (false == !entry.policy()));
+      CHECK(true == (.85f == entry.threshold()));
+      break;
+    }
+  }
+
+  CHECK(true == (expectedItem.empty()));
   CHECK(std::string("somepath") == meta._dataPath);
   CHECK(10 == meta._iid);
   CHECK(std::string("ru_RU.UTF-8") == iresearch::locale_utils::name(meta._locale));
@@ -572,11 +655,13 @@ SECTION("test_writeDefaults") {
 
   CHECK(true == expectedCommitBulkConsolidate.empty());
   tmpSlice = slice.get("commitItem");
-  CHECK((true == tmpSlice.isObject() && 3 == tmpSlice.length()));
+  CHECK((true == tmpSlice.isObject() && 4 == tmpSlice.length()));
   tmpSlice2 = tmpSlice.get("cleanupIntervalStep");
   CHECK((true == tmpSlice2.isUInt() && 10 == tmpSlice2.getUInt()));
   tmpSlice2 = tmpSlice.get("commitIntervalMsec");
   CHECK((true == tmpSlice2.isUInt() && 60000 == tmpSlice2.getUInt()));
+  tmpSlice2 = tmpSlice.get("commitTimeoutMsec");
+  CHECK((true == tmpSlice2.isUInt() && 5000 == tmpSlice2.getUInt()));
   tmpSlice2 = tmpSlice.get("consolidate");
   CHECK((true == tmpSlice2.isObject() && 4 == tmpSlice2.length()));
 
@@ -623,22 +708,16 @@ SECTION("test_writeCustomizedValues") {
   {
     arangodb::iresearch::IResearchViewMeta meta;
 
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 0;
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = .1f;
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 0;
-    //meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = <leave as default>
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 0;
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = std::numeric_limits<float>::infinity();
-    meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 0;
-    //meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = <leave as default>
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 0;
-    //meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = <leave as default>
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 0;
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = std::numeric_limits<float>::infinity();
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 0;
-    //meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = <leave as default>
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 0;
-    meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = .2f;
+    meta._commitBulk._consolidationPolicies.clear();
+    meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 0, .1f);
+    meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 0, ConsolidationPolicy::DEFAULT(ConsolidationPolicy::Type::BYTES_ACCUM).threshold());
+    meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 0, std::numeric_limits<float>::infinity());
+    meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 0, ConsolidationPolicy::DEFAULT(ConsolidationPolicy::Type::FILL).threshold());
+    meta._commitItem._consolidationPolicies.clear();
+    meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 0, ConsolidationPolicy::DEFAULT(ConsolidationPolicy::Type::BYTES).threshold());
+    meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 0, std::numeric_limits<float>::infinity());
+    meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 0, ConsolidationPolicy::DEFAULT(ConsolidationPolicy::Type::COUNT).threshold());
+    meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 0, .2f);
 
     arangodb::velocypack::Builder builder;
     arangodb::velocypack::Slice tmpSlice;
@@ -660,29 +739,24 @@ SECTION("test_writeCustomizedValues") {
   arangodb::iresearch::IResearchViewMeta meta;
 
   // test all parameters set to custom values
-  meta._commitBulk._cleanupIntervalStep = 123;
-  meta._commitBulk._commitIntervalBatchSize = 321;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 100;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = .1f;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 150;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = .15f;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 200;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = .2f;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 300;
-  meta._commitBulk._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = .3f;
   meta._collections.insert(42);
   meta._collections.insert(52);
   meta._collections.insert(62);
+  meta._commitBulk._cleanupIntervalStep = 123;
+  meta._commitBulk._commitIntervalBatchSize = 321;
+  meta._commitBulk._consolidationPolicies.clear();
+  meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 100, .1f);
+  meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 150, .15f);
+  meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 200, .2f);
+  meta._commitBulk._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 300, .3f);
   meta._commitItem._cleanupIntervalStep = 654;
   meta._commitItem._commitIntervalMsec = 456;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._intervalStep = 101;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES]._threshold = .11f;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._intervalStep = 151;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::BYTES_ACCUM]._threshold = .151f;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._intervalStep = 201;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::COUNT]._threshold = .21f;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._intervalStep = 301;
-  meta._commitItem._consolidate[arangodb::iresearch::ConsolidationPolicy::FILL]._threshold = .31f;
+  meta._commitItem._commitTimeoutMsec = 789;
+  meta._commitItem._consolidationPolicies.clear();
+  meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES, 101, .11f);
+  meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::BYTES_ACCUM, 151, .151f);
+  meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::COUNT, 201, .21f);
+  meta._commitItem._consolidationPolicies.emplace_back(ConsolidationPolicy::Type::FILL, 301, .31f);
   meta._iid = 10;
   meta._locale = iresearch::locale_utils::locale("en_UK.UTF-8");
   meta._name = "abc";
@@ -756,11 +830,13 @@ SECTION("test_writeCustomizedValues") {
 
   CHECK(true == expectedCommitBulkConsolidate.empty());
   tmpSlice = slice.get("commitItem");
-  CHECK((true == tmpSlice.isObject() && 3 == tmpSlice.length()));
+  CHECK((true == tmpSlice.isObject() && 4 == tmpSlice.length()));
   tmpSlice2 = tmpSlice.get("cleanupIntervalStep");
   CHECK((true == tmpSlice2.isUInt() && 654 == tmpSlice2.getUInt()));
   tmpSlice2 = tmpSlice.get("commitIntervalMsec");
   CHECK((true == tmpSlice2.isUInt() && 456 == tmpSlice2.getUInt()));
+  tmpSlice2 = tmpSlice.get("commitTimeoutMsec");
+  CHECK((true == tmpSlice2.isUInt() && 789 == tmpSlice2.getUInt()));
   tmpSlice2 = tmpSlice.get("consolidate");
   CHECK((true == tmpSlice2.isObject() && 4 == tmpSlice2.length()));
 
@@ -905,6 +981,7 @@ SECTION("test_writeMaskAll") {
   tmpSlice = slice.get("commitItem");
   CHECK(true == tmpSlice.hasKey("cleanupIntervalStep"));
   CHECK(true == tmpSlice.hasKey("commitIntervalMsec"));
+  CHECK(true == tmpSlice.hasKey("commitTimeoutMsec"));
   CHECK(true == tmpSlice.hasKey("consolidate"));
   CHECK(true == slice.hasKey("dataPath"));
   CHECK(true == slice.hasKey("id"));
