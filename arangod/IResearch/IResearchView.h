@@ -99,6 +99,7 @@ class IndexStore {
 class IResearchView final: public arangodb::ViewImplementation {
  public:
   typedef std::unique_ptr<arangodb::ViewImplementation> ptr;
+  typedef std::shared_ptr<IResearchLink> LinkPtr;
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief destructor to clean up resources
@@ -146,6 +147,23 @@ class IResearchView final: public arangodb::ViewImplementation {
   /// @brief count of known links registered with this view
   ////////////////////////////////////////////////////////////////////////////////
   size_t linkCount() const noexcept;
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief register an iResearch Link with the specified view
+  /// @return iResearch View registered with
+  ///         or nullptr if not found or already registered
+  ///////////////////////////////////////////////////////////////////////////////
+  static IResearchView* linkRegister(
+    TRI_vocbase_t& vocbase,
+    std::string const& viewName,
+    LinkPtr const& ptr
+  );
+
+  ///////////////////////////////////////////////////////////////////////////////
+  /// @brief unregister an iResearch Link from the specified view
+  /// @return the specified iResearch Link was previously registered
+  ///////////////////////////////////////////////////////////////////////////////
+  bool linkUnregister(LinkPtr const& ptr);
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief view factory
@@ -223,6 +241,7 @@ class IResearchView final: public arangodb::ViewImplementation {
     irs::directory::ptr _directory;
     irs::directory_reader _reader;
     irs::index_writer::ptr _writer;
+    DataStore& operator=(DataStore&& other) noexcept;
     operator bool() const noexcept;
   };
 
@@ -244,9 +263,10 @@ class IResearchView final: public arangodb::ViewImplementation {
   std::atomic<size_t> _asyncMetaRevision; // arbitrary meta modification id, async jobs should reload if different
   std::mutex _asyncMutex; // mutex used with '_asyncCondition' and associated timeouts
   std::atomic<bool> _asyncTerminate; // trigger termination of long-running async jobs
-  std::unordered_set<std::shared_ptr<IResearchLink>> _links;
+  std::unordered_set<LinkPtr> _links;
+  mutable irs::async_utils::read_write_mutex _linksMutex; // for use with '_links', separate to allow '_links' modification during '_meta' update
   IResearchViewMeta _meta;
-  mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets
+  mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets and '_meta'
   MemoryStoreByTid _storeByTid;
   MemoryStoreByFid _storeByWalFid;
   DataStore _storePersisted;

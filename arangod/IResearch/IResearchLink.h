@@ -36,12 +36,17 @@ class IResearchLink final: public Index {
  public:
   typedef std::shared_ptr<IResearchLink> ptr;
 
-  IResearchLink(
-    TRI_idx_iid_t iid,
-    arangodb::LogicalCollection* collection,
-    IResearchLinkMeta&& meta,
-    IResearchView& view
-  );
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief does this iResearch Link reference the supplied view
+  ////////////////////////////////////////////////////////////////////////////////
+  bool operator==(IResearchView const& view) const noexcept;
+  bool operator!=(IResearchView const& view) const noexcept;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief does this iResearch Link match the meta definition
+  ////////////////////////////////////////////////////////////////////////////////
+  bool operator==(IResearchLinkMeta const& meta) const noexcept;
+  bool operator!=(IResearchLinkMeta const& meta) const noexcept;
 
   bool allowExpansion() const override;
   bool canBeDropped() const override;
@@ -119,14 +124,15 @@ class IResearchLink final: public Index {
   ////////////////////////////////////////////////////////////////////////////////
   int unload() override;
 
-  ////////////////////////////////////////////////////////////////////////////////
-  /// @brief the name of the iResearch view for this link
-  ////////////////////////////////////////////////////////////////////////////////
-  IResearchView* view() const;
-
  private:
   IResearchLinkMeta _meta; // how this collection should be indexed
   IResearchView* _view; // effectively the index itself (nullptr == not associated)
+
+  IResearchLink(
+    TRI_idx_iid_t iid,
+    arangodb::LogicalCollection* collection,
+    IResearchLinkMeta&& meta
+  );
 }; // IResearchLink
 
 ////////////////////////////////////////////////////////////////////////////////
