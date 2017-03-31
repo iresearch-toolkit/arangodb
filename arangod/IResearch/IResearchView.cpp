@@ -240,7 +240,6 @@ arangodb::Result updateLinks(
         );
       }
 
-
       auto link = linksItr.value();
       auto collectionName = collection.copyString();
 
@@ -603,7 +602,8 @@ IResearchView::IResearchView(
   arangodb::velocypack::Slice const& info
 ) : ViewImplementation(view, info),
    _asyncMetaRevision(1),
-   _asyncTerminate(false) {
+   _asyncTerminate(false),
+   _threadPool(0, 0) { // 0 == create pool with no threads, i.e. not running anything
   // add asynchronous commit job
   _threadPool.run(
     [this]()->void {
@@ -1115,9 +1115,29 @@ bool IResearchView::linkUnregister(LinkPtr const& ptr) {
 ) {
   PTR_NAMED(IResearchView, ptr, view, info);
   auto& impl = reinterpret_cast<IResearchView&>(*ptr);
+  std::string error;
 
-  // FIXME TODO initialize from info
-  return std::move(ptr);
+  if (!impl._meta.init(info, error)) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to initialize iResearch view from definition, error: " << error;
+
+    return nullptr;
+  }
+
+  // skip link creation for previously created views or if no links were specified in the definition
+  if (!isNew || !info.hasKey(LINKS_FIELD)) {
+    return std::move(ptr);
+  }
+
+  if (!impl._logicalView || !impl._logicalView->vocbase()) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to find vocbase while updating links for iResearch view '" << impl.name() << "'";
+
+    return nullptr;
+  }
+
+  // create links for a new iresearch View instance
+  auto res = updateLinks(*(impl._logicalView->vocbase()), impl, info.get(LINKS_FIELD));
+
+  return res.ok() ? std::move(ptr) : nullptr;
 }
 
 size_t IResearchView::memory() const {
@@ -1165,10 +1185,6 @@ size_t IResearchView::memory() const {
   return size;
 }
 
-bool IResearchView::modify(VPackSlice const& definition) {
-  return false; // FIXME TODO
-}
-
 std::string const& IResearchView::name() const noexcept {
   ReadMutex mutex(_mutex); // '_meta' can be asynchronously updated
   SCOPED_LOCK(mutex);
@@ -1198,6 +1214,8 @@ void IResearchView::open() {
 
         if (_storePersisted._writer) {
           _storePersisted._writer->commit(); // initialize 'store'
+          _threadPool.max_idle(_meta._threadsMaxIdle);
+          _threadPool.max_threads(_meta._threadsMaxTotal); // start pool
 
           return; // success
         }
@@ -1215,10 +1233,6 @@ void IResearchView::open() {
 
   LOG_TOPIC(WARN, Logger::FIXME) << "failed to open iResearch view '" << name() << "'";
   throw std::runtime_error(std::string("failed to open iResearch view '") + name() + "'");
-}
-
-bool IResearchView::properties(VPackBuilder& props) const {
-  return _meta.json(props);
 }
 
 int IResearchView::query(
