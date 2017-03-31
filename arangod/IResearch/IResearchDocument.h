@@ -47,9 +47,8 @@ class Field {
   Field(Field&& rhs);
   Field& operator=(Field&& rhs);
 
-  irs::string_ref name() const noexcept {
-    TRI_ASSERT(_name);
-    return *_name;
+  irs::string_ref const& name() const noexcept {
+    return _name;
   }
 
   irs::flags const& features() const {
@@ -63,31 +62,38 @@ class Field {
   }
 
   float_t boost() const {
-    TRI_ASSERT(_meta);
-    return _meta->_boost;
+    return _boost;
   }
 
- private:
+ protected:
   friend class FieldIterator;
 
-  irs::flags const* _features{};
+  irs::flags const* _features{ &irs::flags::empty_instance() };
   std::shared_ptr<irs::token_stream>_tokenizer;
-  std::shared_ptr<std::string> _name; // buffer for field name
-  IResearchLinkMeta const* _meta{};
+  irs::string_ref _name;
+  float_t _boost{1.f};
 }; // Field
 
-class FieldIterator : public std::iterator<std::forward_iterator_tag, const Field> {
+class SystemField : public Field {
+ public:
+  SystemField();
+  void setCidValue(TRI_voc_cid_t cid);
+  void setRidValue(TRI_voc_rid_t rid);
+
+ private:
+  static_assert(std::is_same<TRI_voc_cid_t, uint64_t>::value, "Invalid value type");
+  static_assert(std::is_same<TRI_voc_rid_t, uint64_t>::value, "Invalid value type");
+
+  uint64_t _value;
+}; // SystemField
+
+class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
   static FieldIterator END; // unified end for all field iterators
-
-  static irs::filter::ptr filter(TRI_voc_cid_t cid);
-  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
   FieldIterator() = default;
 
   FieldIterator(
-//    TRI_voc_cid_t cid,
-//    TRI_voc_rid_t rid,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta
@@ -161,8 +167,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   }
 
   std::string& nameBuffer() noexcept {
-    TRI_ASSERT(_value._name);
-    return *_value._name;
+    TRI_ASSERT(_name);
+    return *_name;
   }
 
   void next();
@@ -180,8 +186,59 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, const Fiel
   TokenizerIterator _end{1 + _begin}; // prevent invalid behaviour on first 'next'
   IResearchViewMeta const* _meta{};
   std::vector<Level> _stack;
+  std::shared_ptr<std::string> _name; // buffer for field name
   Field _value; // iterator's value
 }; // FieldIterator
+
+class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field const> {
+ public:
+  static DocumentIterator END; // unified end for all document iterators
+
+  static irs::filter::ptr filter(TRI_voc_cid_t cid);
+  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
+
+  DocumentIterator(SystemField& header, FieldIterator& body) noexcept;
+
+  Field const& operator*() const noexcept {
+    return *_values[_i > 0];
+  }
+
+  DocumentIterator& operator++() {
+    next();
+    return *this;
+  }
+
+  bool operator==(DocumentIterator const& rhs) const noexcept {
+#ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+    return _i == rhs._i && _body == rhs._body
+#else
+    return _i == rhs._i;
+#endif
+  }
+
+  bool operator!=(DocumentIterator const& rhs) const noexcept {
+    return !(*this == rhs);
+  }
+
+  // support range-based traversal
+  DocumentIterator& begin() { return *this; }
+  DocumentIterator& end() { return END; }
+
+ private:
+  DocumentIterator() noexcept : _i{3} { } // end
+
+  SystemField& systemField() {
+    return const_cast<SystemField&>(
+      static_cast<SystemField const&>(*_values[1])
+    );
+  }
+
+  void next();
+
+  FieldIterator* _body{};
+  Field const* _values[2];
+  size_t _i{};
+}; // DocumentIterator
 
 // stored ArangoDB document primary key
 class DocumentPrimaryKey {

@@ -124,7 +124,7 @@ SECTION("static_checks") {
   );
 }
 
-SECTION("default_ctor") {
+SECTION("FieldIterator_default_ctor") {
   arangodb::iresearch::FieldIterator it;
   CHECK(!it.valid());
   CHECK(it == arangodb::iresearch::FieldIterator());
@@ -1061,6 +1061,9 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   ++it;
   CHECK(!it.valid());
   CHECK(it == arangodb::iresearch::FieldIterator());
+}
+
+SECTION("DocumentIterator_default_ctor") {
 }
 
 ////////////////////////////////////////////////////////////////////////////////

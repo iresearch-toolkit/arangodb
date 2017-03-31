@@ -29,12 +29,31 @@
 #include "search/term_filter.hpp"
 
 #include "utils/log.hpp"
+#include "utils/numeric_utils.hpp"
 
 namespace {
 
 irs::string_ref const CID_FIELD("@_CID");
 irs::string_ref const RID_FIELD("@_REV");
 irs::string_ref const PK_COLUMN("@_PK");
+
+inline irs::bytes_ref toBytesRef(uint64_t const& value) {
+  return irs::bytes_ref(
+    reinterpret_cast<irs::byte_type const*>(&value),
+    sizeof(value)
+  );
+}
+
+inline void ensureLittleEndian(uint64_t& value) {
+  if (irs::numeric_utils::is_big_endian()) {
+    // FIXME convert to LE
+  }
+}
+
+inline irs::bytes_ref toBytesRefLE(uint64_t& value) {
+  ensureLittleEndian(value);
+  return toBytesRef(value);
+}
 
 // wrapper for use objects with the IResearch unbounded_object_pool
 template<typename T>
@@ -49,6 +68,7 @@ struct AnyFactory {
 
 const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
 irs::unbounded_object_pool<AnyFactory<std::string>> BufferPool(DEFAULT_POOL_SIZE);
+irs::unbounded_object_pool<AnyFactory<irs::string_token_stream>> StringStreamPool(DEFAULT_POOL_SIZE);
 irs::unbounded_object_pool<AnyFactory<irs::null_token_stream>> NullStreamPool(DEFAULT_POOL_SIZE);
 irs::unbounded_object_pool<AnyFactory<irs::boolean_token_stream>> BoolStreamPool(DEFAULT_POOL_SIZE);
 irs::unbounded_object_pool<AnyFactory<irs::numeric_token_stream>> NumericStreamPool(DEFAULT_POOL_SIZE);
@@ -252,6 +272,19 @@ void setStringValue(
   features = pool->features();
 }
 
+void setIDValue(
+    uint64_t& value,
+    irs::token_stream& tokenizer
+) {
+#ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+  auto& sstream = dynamic_cast<irs::string_token_stream&>(tokenizer);
+#else
+  auto& sstream = static_cast<irs::string_token_stream&>(tokenizer);
+#endif
+
+  sstream.reset(toBytesRefLE(value));
+}
+
 }
 
 namespace arangodb {
@@ -265,8 +298,7 @@ Field::Field(Field&& rhs)
   : _features(rhs._features),
     _tokenizer(std::move(rhs._tokenizer)),
     _name(std::move(rhs._name)),
-    _meta(rhs._meta) {
-  rhs._meta = nullptr;
+    _boost(rhs._boost) {
   rhs._features = nullptr;
 }
 
@@ -275,11 +307,28 @@ Field& Field::operator=(Field&& rhs) {
     _features = rhs._features;
     _tokenizer = std::move(rhs._tokenizer);
     _name = std::move(rhs._name);
-    _meta = rhs._meta;
+    _boost= rhs._boost;
     rhs._features = nullptr;
-    rhs._meta = nullptr;
   }
   return *this;
+}
+
+// ----------------------------------------------------------------------------
+// --SECTION--                                       SystemField implementation
+// ----------------------------------------------------------------------------
+
+SystemField::SystemField() {
+  _tokenizer = StringStreamPool.emplace();
+}
+
+void SystemField::setCidValue(TRI_voc_cid_t cid) {
+  _name = CID_FIELD;
+  setIDValue(_value = cid, *_tokenizer);
+}
+
+void SystemField::setRidValue(TRI_voc_rid_t rid) {
+  _name = RID_FIELD;
+  setIDValue(_value = rid, *_tokenizer);
 }
 
 // ----------------------------------------------------------------------------
@@ -288,44 +337,7 @@ Field& Field::operator=(Field&& rhs) {
 
 /*static*/ FieldIterator FieldIterator::END;
 
-/*static*/ irs::filter::ptr FieldIterator::filter(TRI_voc_cid_t cid) {
-  irs::bytes_ref const cidTerm(reinterpret_cast<irs::byte_type*>(&cid), sizeof(cid));
-
-  auto filter = irs::by_term::make();
-
-  // filter matching on cid
-  static_cast<irs::by_term&>(*filter)
-    .field(CID_FIELD) // set field
-    .term(cidTerm); // set value
-
-  return std::move(filter);
-}
-
-/*static*/ irs::filter::ptr FieldIterator::filter(
-    TRI_voc_cid_t cid,
-    TRI_voc_rid_t rid
-) {
-  irs::bytes_ref const cidTerm(reinterpret_cast<irs::byte_type*>(&cid), sizeof(cid));
-  irs::bytes_ref const ridTerm(reinterpret_cast<irs::byte_type*>(&rid), sizeof(rid));
-
-  auto filter = irs::And::make();
-
-  // filter matching on cid and rid
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(CID_FIELD) // set field
-    .term(cidTerm);   // set value
-
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(RID_FIELD) // set field
-    .term(ridTerm);   // set value
-
-  return std::move(filter);
-}
-
-// TODO FIXME must putout system fields (cid/rid) as well to allow for building a filter on CID/RID
 FieldIterator::FieldIterator(
-//    TRI_voc_cid_t,
-//    TRI_voc_rid_t,
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta
@@ -338,9 +350,8 @@ FieldIterator::FieldIterator(
   auto const* context = &linkMeta;
 
   // initialize iterator's value
-  _value._name = BufferPool.emplace();
-  _value._name->clear();
-  //setValue(VPackSlice::noneSlice(), *context);
+  _name = BufferPool.emplace();
+  _name->clear();
 
   // push the provided 'doc' to stack
   if (push(doc, context)) {
@@ -409,7 +420,8 @@ bool FieldIterator::setValue(
   TRI_ASSERT(1 == IResearchLinkMeta::DEFAULT()._tokenizers.size());
 
   resetTokenizers(IResearchLinkMeta::DEFAULT()); // set surrogate tokenizers
-  _value._meta = &context;                       // set current context
+  _value._boost = context._boost;                // set boost
+  _value._name = nameBuffer();                   // set name
 
   auto& tokenizer = _value._tokenizer;
   auto& features = _value._features;
@@ -489,6 +501,60 @@ void FieldIterator::next() {
   TRI_ASSERT(context);
   setValue(topValue().value, *context); // initialize value
 }
+
+// ----------------------------------------------------------------------------
+// --SECTION--                                  DocumentIterator implementation
+// ----------------------------------------------------------------------------
+
+/*static*/ irs::filter::ptr DocumentIterator::filter(TRI_voc_cid_t cid) {
+  auto filter = irs::by_term::make();
+
+  // filter matching on cid
+  static_cast<irs::by_term&>(*filter)
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid)); // set value
+
+  return std::move(filter);
+}
+
+/*static*/ irs::filter::ptr DocumentIterator::filter(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid
+) {
+  auto filter = irs::And::make();
+
+  // filter matching on cid and rid
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid));   // set value
+
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(RID_FIELD) // set field
+    .term(toBytesRefLE(rid));   // set value
+
+  return std::move(filter);
+}
+
+DocumentIterator::DocumentIterator(
+    SystemField& header, FieldIterator& body
+) noexcept
+  : _body(&body), _values{ &(*body), &header } {
+  _i += !body.valid();
+}
+
+void DocumentIterator::next() {
+  switch (_i) {
+    case 0: {
+      TRI_ASSERT(_body->valid());
+      ++(*_body);
+      _i += !_body->valid();
+    } break;
+    case 1: systemField().setCidValue(0); ++_i; break;
+    case 2: systemField().setRidValue(0); ++_i; break;
+  }
+}
+
+DocumentIterator DocumentIterator::END;
 
 // ----------------------------------------------------------------------------
 // --SECTION--                                DocumentPrimaryKey implementation
