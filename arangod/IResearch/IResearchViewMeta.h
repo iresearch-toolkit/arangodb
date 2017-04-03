@@ -129,7 +129,7 @@ struct IResearchViewMeta {
     Mask(bool mask = false) noexcept;
   };
 
-  std::unordered_set<TRI_voc_cid_t> _collections; // fully indexed collection IDs
+  std::unordered_set<TRI_voc_cid_t> _collections; // known collection IDs having links to this view
   CommitBulkMeta _commitBulk;
   CommitItemMeta _commitItem;
   std::string _dataPath; // data file path

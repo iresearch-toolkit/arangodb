@@ -49,6 +49,17 @@ class IResearchLink final: public Index {
   bool operator!=(IResearchLinkMeta const& meta) const noexcept;
 
   bool allowExpansion() const override;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief insert a set of ArangoDB documents into an iResearch View using
+  ///        '_meta' params
+  ////////////////////////////////////////////////////////////////////////////////
+  virtual void batchInsert(
+    transaction::Methods* trx,
+    std::vector<std::pair<TRI_voc_rid_t, arangodb::velocypack::Slice>> const& batch,
+    arangodb::basics::LocalTaskQueue* queue = nullptr
+  ) override;
+
   bool canBeDropped() const override;
 
   ////////////////////////////////////////////////////////////////////////////////

@@ -189,7 +189,7 @@ arangodb::iresearch::IResearchLink* findFirstMatchingLink(
     }
 
     #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-      auto* link = reinterpret_cast<arangodb::iresearch::IResearchLink*>(index.get());
+      auto* link = dynamic_cast<arangodb::iresearch::IResearchLink*>(index.get());
     #else
       auto* link = static_cast<arangodb::iresearch::IResearchLink*>(index.get());
     #endif
@@ -597,6 +597,32 @@ IResearchView::MemoryStore::MemoryStore() {
   _writer->commit(); // initialize 'store'
 }
 
+IResearchView::SyncState::PolicyState::PolicyState(
+    size_t intervalStep,
+    std::shared_ptr<irs::index_writer::consolidation_policy_t> policy
+): _intervalCount(0), _intervalStep(intervalStep), _policy(policy) {
+}
+
+IResearchView::SyncState::SyncState() noexcept
+  : _cleanupIntervalCount(0),
+    _cleanupIntervalStep(0) {
+}
+
+IResearchView::SyncState::SyncState(
+    IResearchViewMeta::CommitBaseMeta const& meta
+): SyncState() {
+  _cleanupIntervalStep = meta._cleanupIntervalStep;
+
+  for (auto& entry: meta._consolidationPolicies) {
+    if (entry.policy()) {
+      _consolidationPolicies.emplace_back(
+        entry.intervalStep(),
+        irs::memory::make_unique<irs::index_writer::consolidation_policy_t>(entry.policy())
+      );
+    }
+  }
+}
+
 IResearchView::IResearchView(
   arangodb::LogicalView* view,
   arangodb::velocypack::Slice const& info
@@ -607,38 +633,22 @@ IResearchView::IResearchView(
   // add asynchronous commit job
   _threadPool.run(
     [this]()->void {
-    struct State {
-      struct PolicyState {
-        size_t _intervalCount;
-        size_t _intervalStep;
-        std::shared_ptr<irs::index_writer::consolidation_policy_t> _policy;
-        PolicyState(size_t intervalStep, std::shared_ptr<irs::index_writer::consolidation_policy_t> policy)
-          : _intervalCount(0), _intervalStep(intervalStep), _policy(policy) {
-        }
-      };
-
+    struct State: public SyncState {
       size_t _asyncMetaRevision;
-      size_t _cleanupIntervalCount;
-      size_t _cleanupIntervalStep;
       size_t _commitIntervalMsecRemainder;
       size_t _commitTimeoutMsec;
-      std::vector<PolicyState> _consolidationPolicies;
 
-      State(): _asyncMetaRevision(0) {} // differs from IResearchView constructor above
+      State():
+        SyncState(),
+        _asyncMetaRevision(0), // '0' differs from IResearchView constructor above
+        _commitIntervalMsecRemainder(std::numeric_limits<size_t>::max()),
+        _commitTimeoutMsec(0) {
+      }
       State(IResearchViewMeta::CommitItemMeta const& meta)
-        : _asyncMetaRevision(0), // differs from IResearchView constructor above
-          _cleanupIntervalCount(0),
-          _cleanupIntervalStep(meta._cleanupIntervalStep),
+        : SyncState(meta),
+          _asyncMetaRevision(0), // '0' differs from IResearchView constructor above
           _commitIntervalMsecRemainder(std::numeric_limits<size_t>::max()),
           _commitTimeoutMsec(meta._commitTimeoutMsec) {
-        for (auto& entry: meta._consolidationPolicies) {
-          if (entry.policy()) {
-            _consolidationPolicies.emplace_back(
-              entry.intervalStep(),
-              irs::memory::make_unique<irs::index_writer::consolidation_policy_t>(entry.policy())
-            );
-          }
-        }
       }
     };
 
@@ -646,9 +656,7 @@ IResearchView::IResearchView(
     ReadMutex mutex(_mutex); // '_meta' can be asynchronously modified
 
     for(;;) {
-      // ...........................................................................
-      // here sleep untill timeout
-      // ...........................................................................
+      // sleep until timeout
       {
         SCOPED_LOCK_NAMED(mutex, lock); // for '_meta._commitItem._commitIntervalMsec'
         SCOPED_LOCK_NAMED(_asyncMutex, asyncLock); // aquire before '_asyncTerminate' check
@@ -687,79 +695,15 @@ IResearchView::IResearchView(
         }
       }
 
-      // .............................................................................
       // reload state if required
-      // .............................................................................
       if (_asyncMetaRevision.load() != state._asyncMetaRevision) {
         SCOPED_LOCK(mutex);
         state = State(_meta._commitItem);
         state._asyncMetaRevision = _asyncMetaRevision.load();
       }
 
-      char runId = 0; // value not used
-      auto thresholdMsec = TRI_microtime() * 1000 + state._commitTimeoutMsec;
-
-      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-
-      // .............................................................................
-      // apply consolidation policies
-      // .............................................................................
-      for (auto& entry: state._consolidationPolicies) {
-        if (!entry._intervalStep || ++entry._intervalCount < entry._intervalStep) {
-          continue; // skip if interval not reached or no valid policy to execute
-        }
-
-        entry._intervalCount = 0;
-        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-
-        try {
-          SCOPED_LOCK(mutex);
-
-          for (auto& tidStore: _storeByTid) {
-            for (auto& fidStore: tidStore.second._storeByFid) {
-              fidStore.second._writer->consolidate(entry._policy, false);
-            }
-          }
-
-          for (auto& fidStore: _storeByWalFid) {
-            fidStore.second._writer->consolidate(entry._policy, false);
-          }
-
-          if (_storePersisted) {
-            _storePersisted._writer->consolidate(entry._policy, false);
-          }
-
-          _storePersisted._writer->consolidate(entry._policy, false);
-        } catch (std::exception& e) {
-          LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "': " << e.what();
-          IR_EXCEPTION();
-        } catch (...) {
-          LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "'";
-          IR_EXCEPTION();
-        }
-
-        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-      }
-
-      // .............................................................................
-      // apply data store commit
-      // .............................................................................
-
-      LOG_TOPIC(DEBUG, Logger::FIXME) << "starting commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-      sync(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
-      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-
-      // .............................................................................
-      // apply cleanup
-      // .............................................................................
-      if (state._cleanupIntervalStep && ++state._cleanupIntervalCount >= state._cleanupIntervalStep) {
-        state._cleanupIntervalCount = 0;
-        LOG_TOPIC(DEBUG, Logger::FIXME) << "starting cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-        cleanup(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
-        LOG_TOPIC(DEBUG, Logger::FIXME) << "finished cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
-      }
-
-      LOG_TOPIC(DEBUG, Logger::FIXME) << "finished flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+      // perform sync
+      sync(state, state._commitTimeoutMsec);
     }
   });
 }
@@ -934,7 +878,7 @@ void IResearchView::getPropertiesVPack(
   arangodb::velocypack::Builder& builder
 ) const {
   ReadMutex mutex(_mutex);
-  SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+  SCOPED_LOCK(mutex); // '_meta'/'_links' can be asynchronously updated
 
   _meta.json(builder);
 
@@ -949,18 +893,13 @@ void IResearchView::getPropertiesVPack(
     collections.emplace_back(arangodb::basics::StringUtils::itoa(entry));
   }
 
-  {
-    ReadMutex linksMutex(_linksMutex);
-    SCOPED_LOCK(linksMutex); // '_links' can be asynchronously updated (small scope to get info for some-point-in-time)
+  // add CIDs of registered collections to list
+  for (auto& entry: _links) {
+    if (entry) {
+      auto* collection = entry->collection();
 
-    // add CIDs of registered collections to list
-    for (auto& entry: _links) {
-      if (entry) {
-        auto* collection = entry->collection();
-
-        if (collection) {
-          collections.emplace_back(arangodb::basics::StringUtils::itoa(collection->cid()));
-        }
+      if (collection) {
+        collections.emplace_back(arangodb::basics::StringUtils::itoa(collection->cid()));
       }
     }
   }
@@ -998,7 +937,7 @@ void IResearchView::getPropertiesVPack(
         if (index && arangodb::Index::IndexType::TRI_IDX_TYPE_IRESEARCH_LINK == index->type()) {
           // TODO FIXME find a better way to retrieve an iResearch Link
           #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-            auto* ptr = reinterpret_cast<IResearchLink*>(index.get());
+            auto* ptr = dynamic_cast<IResearchLink*>(index.get());
           #else
             auto* ptr = static_cast<IResearchLink*>(index.get());
           #endif
@@ -1071,10 +1010,10 @@ int IResearchView::insert(
 }
 
 size_t IResearchView::linkCount() const noexcept {
-  ReadMutex mutex(_linksMutex); // '_links' can be asynchronously updated
+  ReadMutex mutex(_mutex); // '_links' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
-  return _links.size();
+  return _meta._collections.size();
 }
 
 /*static*/ IResearchView* IResearchView::linkRegister(
@@ -1082,19 +1021,19 @@ size_t IResearchView::linkCount() const noexcept {
     std::string const& viewName,
     LinkPtr const& ptr
 ) {
-  if (!ptr) {
+  if (!ptr || !ptr->collection()) {
     return nullptr; // do not register empty pointers
   }
 
   auto logicalView = vocbase.lookupView(viewName);
 
-  if (!logicalView || IResearchView::type() != logicalView->type()) {
+  if (!logicalView || !logicalView->getPhysical() || IResearchView::type() != logicalView->type()) {
     return nullptr; // no such view
   }
 
   // TODO FIXME find a better way to look up an iResearch View
   #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-    auto* view = reinterpret_cast<IResearchView*>(logicalView->getImplementation());
+    auto* view = dynamic_cast<IResearchView*>(logicalView->getImplementation());
   #else
     auto* view = static_cast<IResearchView*>(logicalView->getImplementation());
   #endif
@@ -1103,17 +1042,84 @@ size_t IResearchView::linkCount() const noexcept {
     return nullptr;
   }
 
-  WriteMutex mutex(view->_linksMutex); // '_links' can be asynchronously updated
+  WriteMutex mutex(view->_mutex); // '_links' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
-  return view->_links.emplace(ptr).second ? view : nullptr; // no duplicate registration
+  auto itr = view->_links.emplace(ptr);
+
+  // do not allow duplicate registration
+  auto registered = view->_meta._collections.emplace(ptr->collection()->cid()).second;
+
+  if (!registered) {
+    return nullptr;
+  }
+
+  auto res = logicalView->getPhysical()->persistProperties(); // persist '_meta' definition
+
+  if (res.ok()) {
+    return view;
+  }
+
+  if (itr.second) { 
+    view->_links.erase(itr.first); // revert state
+  }
+
+  if (registered) {
+    view->_meta._collections.erase(ptr->collection()->cid()); // revert state
+  }
+
+  return nullptr;
 }
 
-bool IResearchView::linkUnregister(LinkPtr const& ptr) {
-  WriteMutex mutex(_linksMutex); // '_links' can be asynchronously updated
-  SCOPED_LOCK(mutex);
+bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
+  if (!_logicalView || !_logicalView->getPhysical()) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to find meta-store while unregistering collection from iResearch view '" << name() <<"' cid '" << cid << "'";
 
-  return _links.erase(ptr) > 0;
+    return TRI_ERROR_INTERNAL;
+  }
+
+  WriteMutex mutex(_mutex); // '_links' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  LinkPtr ptr;
+
+  for (auto itr = _links.begin(), end = _links.end(); itr != end; ++itr) {
+    if (!*itr || !(*itr)->collection()) {
+      itr = _links.erase(itr); // remove stale links
+
+      continue;
+    }
+
+    if ((*itr)->collection()->cid() == cid) {
+      ptr = *itr;
+      itr = _links.erase(itr);
+
+      continue;
+    }
+
+    ++itr;
+  }
+
+  auto unregistered = _meta._collections.erase(cid) > 0;
+
+  if (!unregistered) {
+    return nullptr;
+  }
+
+  auto res = _logicalView->getPhysical()->persistProperties(); // persist '_meta' definition
+
+  if (res.ok()) {
+    return true;
+  }
+
+  if (ptr) {
+    _links.emplace(ptr); // revert state
+  }
+
+  if (unregistered) {
+    _meta._collections.emplace(cid); // revert state
+  }
+
+  return false;
 }
 
 /*static*/ IResearchView::ptr IResearchView::make(
@@ -1153,16 +1159,11 @@ size_t IResearchView::memory() const {
   SCOPED_LOCK(mutex);
   size_t size = sizeof(IResearchView);
 
-  {
-    ReadMutex linksMutex(_linksMutex);
-    SCOPED_LOCK(linksMutex); // '_links' can be asynchronously updated (small scope to get info for some-point-in-time)
+  for (auto& entry: _links) {
+    size += sizeof(entry.get()) + sizeof(*(entry.get()));
 
-    for (auto& entry: _links) {
-      size += sizeof(entry.get()) + sizeof(*(entry.get()));
-
-      if (entry) {
-        size += entry->memory();
-      }
+    if (entry) {
+      size += entry->memory();
     }
   }
 
@@ -1335,6 +1336,76 @@ bool IResearchView::sync(size_t maxMsec /*= 0*/) {
   return false;
 }
 
+bool IResearchView::sync(SyncState& state, size_t maxMsec /*= 0*/) {
+  char runId = 0; // value not used
+  auto thresholdMsec = TRI_microtime() * 1000 + maxMsec;
+  ReadMutex mutex(_mutex); // '_storeByTid'/'_storeByWalFid'/'_storePersisted' can be asynchronously modified
+
+  LOG_TOPIC(DEBUG, Logger::FIXME) << "starting flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+  // .............................................................................
+  // apply consolidation policies
+  // .............................................................................
+  for (auto& entry: state._consolidationPolicies) {
+    if (!entry._intervalStep || ++entry._intervalCount < entry._intervalStep) {
+      continue; // skip if interval not reached or no valid policy to execute
+    }
+
+    entry._intervalCount = 0;
+    LOG_TOPIC(DEBUG, Logger::FIXME) << "starting consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+    try {
+      SCOPED_LOCK(mutex);
+
+      for (auto& tidStore: _storeByTid) {
+        for (auto& fidStore: tidStore.second._storeByFid) {
+          fidStore.second._writer->consolidate(entry._policy, false);
+        }
+      }
+
+      for (auto& fidStore: _storeByWalFid) {
+        fidStore.second._writer->consolidate(entry._policy, false);
+      }
+
+      if (_storePersisted) {
+        _storePersisted._writer->consolidate(entry._policy, false);
+      }
+
+      _storePersisted._writer->consolidate(entry._policy, false);
+    } catch (std::exception& e) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "': " << e.what();
+      IR_EXCEPTION();
+    } catch (...) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while consolidating iResearch view '" << name() << "'";
+      IR_EXCEPTION();
+    }
+
+    LOG_TOPIC(DEBUG, Logger::FIXME) << "finished consolidation for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+  }
+
+  // .............................................................................
+  // apply data store commit
+  // .............................................................................
+
+  LOG_TOPIC(DEBUG, Logger::FIXME) << "starting commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+  auto res = sync(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
+  LOG_TOPIC(DEBUG, Logger::FIXME) << "finished commit for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+  // .............................................................................
+  // apply cleanup
+  // .............................................................................
+  if (state._cleanupIntervalStep && ++state._cleanupIntervalCount >= state._cleanupIntervalStep) {
+    state._cleanupIntervalCount = 0;
+    LOG_TOPIC(DEBUG, Logger::FIXME) << "starting cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+    cleanup(std::max(size_t(1), size_t(thresholdMsec - TRI_microtime() * 1000))); // set min 1 msec to enable early termination
+    LOG_TOPIC(DEBUG, Logger::FIXME) << "finished cleanup for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+  }
+
+  LOG_TOPIC(DEBUG, Logger::FIXME) << "finished flush for iResearch view '" << name() << "' run id '" << size_t(&runId) << "'";
+
+  return res;
+}
+
 /*static*/ std::string const& IResearchView::type() noexcept {
   static const std::string  type = "iresearch";
 
@@ -1363,6 +1434,11 @@ arangodb::Result IResearchView::updateProperties(
     return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
   }
 
+  // reset non-updatable values to match current meta
+  meta._collections = _meta._collections;
+  meta._iid = _meta._iid;
+  meta._name = _meta._name;
+
   // update links if requested
   if (slice.hasKey(LINKS_FIELD)) {
     auto* vocbase = _logicalView->vocbase();
@@ -1376,15 +1452,12 @@ arangodb::Result IResearchView::updateProperties(
 
     auto res = updateLinks(*vocbase, *this, slice.get(LINKS_FIELD));
 
+    meta._collections.swap(_meta._collections); // collections might have been modified by create/remove
+
     if (!res.ok()) {
       return res;
     }
   }
-
-  // reset non-updatable values to match current meta
-  meta._collections = _meta._collections;
-  meta._iid = _meta._iid;
-  meta._name = _meta._name;
 
   DataStore storePersisted; // renamed persisted data store
   std::string srcDataPath = _meta._dataPath;
