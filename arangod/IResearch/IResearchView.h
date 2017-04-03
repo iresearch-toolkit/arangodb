@@ -144,6 +144,61 @@ class IResearchView final: public arangodb::ViewImplementation {
   );
 
   ////////////////////////////////////////////////////////////////////////////////
+  /// @brief insert a batch of documents into the iResearch View
+  ///        to be done in the scope of transaction 'tid' and 'meta'
+  ///        'Itrator.first' == TRI_voc_rid_t
+  ///        'Itrator.second' == arangodb::velocypack::Slice
+  ///        terminate on first failure
+  ////////////////////////////////////////////////////////////////////////////////
+  template<typename Iterator>
+  int insert(
+    TRI_voc_fid_t fid,
+    TRI_voc_tid_t tid,
+    TRI_voc_cid_t cid,
+    Iterator begin, Iterator const& end,
+    IResearchLinkMeta const& meta
+  ) {
+    irs::async_utils::read_write_mutex::read_mutex mutex(_mutex);
+    size_t commitBatch;
+    SyncState state;
+
+    {
+      SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+      commitBatch = _meta._commitBulk._commitIntervalBatchSize;
+      state = SyncState(_meta._commitBulk);
+    };
+
+    for (size_t batchCount = 0; begin != end; ++begin, ++batchCount) {
+      if (commitBatch && batchCount >= commitBatch) {
+        SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+        if (!sync(state)) {
+          return TRI_ERROR_INTERNAL;
+        }
+
+        batchCount = 0;
+      }
+
+      auto res = insert(fid, tid, cid, begin->first, begin->second, meta);
+
+      if (TRI_ERROR_NO_ERROR != res) {
+        return res;
+      }
+    }
+
+    if (commitBatch) {
+      SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+      if (!sync(state)) {
+        return TRI_ERROR_INTERNAL;
+      }
+    }
+
+    return TRI_ERROR_NO_ERROR;
+  }
+
+  ////////////////////////////////////////////////////////////////////////////////
   /// @brief count of known links registered with this view
   ////////////////////////////////////////////////////////////////////////////////
   size_t linkCount() const noexcept;
@@ -163,7 +218,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   /// @brief unregister an iResearch Link from the specified view
   /// @return the specified iResearch Link was previously registered
   ///////////////////////////////////////////////////////////////////////////////
-  bool linkUnregister(LinkPtr const& ptr);
+  bool linkUnregister(TRI_voc_cid_t cid);
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief view factory
@@ -244,6 +299,23 @@ class IResearchView final: public arangodb::ViewImplementation {
 
   typedef std::unordered_map<TRI_voc_fid_t, MemoryStore> MemoryStoreByFid;
 
+  struct SyncState {
+    struct PolicyState {
+      size_t _intervalCount;
+      size_t _intervalStep;
+
+      std::shared_ptr<irs::index_writer::consolidation_policy_t> _policy;
+      PolicyState(size_t intervalStep, std::shared_ptr<irs::index_writer::consolidation_policy_t> policy);
+    };
+
+    size_t _cleanupIntervalCount;
+    size_t _cleanupIntervalStep;
+    std::vector<PolicyState> _consolidationPolicies;
+
+    SyncState() noexcept;
+    SyncState(IResearchViewMeta::CommitBaseMeta const& meta);
+  };
+
   struct TidStore {
     mutable std::mutex _mutex; // for use with '_removals' (allow use in const functions)
     std::vector<std::shared_ptr<irs::filter>> _removals; // removal filters to be applied to during merge
@@ -257,7 +329,6 @@ class IResearchView final: public arangodb::ViewImplementation {
   std::mutex _asyncMutex; // mutex used with '_asyncCondition' and associated timeouts
   std::atomic<bool> _asyncTerminate; // trigger termination of long-running async jobs
   std::unordered_set<LinkPtr> _links;
-  mutable irs::async_utils::read_write_mutex _linksMutex; // for use with '_links', separate to allow '_links' modification during '_meta' update
   IResearchViewMeta _meta;
   mutable irs::async_utils::read_write_mutex _mutex; // for use with member maps/sets and '_meta'
   MemoryStoreByTid _storeByTid;
@@ -269,6 +340,15 @@ class IResearchView final: public arangodb::ViewImplementation {
     arangodb::LogicalView*,
     arangodb::velocypack::Slice const& info
   );
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief wait for a flush of all index data to its respective stores
+  /// @param meta configuraton to use for sync
+  /// @param maxMsec try not to exceed the specified time, casues partial sync
+  ///                0 == full sync
+  /// @return success
+  ////////////////////////////////////////////////////////////////////////////////
+  bool sync(SyncState& state, size_t maxMsec = 0);
 };
 
 NS_END // iresearch

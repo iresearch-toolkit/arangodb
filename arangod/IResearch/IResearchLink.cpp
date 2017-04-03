@@ -21,6 +21,7 @@
 /// @author Vasiliy Nabatchikov
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "Basics/LocalTaskQueue.h"
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 #include "StorageEngine/TransactionState.h"
@@ -95,6 +96,43 @@ bool IResearchLink::allowExpansion() const {
   return true; // maps to multivalued
 }
 
+void IResearchLink::batchInsert(
+    transaction::Methods* trx,
+    std::vector<std::pair<TRI_voc_rid_t, arangodb::velocypack::Slice>> const& batch,
+    arangodb::basics::LocalTaskQueue* queue /*= nullptr*/
+) {
+  if (!queue) {
+    throw std::runtime_error(std::string("failed to report status during batch insert for iResearch link '") + arangodb::basics::StringUtils::itoa(id()) + "'");
+  }
+
+  if (!_collection || !_view) {
+    queue->setStatus(TRI_ERROR_ARANGO_COLLECTION_NOT_LOADED); // '_collection' and '_view' required
+
+    return;
+  }
+
+  if (!trx || !trx->state()) {
+    queue->setStatus(TRI_ERROR_BAD_PARAMETER); // 'trx' and transaction state required
+
+    return;
+  }
+
+  auto trxState = trx->state();
+
+  if (!trxState) {
+    queue->setStatus(TRI_ERROR_BAD_PARAMETER); // transaction state required
+
+    return;
+  }
+
+  TRI_voc_fid_t fid = 0; // FIXME TODO find proper fid
+  auto res = _view->insert(fid, trxState->id(), _collection->cid(), batch.begin(), batch.end(), _meta);
+
+  if (TRI_ERROR_NO_ERROR != res) {
+    queue->setStatus(res);
+  }
+}
+
 bool IResearchLink::canBeDropped() const {
   return true; // valid for a link to be dropped from an iResearch view
 }
@@ -103,6 +141,8 @@ int IResearchLink::drop() {
   if (!_collection || !_view) {
     return TRI_ERROR_ARANGO_COLLECTION_NOT_LOADED; // '_collection' and '_view' required
   }
+
+  _view->linkUnregister(_collection->cid());
 
   return _view->drop(_collection->cid());
 }
