@@ -34,6 +34,12 @@
 #include "utils/log.hpp"
 #include "utils/numeric_utils.hpp"
 
+#define Swap8Bytes(val) \
+ ( (((val) >> 56) & UINT64_C(0x00000000000000FF)) | (((val) >> 40) & UINT64_C(0x000000000000FF00)) | \
+   (((val) >> 24) & UINT64_C(0x0000000000FF0000)) | (((val) >>  8) & UINT64_C(0x00000000FF000000)) | \
+   (((val) <<  8) & UINT64_C(0x000000FF00000000)) | (((val) << 24) & UINT64_C(0x0000FF0000000000)) | \
+   (((val) << 40) & UINT64_C(0x00FF000000000000)) | (((val) << 56) & UINT64_C(0xFF00000000000000)) )
+
 namespace {
 
 irs::string_ref const CID_FIELD("@_CID");
@@ -49,7 +55,7 @@ inline irs::bytes_ref toBytesRef(uint64_t const& value) {
 
 inline void ensureLittleEndian(uint64_t& value) {
   if (irs::numeric_utils::is_big_endian()) {
-    // FIXME convert to LE
+    value = Swap8Bytes(value);
   }
 }
 
