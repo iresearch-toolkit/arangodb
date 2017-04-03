@@ -895,7 +895,7 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   auto res = metaStore.persistProperties(); // persist '_meta' definition
 
   if (!res.ok()) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "failed to persisting view definition while dropping collection from iResearch view '" << name() <<"' cid '" << cid << "'";
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to persist view definition while dropping collection from iResearch view '" << name() << "' cid '" << cid << "'";
 
     return res.errorNumber();
   }
@@ -1424,6 +1424,24 @@ arangodb::Result IResearchView::updateProperties(
     }
   }
 
+  IResearchViewMeta metaBackup;
+
+  metaBackup = std::move(_meta);
+  _meta = std::move(meta);
+
+  auto res = metaStore.persistProperties(); // persist '_meta' definition (so that on failure can revert meta)
+
+  if (!res.ok()) {
+    _meta = std::move(metaBackup); // revert to original meta
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to persist view definition while updating iResearch view '" << name() << "'";
+
+    return res;
+  }
+
+  if (mask._dataPath) {
+    _storePersisted = std::move(storePersisted);
+  }
+
   if (mask._threadsMaxIdle) {
     _threadPool.max_idle(meta._threadsMaxIdle);
   }
@@ -1432,24 +1450,12 @@ arangodb::Result IResearchView::updateProperties(
     _threadPool.max_threads(meta._threadsMaxTotal);
   }
 
-  _meta = std::move(meta);
-
-  if (mask._dataPath) {
-    _storePersisted = std::move(storePersisted);
-  }
-
   {
     SCOPED_LOCK(_asyncMutex);
     _asyncCondition.notify_all(); // trigger reload of timeout settings for async jobs
   }
 
-  mutex.unlock(true); // downgrade to a read-lock
-
-  // on failure the iResearch View is in an inconsistent state between the in-memory definition and the persisted definition
-  // since canot revert meta because write-lock was released to allow call getPropertiesVPack(..) to complete
-  auto res = metaStore.persistProperties(); // persist '_meta' definition
-
-  return res.ok() && dropDataPath ? arangodb::Result(TRI_RemoveDirectory(dropDataPath)) : res;
+  return dropDataPath ? arangodb::Result(TRI_RemoveDirectory(dropDataPath)) : arangodb::Result();
 }
 
 NS_END // iresearch
