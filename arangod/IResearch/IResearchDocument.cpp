@@ -227,7 +227,7 @@ void setNullValue(
 
   // mangle name
   static irs::string_ref const SUFFIX("\0_n", 3);
-//  name.append(SUFFIX.c_str(), SUFFIX.size());
+  name.append(SUFFIX.c_str(), SUFFIX.size());
 
   // init stream
   auto stream = NullStreamPool.emplace();
@@ -248,7 +248,7 @@ void setBoolValue(
 
   // mangle name
   static irs::string_ref const SUFFIX("\0_b", 3);
-//  name.append(SUFFIX.c_str(), SUFFIX.size());
+  name.append(SUFFIX.c_str(), SUFFIX.size());
 
   // init stream
   auto stream = BoolStreamPool.emplace();
@@ -269,7 +269,7 @@ void setNumericValue(
 
   // mangle name
   static irs::string_ref const SUFFIX("\0_d", 3);
-//  name.append(SUFFIX.c_str(), SUFFIX.size());
+  name.append(SUFFIX.c_str(), SUFFIX.size());
 
   // init stream
   auto stream = NumericStreamPool.emplace();
@@ -285,9 +285,9 @@ void mangleStringField(
     std::string& name,
     TokenizerPoolPtr pool
 ) {
-//  name += '\0';
-//  name += pool->name();
-//  name += pool->args();
+  name += '\0';
+  name += pool->name();
+  name += pool->args();
 }
 
 void unmangleStringField(
@@ -298,7 +298,7 @@ void unmangleStringField(
   auto const suffixSize = 1 + pool->name().size() + pool->args().size();
 
   TRI_ASSERT(name.size() >= suffixSize);
-//  name.resize(name.size() - suffixSize);
+  name.resize(name.size() - suffixSize);
 }
 
 bool setStringValue(
@@ -308,6 +308,10 @@ bool setStringValue(
     TokenizerPoolPtr pool
 ) {
   TRI_ASSERT(value.isString());
+
+  // it's important to unconditionally mangle name
+  // since we unconditionally unmangle it in 'next'
+  mangleStringField(name, pool);
 
   // init stream
   auto analyzer = pool->tokenizer();
@@ -319,8 +323,6 @@ bool setStringValue(
       << pool->args() << "'";
     return false;
   }
-
-  mangleStringField(name, pool);
 
   // init stream
   analyzer->reset(arangodb::iresearch::getStringRef(value));
