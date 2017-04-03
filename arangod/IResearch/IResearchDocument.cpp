@@ -24,6 +24,9 @@
 #include "IResearchDocument.h"
 #include "IResearchViewMeta.h"
 
+#include "Logger/Logger.h"
+#include "Logger/LogMacros.h"
+
 #include "analysis/token_attributes.hpp"
 #include "search/boolean_filter.hpp"
 #include "search/term_filter.hpp"
@@ -217,59 +220,117 @@ typedef arangodb::iresearch::IResearchLinkMeta::TokenizerPool const* TokenizerPo
 
 void setNullValue(
     VPackSlice const& value,
-    std::shared_ptr<irs::token_stream>& tokenizer,
-    irs::flags const*& features
+    std::string& name,
+    arangodb::iresearch::Field& field
 ) {
   TRI_ASSERT(value.isNull());
 
+  // mangle name
+  static irs::string_ref const SUFFIX("\0_n", 3);
+//  name.append(SUFFIX.c_str(), SUFFIX.size());
+
+  // init stream
   auto stream = NullStreamPool.emplace();
   stream->reset();
 
-  tokenizer = stream;
-  features = &irs::flags::empty_instance();
+  // set field properties
+  field._name = name;
+  field._tokenizer =  stream;
+  field._features = &irs::flags::empty_instance();
 }
 
 void setBoolValue(
     VPackSlice const& value,
-    std::shared_ptr<irs::token_stream>& tokenizer,
-    irs::flags const*& features
+    std::string& name,
+    arangodb::iresearch::Field& field
 ) {
   TRI_ASSERT(value.isBool());
 
+  // mangle name
+  static irs::string_ref const SUFFIX("\0_b", 3);
+//  name.append(SUFFIX.c_str(), SUFFIX.size());
+
+  // init stream
   auto stream = BoolStreamPool.emplace();
   stream->reset(value.getBool());
 
-  tokenizer = stream;
-  features = &irs::flags::empty_instance();
+  // set field properties
+  field._name = name;
+  field._tokenizer =  stream;
+  field._features = &irs::flags::empty_instance();
 }
 
 void setNumericValue(
     VPackSlice const& value,
-    std::shared_ptr<irs::token_stream>& tokenizer,
-    irs::flags const*& features
+    std::string& name,
+    arangodb::iresearch::Field& field
 ) {
   TRI_ASSERT(value.isNumber());
 
+  // mangle name
+  static irs::string_ref const SUFFIX("\0_d", 3);
+//  name.append(SUFFIX.c_str(), SUFFIX.size());
+
+  // init stream
   auto stream = NumericStreamPool.emplace();
   stream->reset(value.getNumber<double>());
 
-  tokenizer = stream;
-  features = &NumericStreamFeatures;
+  // set field properties
+  field._name = name;
+  field._tokenizer =  stream;
+  field._features = &NumericStreamFeatures;
 }
 
-void setStringValue(
+void mangleStringField(
+    std::string& name,
+    TokenizerPoolPtr pool
+) {
+//  name += '\0';
+//  name += pool->name();
+//  name += pool->args();
+}
+
+void unmangleStringField(
+    std::string& name,
+    TokenizerPoolPtr pool
+) {
+  // +1 for preceding '\0'
+  auto const suffixSize = 1 + pool->name().size() + pool->args().size();
+
+  TRI_ASSERT(name.size() >= suffixSize);
+//  name.resize(name.size() - suffixSize);
+}
+
+bool setStringValue(
     VPackSlice const& value,
-    std::shared_ptr<irs::token_stream>& tokenizer,
-    irs::flags const*& features,
+    std::string& name,
+    arangodb::iresearch::Field& field,
     TokenizerPoolPtr pool
 ) {
   TRI_ASSERT(value.isString());
 
+  // init stream
   auto analyzer = pool->tokenizer();
+
+  if (!analyzer) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME)
+      << "got nullptr from tokenizer factory, name='"
+      << pool->name() << "', args='"
+      << pool->args() << "'";
+    return false;
+  }
+
+  mangleStringField(name, pool);
+
+  // init stream
   analyzer->reset(arangodb::iresearch::getStringRef(value));
 
-  tokenizer = analyzer;
-  features = pool->features();
+  // set field properties
+  field._name = name;
+  field._tokenizer =  analyzer;
+  field._features = pool->features();
+
+  return true;
 }
 
 void setIdValue(
@@ -335,14 +396,11 @@ FieldIterator::FieldIterator(
   _name = BufferPool.emplace();
   _name->clear();
 
-  // push the provided 'doc' to stack
-  if (push(doc, context)) {
-    TRI_ASSERT(context);
-
-    setValue(topValue().value, *context); // initialize current value
-  } else {
+  // push the provided 'doc' to stack and initialize current value
+  if (!push(doc, context) || !setValue(topValue().value, *context)) {
     next();
   }
+
 }
 
 IResearchLinkMeta const* FieldIterator::nextTop() {
@@ -384,43 +442,40 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
 
     if (!filter(name, context, *_meta, value)) {
       // filtered out
+      TRI_ASSERT(context);
       return false;
     }
 
     slice = value.value;
   }
 
+  TRI_ASSERT(context);
   return true;
 }
 
-void FieldIterator::setValue(
+bool FieldIterator::setValue(
     VPackSlice const& value,
     IResearchLinkMeta const& context
 ) {
-  // ensure that default meta has only one tokenizer, since we use
-  // that as a surrogate range for all non-string values
-  TRI_ASSERT(1 == IResearchLinkMeta::DEFAULT()._tokenizers.size());
-
-  resetTokenizers(IResearchLinkMeta::DEFAULT()); // set surrogate tokenizers
-
-  auto& tokenizer = _value._tokenizer;
-  auto& features = _value._features;
+  _begin = nullptr;
+  _end = _begin + 1;                       // set surrogate tokenizers
+  _value._boost = context._boost;                // set boost
 
   switch (value.type()) {
     case VPackValueType::None:
     case VPackValueType::Illegal:
       break;
     case VPackValueType::Null:
-      setNullValue(value, tokenizer, features);
+      setNullValue(value, nameBuffer(), _value);
       break;
     case VPackValueType::Bool:
-      setBoolValue(value, tokenizer, features);
+      setBoolValue(value, nameBuffer(), _value);
       break;
     case VPackValueType::Array:
     case VPackValueType::Object:
       break;
     case VPackValueType::Double:
-      setNumericValue(value, tokenizer, features);
+      setNumericValue(value, nameBuffer(), _value);
       break;
     case VPackValueType::UTCDate:
     case VPackValueType::External:
@@ -430,12 +485,11 @@ void FieldIterator::setValue(
     case VPackValueType::Int:
     case VPackValueType::UInt:
     case VPackValueType::SmallInt:
-      setNumericValue(value, tokenizer, features);
+      setNumericValue(value, nameBuffer(), _value);
       break;
     case VPackValueType::String:
       resetTokenizers(context); // reset string tokenizers
-      setStringValue(value, tokenizer, features, _begin);
-      break;
+      return setStringValue(value, nameBuffer(), _value, _begin);
     case VPackValueType::Binary:
     case VPackValueType::BCD:
     case VPackValueType::Custom:
@@ -443,19 +497,24 @@ void FieldIterator::setValue(
       break;
   }
 
-  _value._boost = context._boost;                // set boost
-  _value._name = nameBuffer();                   // set name
+  return true;
 }
 
 void FieldIterator::next() {
   TRI_ASSERT(valid());
 
-  VPackSlice value = topValue().value;
+  TokenizerIterator const prev = _begin;
 
-  if (++_begin != _end) {
+  while (++_begin != _end) {
+    auto& name = nameBuffer();
+
+    // remove previous suffix
+    unmangleStringField(name, prev);
+
     // can have multiple tokenizers for string values only
-    setStringValue(value, _value._tokenizer, _value._features, _begin);
-    return;
+    if (setStringValue(topValue().value, name, _value, _begin)) {
+      return;
+    }
   }
 
   IResearchLinkMeta const* context;
@@ -477,12 +536,8 @@ void FieldIterator::next() {
       nameBuffer().resize(top().nameLength);
     }
 
-    value = topValue().value;
-
-  } while (!push(value, context));
-
-  TRI_ASSERT(context);
-  setValue(topValue().value, *context); // initialize value
+  } while (!push(topValue().value, context)
+           || !setValue(topValue().value, *context));
 }
 
 // ----------------------------------------------------------------------------

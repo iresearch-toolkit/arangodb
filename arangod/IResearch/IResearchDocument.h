@@ -40,8 +40,7 @@ namespace iresearch {
 
 struct IResearchViewMeta;
 
-class Field {
- public:
+struct Field {
   Field() = default;
   Field(Field const&) = default;
   Field(Field&& rhs);
@@ -64,10 +63,6 @@ class Field {
   float_t boost() const {
     return _boost;
   }
-
- protected:
-  friend class FieldIterator;
-  friend class DocumentIterator;
 
   irs::flags const* _features{ &irs::flags::empty_instance() };
   std::shared_ptr<irs::token_stream>_tokenizer;
@@ -166,7 +161,7 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   void next();
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
-  void setValue(VPackSlice const& value, IResearchLinkMeta const& context);
+  bool setValue(VPackSlice const& value, IResearchLinkMeta const& context);
 
   void resetTokenizers(IResearchLinkMeta const& context) {
     auto const& tokenizers = context._tokenizers;

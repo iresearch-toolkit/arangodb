@@ -101,7 +101,7 @@ struct IResearchLinkMeta {
     std::string const& args() const noexcept;
     std::string const& name() const noexcept;
     irs::flags const* features() const; // (nullptr == tokenizer instantiation failure)
-    irs::analysis::analyzer::ptr tokenizer() const; // nullptr == error creating tokenizer
+    irs::analysis::analyzer::ptr tokenizer() const noexcept; // nullptr == error creating tokenizer
 
    private:
     std::string _args;

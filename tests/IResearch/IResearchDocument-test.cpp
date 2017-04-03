@@ -47,7 +47,7 @@ DEFINE_ATTRIBUTE_TYPE(TestAttribute);
 DEFINE_FACTORY_DEFAULT(TestAttribute);
 
 class EmptyTokenizer: public irs::analysis::analyzer {
-public:
+ public:
   DECLARE_ANALYZER_TYPE();
   EmptyTokenizer(): irs::analysis::analyzer(EmptyTokenizer::type()) { _attrs.add<TestAttribute>(); }
   virtual iresearch::attributes const& attributes() const NOEXCEPT override { return _attrs; }
@@ -61,6 +61,22 @@ private:
 
 DEFINE_ANALYZER_TYPE_NAMED(EmptyTokenizer, "iresearch-document-empty");
 REGISTER_ANALYZER(EmptyTokenizer);
+
+class InvalidTokenizer: public irs::analysis::analyzer {
+ public:
+  DECLARE_ANALYZER_TYPE();
+  InvalidTokenizer(): irs::analysis::analyzer(InvalidTokenizer::type()) { _attrs.add<TestAttribute>(); }
+  virtual iresearch::attributes const& attributes() const NOEXCEPT override { return _attrs; }
+  static ptr make(irs::string_ref const&) { return nullptr; }
+  virtual bool next() override { return false; }
+  virtual bool reset(irs::string_ref const& data) override { return true; }
+
+private:
+  irs::attributes _attrs;
+};
+
+DEFINE_ANALYZER_TYPE_NAMED(InvalidTokenizer, "iresearch-document-invalid");
+REGISTER_ANALYZER(InvalidTokenizer);
 
 NS_END
 
@@ -1105,7 +1121,7 @@ SECTION("DocumentIterator_empty_field_iterator") {
   REQUIRE(arangodb::iresearch::DocumentIterator::END == it);
 }
 
-SECTION("DocumentIterator_empty_field_iterator") {
+SECTION("DocumentIterator_non_empty_field_iterator") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"stringValue\": \"string\", \
     \"nullValue\": null \
@@ -1193,6 +1209,89 @@ SECTION("DocumentIterator_empty_field_iterator") {
 
   ++it;
   REQUIRE(arangodb::iresearch::DocumentIterator::END == it);
+}
+
+SECTION("DocumentIterator_nullptr_tokenizer") {
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"stringValue\": \"string\" \
+  }");
+
+  auto const slice = json->slice();
+
+  // last tokenizer invalid
+  {
+    arangodb::iresearch::IResearchViewMeta viewMeta;
+    arangodb::iresearch::IResearchLinkMeta linkMeta;
+    linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
+    linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
+    linkMeta._includeAllFields = true; // include all fields
+
+    arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // stringValue (with IdentityTokenizer)
+    {
+      auto& field = *it;
+      CHECK("stringValue" == field.name());
+      CHECK(1.f == field.boost());
+
+      auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
+      auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(field.get_tokens());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(expected_analyzer->attributes().features() == field.features());
+    }
+
+    ++it;
+    REQUIRE(it.valid());
+    REQUIRE(arangodb::iresearch::FieldIterator::END != it);
+
+    // stringValue (with EmptyTokenizer)
+    {
+      auto& field = *it;
+      CHECK("stringValue" == field.name());
+      CHECK(1.f == field.boost());
+
+      auto const expected_analyzer = irs::analysis::analyzers::get("iresearch-document-empty", "en");
+      auto& analyzer = dynamic_cast<EmptyTokenizer&>(field.get_tokens());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(expected_analyzer->attributes().features() == field.features());
+    }
+
+    ++it;
+    REQUIRE(!it.valid());
+    REQUIRE(arangodb::iresearch::FieldIterator::END == it);
+  }
+
+  // first tokenizer invalid
+  {
+    arangodb::iresearch::IResearchViewMeta viewMeta;
+    arangodb::iresearch::IResearchLinkMeta linkMeta;
+    linkMeta._tokenizers.clear();
+    linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
+    linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
+    linkMeta._includeAllFields = true; // include all fields
+
+    arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+    REQUIRE(it.valid());
+    REQUIRE(it != arangodb::iresearch::FieldIterator());
+
+    // stringValue (with EmptyTokenizer)
+    {
+      auto& field = *it;
+      CHECK("stringValue" == field.name());
+      CHECK(1.f == field.boost());
+
+      auto const expected_analyzer = irs::analysis::analyzers::get("iresearch-document-empty", "en");
+      auto& analyzer = dynamic_cast<EmptyTokenizer&>(field.get_tokens());
+      CHECK(&expected_analyzer->type() == &analyzer.type());
+      CHECK(expected_analyzer->attributes().features() == field.features());
+    }
+
+    ++it;
+    REQUIRE(!it.valid());
+    REQUIRE(arangodb::iresearch::FieldIterator::END == it);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -281,8 +281,12 @@ std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
   return _name;
 }
 
-irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::tokenizer() const {
-  return _pool->emplace(_name, _args);
+irs::analysis::analyzer::ptr IResearchLinkMeta::TokenizerPool::tokenizer() const noexcept {
+  try {
+    return _pool->emplace(_name, _args);
+  } catch (...) {
+    return nullptr;
+  }
 }
 
 IResearchLinkMeta::IResearchLinkMeta()
