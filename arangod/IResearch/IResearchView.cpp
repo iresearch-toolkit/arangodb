@@ -26,6 +26,7 @@
 #include "store/fs_directory.hpp"
 #include "utils/directory_utils.hpp"
 #include "utils/memory.hpp"
+#include "utils/misc.hpp"
 
 #include "IResearchDocument.h"
 #include "IResearchLink.h"
@@ -95,6 +96,43 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
 
   return true;
 }
+
+class ScopedTransaction {
+ public:
+  ScopedTransaction(arangodb::transaction::Methods& trx)
+    : _status(trx.begin()), _trx(trx) {
+    _abort = _status == TRI_ERROR_NO_ERROR;
+  }
+
+  ~ScopedTransaction() {
+    if (_abort) {
+      _trx.abort();
+    }
+  }
+
+  operator int() const noexcept {
+    return _status;
+  }
+
+  int abort() {
+    _abort = false;
+    _status = _trx.abort();
+
+    return _status;
+  }
+
+  int commit() {
+    _abort = false;
+    _status = _trx.commit();
+
+    return _status;
+  }
+
+ private:
+  bool _abort;
+  int _status;
+  arangodb::transaction::Methods& _trx;
+};
 
 arangodb::Result createPersistedDataDirectory(
     irs::directory::ptr& dstDirectory, // out param
@@ -278,12 +316,11 @@ arangodb::Result updateLinks(
       false, // waitForSync
       false // allowImplicitCollections
     );
+    ScopedTransaction transaction(trx);
 
-    auto res = trx.begin();
-
-    if (TRI_ERROR_NO_ERROR != res) {
+    if (TRI_ERROR_NO_ERROR != transaction) {
       return arangodb::Result(
-        res,
+        transaction,
         std::string("failed to start collection updating transaction for iResearch view '") + view.name() + "'"
       );
     }
@@ -348,10 +385,8 @@ arangodb::Result updateLinks(
     }
 
     if (error.empty()) {
-      return arangodb::Result(trx.commit());
+      return arangodb::Result(transaction.commit());
     }
-
-    trx.abort();
 
     return arangodb::Result(
       TRI_ERROR_ARANGO_ILLEGAL_STATE,
@@ -725,10 +760,9 @@ void IResearchView::getPropertiesVPack(
       false, // waitForSync
       false // allowImplicitCollections
     );
+    ScopedTransaction transaction(trx);
 
-    auto res = trx.begin();
-
-    if (TRI_ERROR_NO_ERROR != res) {
+    if (TRI_ERROR_NO_ERROR != transaction) {
       return; // nothing more to output
     }
 
@@ -763,6 +797,8 @@ void IResearchView::getPropertiesVPack(
         }
       }
     }
+
+    transaction.commit();
   } catch (std::exception& e) {
     LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while generating json for iResearch view '" << name() << "': " << e.what();
     IR_EXCEPTION();

@@ -100,7 +100,7 @@ bool equalConsolidationPolicies(
     }
   };
   struct PtrHash {
-    bool operator()(ConsolidationPolicy const * const& value) const {
+    size_t operator()(ConsolidationPolicy const * const& value) const {
       return ConsolidationPolicy::Hash()(*value);
     }
   };
@@ -578,7 +578,9 @@ bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcep
     return false; // values do not match
   }
 
-  if (_locale != other._locale) {
+  if (irs::locale_utils::language(_locale) != irs::locale_utils::language(other._locale)
+      || irs::locale_utils::country(_locale) != irs::locale_utils::country(other._locale)
+      || irs::locale_utils::encoding(_locale) != irs::locale_utils::encoding(other._locale)) {
     return false; // values do not match
   }
 

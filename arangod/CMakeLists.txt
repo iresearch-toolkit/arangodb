@@ -351,7 +351,6 @@ SET(ARANGOD_SOURCES
   Utils/CursorRepository.cpp
   Utils/OperationCursor.cpp
   Utils/SingleCollectionTransaction.cpp
-  Utils/WorkMonitorArangod.cpp
   V8Server/FoxxQueuesFeature.cpp
   V8Server/V8Context.cpp
   V8Server/V8DealerFeature.cpp
@@ -496,6 +495,7 @@ target_link_libraries(arangoserver
 
 add_executable(${BIN_ARANGOD}
   RestServer/arangod.cpp
+  Utils/WorkMonitorArangod.cpp
 )
 
 target_link_libraries(${BIN_ARANGOD}

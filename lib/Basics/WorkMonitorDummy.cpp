@@ -48,3 +48,17 @@ void WorkMonitor::addWorkOverview(std::shared_ptr<rest::RestHandler>,
 void WorkMonitor::clearAllHandlers() {
   TRI_ASSERT(false);
 }
+
+// -----------------------------------------------------------------------------
+// --SECTION--                                                  HandlerWorkStack
+// -----------------------------------------------------------------------------
+class arangodb::rest::RestHandler; // forward declaration
+
+HandlerWorkStack::HandlerWorkStack(std::shared_ptr<arangodb::rest::RestHandler> handler)
+  : _handler(handler) {
+  TRI_ASSERT(false);
+}
+
+HandlerWorkStack::~HandlerWorkStack() {
+  TRI_ASSERT(false);
+}
