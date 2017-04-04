@@ -64,16 +64,27 @@ REGISTER_ANALYZER(EmptyTokenizer);
 
 class InvalidTokenizer: public irs::analysis::analyzer {
  public:
+  static bool returnNullFromMake;
+
   DECLARE_ANALYZER_TYPE();
   InvalidTokenizer(): irs::analysis::analyzer(InvalidTokenizer::type()) { _attrs.add<TestAttribute>(); }
   virtual iresearch::attributes const& attributes() const NOEXCEPT override { return _attrs; }
-  static ptr make(irs::string_ref const&) { return nullptr; }
+  static ptr make(irs::string_ref const&) {
+    if (!returnNullFromMake) {
+      PTR_NAMED(InvalidTokenizer, ptr);
+      returnNullFromMake = true;
+      return ptr;
+    }
+    return nullptr;
+  }
   virtual bool next() override { return false; }
   virtual bool reset(irs::string_ref const& data) override { return true; }
 
 private:
   irs::attributes _attrs;
 };
+
+bool InvalidTokenizer::returnNullFromMake = false;;
 
 DEFINE_ANALYZER_TYPE_NAMED(InvalidTokenizer, "iresearch-document-invalid");
 REGISTER_ANALYZER(InvalidTokenizer);
@@ -1226,11 +1237,17 @@ SECTION("DocumentIterator_nullptr_tokenizer") {
 
   // last tokenizer invalid
   {
+    // ensure that there will be no exception on 'emplace_back'
+    InvalidTokenizer::returnNullFromMake = false;
+
     arangodb::iresearch::IResearchViewMeta viewMeta;
     arangodb::iresearch::IResearchLinkMeta linkMeta;
     linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
     linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
     linkMeta._includeAllFields = true; // include all fields
+
+    // acquire tokenizer, another one should be created
+    auto tokenizer = linkMeta._tokenizers.back().tokenizer();
 
     arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
     REQUIRE(it.valid());
@@ -1267,16 +1284,24 @@ SECTION("DocumentIterator_nullptr_tokenizer") {
     ++it;
     REQUIRE(!it.valid());
     REQUIRE(arangodb::iresearch::FieldIterator::END == it);
+
+    tokenizer->reset(irs::string_ref::nil); // ensure that acquired 'tokenizer' will not be optimized out
   }
 
   // first tokenizer is invalid
   {
+    // ensure that there will be no exception on 'emplace_back'
+    InvalidTokenizer::returnNullFromMake = false;
+
     arangodb::iresearch::IResearchViewMeta viewMeta;
     arangodb::iresearch::IResearchLinkMeta linkMeta;
     linkMeta._tokenizers.clear();
     linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
     linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
     linkMeta._includeAllFields = true; // include all fields
+
+    // acquire tokenizer, another one should be created
+    auto tokenizer = linkMeta._tokenizers.front().tokenizer();
 
     arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
     REQUIRE(it.valid());
@@ -1297,6 +1322,8 @@ SECTION("DocumentIterator_nullptr_tokenizer") {
     ++it;
     REQUIRE(!it.valid());
     REQUIRE(arangodb::iresearch::FieldIterator::END == it);
+
+    tokenizer->reset(irs::string_ref::nil); // ensure that acquired 'tokenizer' will not be optimized out
   }
 }
 
