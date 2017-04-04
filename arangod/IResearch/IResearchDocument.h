@@ -40,6 +40,9 @@ namespace iresearch {
 
 struct IResearchViewMeta;
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief indexed/stored document field adapter for IResearch
+////////////////////////////////////////////////////////////////////////////////
 struct Field {
   Field() = default;
   Field(Field const&) = default;
@@ -64,12 +67,20 @@ struct Field {
     return _boost;
   }
 
+  bool write(irs::data_output&) const noexcept {
+    return true;
+  }
+
   irs::flags const* _features{ &irs::flags::empty_instance() };
   std::shared_ptr<irs::token_stream>_tokenizer;
   irs::string_ref _name;
   float_t _boost{1.f};
 }; // Field
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief allows to iterate over the provided VPack accoring the specified
+///        IResearchLinkMeta and IResearchViewMeta
+////////////////////////////////////////////////////////////////////////////////
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
   static FieldIterator END; // unified end for all field iterators
@@ -140,10 +151,6 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     Filter filter;
   }; // Level
 
-  // disallow copy & assign
-  FieldIterator(FieldIterator const&) = delete;
-  FieldIterator& operator=(FieldIterator const&) = delete;
-
   Level& top() noexcept {
     TRI_ASSERT(!_stack.empty());
     return _stack.back();
@@ -177,60 +184,58 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   Field _value; // iterator's value
 }; // FieldIterator
 
-class DocumentIterator : public std::iterator<std::forward_iterator_tag, Field const> {
+////////////////////////////////////////////////////////////////////////////////
+/// @brief allows to iterate over the specified CID and RID as indexed fields
+////////////////////////////////////////////////////////////////////////////////
+class DocumentPrimaryKeyIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
-  static DocumentIterator END; // unified end for all document iterators
+  static DocumentPrimaryKeyIterator END; // unified end for all document iterators
 
   static irs::filter::ptr filter(TRI_voc_cid_t cid);
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
-  DocumentIterator(
+  DocumentPrimaryKeyIterator(
     TRI_voc_cid_t const cid,
-    TRI_voc_rid_t const rid,
-    FieldIterator& body
+    TRI_voc_rid_t const rid
   );
 
   Field const& operator*() const noexcept {
-    return *_value;
+    return _value;
   }
 
-  DocumentIterator& operator++() {
+  DocumentPrimaryKeyIterator& operator++() {
     next();
     return *this;
   }
 
-  bool operator==(DocumentIterator const& rhs) const noexcept {
-#ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-    return _next == rhs._next && _body == rhs._body
-#else
+  bool operator==(DocumentPrimaryKeyIterator const& rhs) const noexcept {
     return _next == rhs._next;
-#endif
   }
 
-  bool operator!=(DocumentIterator const& rhs) const noexcept {
+  bool operator!=(DocumentPrimaryKeyIterator const& rhs) const noexcept {
     return !(*this == rhs);
   }
 
   // support range-based traversal
-  DocumentIterator& begin() { return *this; }
-  DocumentIterator& end() { return END; }
+  DocumentPrimaryKeyIterator& begin() { return *this; }
+  DocumentPrimaryKeyIterator& end() { return END; }
 
  private:
-  DocumentIterator() noexcept : _next{4} { } // end
+  DocumentPrimaryKeyIterator() noexcept : _next{2} { } // end
 
   void next();
   void setCidValue();
   void setRidValue();
 
-  Field _header;
-  FieldIterator* _body{};
-  Field const* _value; // points to actual value
-  size_t _next{};
+  Field _value;
   TRI_voc_rid_t _cid;
   TRI_voc_rid_t _rid;
-}; // DocumentIterator
+  size_t _next{};
+}; // DocumentPrimaryKeyIterator
 
-// stored ArangoDB document primary key
+////////////////////////////////////////////////////////////////////////////////
+/// @brief represents stored primary key of the ArangoDB document
+////////////////////////////////////////////////////////////////////////////////
 class DocumentPrimaryKey {
  public:
   static irs::string_ref const& PK();

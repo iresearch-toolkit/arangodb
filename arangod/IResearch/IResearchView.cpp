@@ -637,7 +637,7 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   }
 
   auto& metaStore = *(_logicalView->getPhysical());
-  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentIterator::filter(cid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentPrimaryKeyIterator::filter(cid));
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -791,8 +791,8 @@ int IResearchView::insert(
     return TRI_ERROR_NO_ERROR;
   }
 
-  DocumentIterator fields(cid, rid, body);
-  DocumentPrimaryKey attributes(cid, rid);
+  DocumentPrimaryKeyIterator indexedPrimaryKey(cid, rid);
+  DocumentPrimaryKey storedPrimaryKey(cid, rid);
 
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
@@ -801,7 +801,10 @@ int IResearchView::insert(
   mutex.unlock(true); // downgrade to a read-lock
 
   try {
-    if (store._writer->insert(fields.begin(), fields.end(), attributes.begin(), attributes.end())) {
+    if (store._writer->insert(
+          indexedPrimaryKey.begin(), indexedPrimaryKey.end(),
+          storedPrimaryKey.begin(), storedPrimaryKey.end(),
+          body.begin(), body.end())) {
       return TRI_ERROR_NO_ERROR;
     }
 
@@ -1094,7 +1097,7 @@ int IResearchView::remove(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentIterator::filter(cid, rid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentPrimaryKeyIterator::filter(cid, rid));
   WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid];

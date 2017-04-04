@@ -549,14 +549,12 @@ void FieldIterator::next() {
 }
 
 // ----------------------------------------------------------------------------
-// --SECTION--                                  DocumentIterator implementation
+// --SECTION--                        DocumentPrimaryKeyIterator implementation
 // ----------------------------------------------------------------------------
 
+/*static*/ DocumentPrimaryKeyIterator DocumentPrimaryKeyIterator::END;
 
-
-/*static*/ DocumentIterator DocumentIterator::END;
-
-/*static*/ irs::filter::ptr DocumentIterator::filter(TRI_voc_cid_t cid) {
+/*static*/ irs::filter::ptr DocumentPrimaryKeyIterator::filter(TRI_voc_cid_t cid) {
   auto filter = irs::by_term::make();
 
   // filter matching on cid
@@ -567,7 +565,7 @@ void FieldIterator::next() {
   return std::move(filter);
 }
 
-/*static*/ irs::filter::ptr DocumentIterator::filter(
+/*static*/ irs::filter::ptr DocumentPrimaryKeyIterator::filter(
     TRI_voc_cid_t cid,
     TRI_voc_rid_t rid
 ) {
@@ -585,48 +583,36 @@ void FieldIterator::next() {
   return std::move(filter);
 }
 
-DocumentIterator::DocumentIterator(
+DocumentPrimaryKeyIterator::DocumentPrimaryKeyIterator(
     TRI_voc_cid_t const cid,
-    TRI_voc_rid_t const rid,
-    FieldIterator& body
-) : _body(&body), _value{ &_header },
-    _cid(cid), _rid(rid) {
+    TRI_voc_rid_t const rid
+) : _cid(cid), _rid(rid) {
   // init system field
-  _header._tokenizer = StringStreamPool.emplace();
+  _value._tokenizer = StringStreamPool.emplace();
   // init CID field
   setCidValue();
 }
 
-void DocumentIterator::next() {
+void DocumentPrimaryKeyIterator::next() {
   switch (_next) {
     case 0: {
       setRidValue();
-      _next += (1 + (!_body->valid() << 1)); // skip empty body
-    } break;
-    case 1: {
-      TRI_ASSERT(_body->valid());
-      _value = &(**_body);
       ++_next;
     } break;
-    case 2: {
-      TRI_ASSERT(_body->valid());
-      ++(*_body);
-      _next += (!_body->valid() << 1);
-    } break;
-    case 3: {
+    case 1: {
       ++_next;
     } break;
   }
 }
 
-void DocumentIterator::setCidValue() {
-  _header._name = CID_FIELD;
-  setIdValue(_cid, *_header._tokenizer);
+void DocumentPrimaryKeyIterator::setCidValue() {
+  _value._name = CID_FIELD;
+  setIdValue(_cid, *_value._tokenizer);
 }
 
-void DocumentIterator::setRidValue() {
-  _header._name = RID_FIELD;
-  setIdValue(_rid, *_header._tokenizer);
+void DocumentPrimaryKeyIterator::setRidValue() {
+  _value._name = RID_FIELD;
+  setIdValue(_rid, *_value._tokenizer);
 }
 
 // ----------------------------------------------------------------------------
