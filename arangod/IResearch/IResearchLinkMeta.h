@@ -75,7 +75,6 @@ struct IResearchLinkMeta {
     bool _boost;
     bool _fields;
     bool _includeAllFields;
-    bool _locale;
     bool _nestListValues;
     bool _tokenizers;
     Mask(bool mask = false) noexcept;
@@ -100,12 +99,12 @@ struct IResearchLinkMeta {
     bool operator==(TokenizerPool const& other) const noexcept;
     std::string const& args() const noexcept;
     std::string const& name() const noexcept;
-    irs::flags const* features() const; // (nullptr == tokenizer instantiation failure)
+    irs::flags const& features() const noexcept;
     irs::analysis::analyzer::ptr tokenizer() const noexcept; // nullptr == error creating tokenizer
 
    private:
     std::string _args;
-    mutable irs::flags _features; // mutable because lazy-initialized
+    irs::flags _features;
     std::string _name;
     mutable std::shared_ptr<irs::unbounded_object_pool<TokenizerBuilder>> _pool;
   };
@@ -116,7 +115,6 @@ struct IResearchLinkMeta {
   float_t _boost;
   Fields _fields;
   bool _includeAllFields; // include all fields or only fields listed in '_fields'
-  std::locale _locale;
   bool _nestListValues; // append relative offset in list to attribute name (as opposed to without offset)
   Tokenizers _tokenizers; // tokenizers to apply to every field
   // NOTE: if adding fields don't forget to modify the default constructor !!!

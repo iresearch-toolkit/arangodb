@@ -336,7 +336,7 @@ bool setStringValue(
   // set field properties
   field._name = name;
   field._tokenizer =  analyzer;
-  field._features = pool->features();
+  field._features = &(pool->features());
 
   return true;
 }

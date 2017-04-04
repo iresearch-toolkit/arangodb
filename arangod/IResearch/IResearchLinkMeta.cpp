@@ -40,7 +40,6 @@ NS_LOCAL
 
 static const size_t DEFAULT_POOL_SIZE = 8; // arbitrary value
 static const irs::string_ref IDENTITY_TOKENIZER_NAME("identity");
-static const irs::attribute::type_id UNSET_ATTRIBUTE_TYPE("marker to triger reset of attributes");
 
 class IdentityValue: public irs::term_attribute {
 public:
@@ -188,7 +187,6 @@ IResearchLinkMeta::Mask::Mask(bool mask /*= false*/) noexcept
   : _boost(mask),
     _fields(mask),
     _includeAllFields(mask),
-    _locale(mask),
     _nestListValues(mask),
     _tokenizers(mask) {
 }
@@ -207,9 +205,15 @@ size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& v
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
   std::string const& name, std::string const& args
 ): _args(args),
-   _features({UNSET_ATTRIBUTE_TYPE}),
    _name(name),
    _pool(getTokenizerPool(name, args)) {
+  auto instance = tokenizer();
+
+  if (!instance) {
+    throw std::runtime_error(std::string("failed to get iResearch tokenizer instance for name '") + name + "' args '" + args + "'");
+  }
+
+  _features = instance->attributes().features();
 }
 
 IResearchLinkMeta::TokenizerPool::TokenizerPool(
@@ -263,18 +267,8 @@ std::string const& IResearchLinkMeta::TokenizerPool::args() const noexcept {
   return _args;
 }
 
-irs::flags const* IResearchLinkMeta::TokenizerPool::features() const {
-  if (_features.check(UNSET_ATTRIBUTE_TYPE)) {
-    auto instance = tokenizer();
-
-    if (!instance) {
-      return nullptr;
-    }
-
-    _features = instance->attributes().features();
-  }
-
-  return &_features;
+irs::flags const& IResearchLinkMeta::TokenizerPool::features() const noexcept {
+  return _features;
 }
 
 std::string const& IResearchLinkMeta::TokenizerPool::name() const noexcept {
@@ -293,7 +287,6 @@ IResearchLinkMeta::IResearchLinkMeta()
   : _boost(1.0), // no boosting of field preference in view ordering
     //_fields(<empty>), // empty map to match all encounteredfields
     _includeAllFields(false), // true to match all encountered fields, false match only fields in '_fields'
-    _locale(std::locale::classic()),
     _nestListValues(false) { // treat '_nestListValues' as SQL-IN
   _tokenizers.emplace_back(IDENTITY_TOKENIZER_NAME, ""); // identity-only tokenization
 }
@@ -311,7 +304,6 @@ IResearchLinkMeta& IResearchLinkMeta::operator=(IResearchLinkMeta&& other) noexc
     _boost = std::move(other._boost);
     _fields = std::move(other._fields);
     _includeAllFields = std::move(other._includeAllFields);
-    _locale = std::move(other._locale);
     _nestListValues = std::move(other._nestListValues);
     _tokenizers = std::move(other._tokenizers);
   }
@@ -324,7 +316,6 @@ IResearchLinkMeta& IResearchLinkMeta::operator=(IResearchLinkMeta const& other) 
     _boost = other._boost;
     _fields = other._fields;
     _includeAllFields = other._includeAllFields;
-    _locale = other._locale;
     _nestListValues = other._nestListValues;
     _tokenizers = other._tokenizers;
   }
@@ -354,10 +345,6 @@ bool IResearchLinkMeta::operator==(
   }
 
   if (_includeAllFields != other._includeAllFields) {
-    return false; // values do not match
-  }
-
-  if (_locale != other._locale) {
     return false; // values do not match
   }
 
@@ -433,32 +420,6 @@ bool IResearchLinkMeta::init(
   }
 
   {
-    // optional locale name
-    static const std::string fieldName("locale");
-
-    mask->_locale = slice.hasKey(fieldName);
-
-    if (!mask->_locale) {
-      _locale = defaults._locale;
-    } else {
-      auto field = slice.get(fieldName);
-
-      if (!field.isString()) {
-        errorField = fieldName;
-
-        return false;
-      }
-
-      auto locale = field.copyString();
-
-      // use UTF-8 encoding since that is what JSON objects use
-      _locale = std::locale::classic().name() == locale
-        ? std::locale::classic()
-        : irs::locale_utils::locale(locale, true);
-    }
-  }
-
-  {
     // optional bool
     static const std::string fieldName("nestListValues");
 
@@ -520,11 +481,17 @@ bool IResearchLinkMeta::init(
         for (arangodb::velocypack::ArrayIterator entryItr(value); entryItr.valid(); ++entryItr) {
           auto entry = entryItr.value();
 
-          if (entry.isString()) {
-            _tokenizers.emplace_back(name, entry.copyString());
-          } else if (entry.isObject()) {
-            _tokenizers.emplace_back(name, entry.toJson());
-          } else {
+          try {
+            if (entry.isString()) {
+              _tokenizers.emplace_back(name, entry.copyString());
+            } else if (entry.isObject()) {
+              _tokenizers.emplace_back(name, entry.toJson());
+            } else {
+              errorField = fieldName + "=>" + name + "=>[" + arangodb::basics::StringUtils::itoa(entryItr.index()) + "]";
+
+              return false;
+            }
+          } catch (...) {
             errorField = fieldName + "=>" + name + "=>[" + arangodb::basics::StringUtils::itoa(entryItr.index()) + "]";
 
             return false;
@@ -633,10 +600,6 @@ bool IResearchLinkMeta::json(
 
   if ((!ignoreEqual || _includeAllFields != ignoreEqual->_includeAllFields) && (!mask || mask->_includeAllFields)) {
     builder.add("includeAllFields", arangodb::velocypack::Value(_includeAllFields));
-  }
-
-  if ((!ignoreEqual || _locale != ignoreEqual->_locale) && (!mask || mask->_locale)) {
-    builder.add("locale", arangodb::velocypack::Value(irs::locale_utils::name(_locale)));
   }
 
   if ((!ignoreEqual || _nestListValues != ignoreEqual->_nestListValues) && (!mask || mask->_nestListValues)) {

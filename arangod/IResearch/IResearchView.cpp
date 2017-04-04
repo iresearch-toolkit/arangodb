@@ -30,29 +30,28 @@
 #include "IResearchDocument.h"
 #include "IResearchLink.h"
 
+#include "Basics/Result.h"
+#include "Basics/files.h"
+#include "Indexes/Index.h"
+#include "Logger/Logger.h"
+#include "Logger/LogMacros.h"
+#include "Transaction/StandaloneContext.h"
+#include "Utils/CollectionNameResolver.h"
+#include "Utils/UserTransaction.h"
+#include "velocypack/Builder.h"
+#include "velocypack/Iterator.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/LogicalView.h"
 #include "VocBase/PhysicalView.h"
 
-#include "Basics/Result.h"
-#include "Basics/files.h"
-#include "Basics/VelocyPackHelper.h"
-#include "Indexes/Index.h"
-#include "Logger/Logger.h"
-#include "Logger/LogMacros.h"
-
-#include "Utils/CollectionNameResolver.h"
-#include "Utils/UserTransaction.h"
-
-#include "Transaction/StandaloneContext.h"
-
-#include <velocypack/Builder.h>
-#include <velocypack/Iterator.h>
-#include <velocypack/velocypack-aliases.h>
-
 #include "IResearchView.h"
 
 NS_LOCAL
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the storage format used with iResearch writers
+////////////////////////////////////////////////////////////////////////////////
+const irs::string_ref IRESEARCH_STORE_FORMAT("1_0");
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief the name of the field in the iResearch View definition denoting the
@@ -114,7 +113,7 @@ arangodb::Result createPersistedDataDirectory(
       );
     }
 
-    auto format = irs::formats::get("1_0");
+    auto format = irs::formats::get(IRESEARCH_STORE_FORMAT);
     auto writer = irs::index_writer::make(*directory, format, irs::OM_CREATE_APPEND);
 
     if (!writer) {
@@ -230,7 +229,7 @@ arangodb::Result updateLinks(
     std::vector<std::pair<arangodb::velocypack::Slice, arangodb::iresearch::IResearchLinkMeta>> linkDefinitions;
     std::vector<State> linkModifications;
 
-    for (VPackObjectIterator linksItr(links); linksItr.valid(); ++linksItr) {
+    for (arangodb::velocypack::ObjectIterator linksItr(links); linksItr.valid(); ++linksItr) {
       auto collection = linksItr.key();
 
       if (!collection.isString()) {
@@ -377,197 +376,6 @@ arangodb::Result updateLinks(
 
 NS_END
 
-using namespace arangodb::iresearch;
-
-const irs::string_ref IRS_CURRENT_FORMAT = "1_0";
-
-/* static */ IndexStore IndexStore::make(irs::directory::ptr&& dir) {
-  irs::index_writer::ptr writer;
-  irs::directory_reader::ptr reader;
-
-  try {
-    auto format = irs::formats::get(IRS_CURRENT_FORMAT);
-    TRI_ASSERT(format);
-
-    // create writer
-    writer = irs::index_writer::make(*dir, format, irs::OM_CREATE_APPEND);
-    TRI_ASSERT(writer);
-
-    // open reader
-    reader = irs::directory_reader::open(*dir, format);
-    TRI_ASSERT(reader);
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught exception while initializing an IndexStore";
-    throw;
-  }
-
-  return IndexStore(
-    std::move(dir), std::move(writer), std::move(reader)
-  );
-}
-
-IndexStore::IndexStore(
-    irs::directory::ptr&& dir,
-    irs::index_writer::ptr&& writer,
-    irs::directory_reader::ptr&& reader) noexcept
-  : _dir(std::move(_dir)),
-    _writer(std::move(_writer)),
-    _reader(std::move(_reader)) {
-  assert(_dir && _writer && _reader);
-}
-
-IndexStore::IndexStore(IndexStore&& rhs)
-  : _dir(std::move(rhs._dir)),
-    _writer(std::move(rhs._writer)),
-    _reader(std::move(rhs._reader)) {
-}
-
-IndexStore& IndexStore::operator=(IndexStore&& rhs) {
-  if (this != &rhs) {
-    _dir = std::move(rhs._dir);
-    _writer = std::move(rhs._writer);
-    _reader = std::move(rhs._reader);
-  }
-
-  return *this;
-}
-
-//int IndexStore::insert(StoredPrimaryKey const& pk) noexcept {
-//  Field fld;
-//  try {
-//    if (!_writer->insert(&fld, &fld + 1, &pk, &pk + 1)) {
-//      LOG_TOPIC(WARN, Logger::DEVEL) << "failed to insert into index!";
-//
-//      return TRI_ERROR_INTERNAL;
-//    }
-//  } catch (std::exception& e) {
-//    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index: " << e.what();
-//
-//    return TRI_ERROR_INTERNAL;
-//  } catch (...) {
-//    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while inserting into index";
-//    IR_EXCEPTION();
-//
-//    return TRI_ERROR_INTERNAL;
-//  }
-//
-//  return TRI_ERROR_NO_ERROR;
-//}
-
-int IndexStore::remove(std::shared_ptr<irs::filter> const& filter) noexcept {
-  try {
-    _writer->remove(filter);
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while removing index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while removing index!";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_NO_ERROR;
-}
-
-int IndexStore::merge(IndexStore& src) noexcept {
-  if (this == &src) {
-    return TRI_ERROR_NO_ERROR; // merge with self, noop
-  }
-
-  try {
-    src._writer->commit(); // ensure have latest view in reader
-
-    auto pReader = src.reader();
-
-    _writer->import(*pReader);
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while importing index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while importing index!";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_NO_ERROR;
-}
-
-int IndexStore::commit() noexcept {
-  try {
-    _writer->commit();
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while commiting index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while commiting index!";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_NO_ERROR;
-}
-
-int IndexStore::consolidate(irs::index_writer::consolidation_policy_t const& policy) noexcept {
-  try {
-    _writer->consolidate(policy, false);
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while consolidating index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while consolidating index!";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_INTERNAL;
-}
-
-int IndexStore::cleanup() noexcept {
-  try {
-    irs::directory_utils::remove_all_unreferenced(*_dir);
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while cleaning up index: " << e.what();
-
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::DEVEL) << "caught error while cleaning up index!";
-    IR_EXCEPTION();
-
-    return TRI_ERROR_INTERNAL;
-  }
-
-  return TRI_ERROR_INTERNAL;
-}
-
-size_t IndexStore::memory() const noexcept {
-  size_t size = 0;
-
-  auto& dir = *_dir;
-  dir.visit([&dir, &size](std::string& file)->bool {
-    uint64_t length;
-
-    size += dir.length(length, file) ? length : 0;
-
-    return true;
-  });
-
-  return size;
-}
-
-void IndexStore::close() noexcept {
-  // noexcept
-  _writer->close();
-  _dir->close();
-}
-
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
@@ -588,7 +396,7 @@ IResearchView::DataStore::operator bool() const noexcept {
 }
 
 IResearchView::MemoryStore::MemoryStore() {
-  auto format = irs::formats::get("1_0");
+  auto format = irs::formats::get(IRESEARCH_STORE_FORMAT);
 
   _directory = irs::directory::make<irs::memory_directory>();
 
@@ -716,7 +524,7 @@ IResearchView::~IResearchView() {
     _asyncCondition.notify_all(); // trigger reload of settings for async jobs
   }
 
-  _threadPool.max_threads_delta(_threadPool.tasks_pending()); // finish ASAP
+  _threadPool.max_threads_delta(int(std::max(size_t(std::numeric_limits<int>::max()), _threadPool.tasks_pending()))); // finish ASAP
   _threadPool.stop();
 
   WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
@@ -788,8 +596,8 @@ void IResearchView::drop() {
 
   _threadPool.stop();
 
-  WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
-  SCOPED_LOCK(mutex); // members can be asynchronously updated
+  WriteMutex mutex(_mutex); // members can be asynchronously updated
+  SCOPED_LOCK(mutex);
 
   // ...........................................................................
   // if an exception occurs below than a drop retry would most likely happen
@@ -1075,7 +883,7 @@ bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
   if (!_logicalView || !_logicalView->getPhysical()) {
     LOG_TOPIC(WARN, Logger::FIXME) << "failed to find meta-store while unregistering collection from iResearch view '" << name() <<"' cid '" << cid << "'";
 
-    return TRI_ERROR_INTERNAL;
+    return false;
   }
 
   WriteMutex mutex(_mutex); // '_links' can be asynchronously updated
@@ -1210,7 +1018,7 @@ void IResearchView::open() {
   }
 
   try {
-    auto format = irs::formats::get("1_0");
+    auto format = irs::formats::get(IRESEARCH_STORE_FORMAT);
 
     if (format) {
       _storePersisted._directory =
@@ -1245,11 +1053,39 @@ void IResearchView::open() {
 }
 
 int IResearchView::query(
-  std::function<int(arangodb::transaction::Methods const&, VPackSlice const&)> const& visitor,
+  std::function<int(arangodb::transaction::Methods const&, arangodb::velocypack::Slice const&)> const& visitor,
   arangodb::transaction::Methods& trx,
   std::string const& query,
   std::ostream* error /*= nullptr*/
 ) {
+  std::vector<irs::directory_reader> readers;
+  WriteMutex mutex(_mutex); // members can be asynchronously updated
+  SCOPED_LOCK(mutex);
+
+  try {
+    for (auto& fidStore: _storeByWalFid) {
+      fidStore.second._reader = fidStore.second._reader.reopen(); // refresh to latest version
+      readers.emplace_back(fidStore.second._reader);
+    }
+
+    if (_storePersisted) {
+      _storePersisted._reader = _storePersisted._reader.reopen(); // refresh to latest version
+      readers.emplace_back(_storePersisted._reader);
+    }
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+    return TRI_ERROR_INTERNAL;
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "'";
+    IR_EXCEPTION();
+    return TRI_ERROR_INTERNAL;
+  }
+
+  mutex.unlock(true); // downgrade to a read-lock
+
+  // FIXME TODO execute query and order results
+
   return 0; // FIXME TODO
 }
 

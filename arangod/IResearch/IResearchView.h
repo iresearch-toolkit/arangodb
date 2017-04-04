@@ -25,7 +25,6 @@
 #define ARANGOD_IRESEARCH__IRESEARCH_VIEW_H 1
 
 #include "IResearchViewMeta.h"
-#include "IResearchDocument.h"
 
 #include "VocBase/ViewImplementation.h"
 
@@ -47,51 +46,6 @@ NS_BEGIN(iresearch)
 
 class IResearchLink; // forward declaration
 struct IResearchLinkMeta; // forward declaration
-
-class IndexStore {
- public:
-  template<typename Directory, typename... Args>
-  static IndexStore make(Args&&... args) {
-    return IndexStore::make(Directory::make(std::forward<Args>(args)...));
-  }
-
-  static IndexStore make(irs::directory::ptr&& dir);
-
-  operator bool() const { return static_cast<bool>(_dir); }
-
-  IndexStore() = default;
-  IndexStore(IndexStore&& rhs);
-  IndexStore& operator=(IndexStore&& rhs);
-
-//  int insert(StoredPrimaryKey const& pk) noexcept;
-  int remove(std::shared_ptr<irs::filter> const& filter) noexcept;
-  int merge(IndexStore& src) noexcept;
-  int consolidate(irs::index_writer::consolidation_policy_t const& policy) noexcept;
-  int commit() noexcept;
-  int cleanup() noexcept;
-  size_t memory() const noexcept;
-  void close() noexcept;
-
- private:
-  IndexStore(
-    irs::directory::ptr&& dir,
-    irs::index_writer::ptr&& writer,
-    irs::directory_reader::ptr&& reader
-  ) noexcept;
-
-  // disallow copy and assign
-  IndexStore(const IndexStore&) = delete;
-  IndexStore operator=(const IndexStore&) = delete;
-
-  irs::directory_reader reader() {
-    // TODO if concurrency issues are encountered implement reader pool with shared_ptr that on delete returns reader to pool
-    return _reader = _reader.reopen();
-  }
-
-  irs::directory::ptr _dir;
-  irs::index_writer::ptr _writer;
-  irs::directory_reader _reader;
-}; // IndexStore
 
 ///////////////////////////////////////////////////////////////////////////////
 /// --SECTION--                                              ViewImplementation
@@ -251,7 +205,7 @@ class IResearchView final: public arangodb::ViewImplementation {
   /// @return error code and optionally write message to non-nullptr 'error'
   ////////////////////////////////////////////////////////////////////////////////
   int query(
-    std::function<int(arangodb::transaction::Methods const&, VPackSlice const&)> const& visitor,
+    std::function<int(arangodb::transaction::Methods const&, arangodb::velocypack::Slice const&)> const& visitor,
     arangodb::transaction::Methods& trx,
     std::string const& query,
     std::ostream* error = nullptr

@@ -86,12 +86,11 @@ SECTION("test_defaults") {
   CHECK(1. == meta._boost);
   CHECK(true == meta._fields.empty());
   CHECK(false == meta._includeAllFields);
-  CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
   CHECK(false == meta._nestListValues);
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
-  CHECK(irs::flags({irs::term_attribute::type()}) == *(meta._tokenizers.begin()->features()));
+  CHECK((irs::flags({irs::term_attribute::type()}) == meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -105,7 +104,6 @@ SECTION("test_inheritDefaults") {
   defaults._boost = 3.14f;
   defaults._fields["abc"] = std::move(arangodb::iresearch::IResearchLinkMeta());
   defaults._includeAllFields = true;
-  defaults._locale = irs::locale_utils::locale("ru");
   defaults._nestListValues = true;
   defaults._tokenizers.clear();
   defaults._tokenizers.emplace_back("empty", "en");
@@ -128,12 +126,11 @@ SECTION("test_inheritDefaults") {
         CHECK(1.f == actual._boost);
         CHECK(true == actual._fields.empty());
         CHECK(false == actual._includeAllFields);
-        CHECK(std::string("C") == irs::locale_utils::name(actual._locale));
         CHECK(false == actual._nestListValues);
         CHECK(1U == actual._tokenizers.size());
         CHECK("identity" == actual._tokenizers.begin()->name());
         CHECK("" == actual._tokenizers.begin()->args());
-        CHECK(irs::flags({irs::term_attribute::type()}) == *(actual._tokenizers.begin()->features()));
+        CHECK((irs::flags({irs::term_attribute::type()}) == actual._tokenizers.begin()->features()));
         CHECK(false == !actual._tokenizers.begin()->tokenizer());
       }
     }
@@ -142,13 +139,12 @@ SECTION("test_inheritDefaults") {
   CHECK(true == expectedOverrides.empty());
   CHECK(true == expectedFields.empty());
   CHECK(true == meta._includeAllFields);
-  CHECK(std::string("ru") == irs::locale_utils::name(meta._locale));
   CHECK(true == meta._nestListValues);
 
   CHECK(1U == meta._tokenizers.size());
   CHECK("empty" == meta._tokenizers.begin()->name());
   CHECK("en" == meta._tokenizers.begin()->args());
-  CHECK(irs::flags({TestAttribute::type()}) == *(meta._tokenizers.begin()->features()));
+  CHECK((irs::flags({TestAttribute::type()}) == meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -161,12 +157,11 @@ SECTION("test_readDefaults") {
   CHECK(1.f == meta._boost);
   CHECK(true == meta._fields.empty());
   CHECK(false == meta._includeAllFields);
-  CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
   CHECK(false == meta._nestListValues);
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
-  CHECK(irs::flags({irs::term_attribute::type()}) == *(meta._tokenizers.begin()->features()));
+  CHECK((irs::flags({irs::term_attribute::type()}) == meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -185,15 +180,14 @@ SECTION("test_readCustomizedValues") {
         \"b\": {}, \
         \"c\": { \
           \"fields\": { \
-            \"default\": { \"boost\": 1, \"fields\": {}, \"includeAllFields\": false, \"locale\": \"C\", \"nestListValues\": false, \"tokenizers\": { \"identity\": [\"\"] } }, \
-            \"all\": { \"boost\": 11, \"fields\": {\"d\": {}, \"e\": {}}, \"includeAllFields\": true, \"locale\": \"en_US.UTF-8\", \"nestListValues\": true, \"tokenizers\": { \"empty\": [\"en\"] } }, \
+            \"default\": { \"boost\": 1, \"fields\": {}, \"includeAllFields\": false, \"nestListValues\": false, \"tokenizers\": { \"identity\": [\"\"] } }, \
+            \"all\": { \"boost\": 11, \"fields\": {\"d\": {}, \"e\": {}}, \"includeAllFields\": true, \"nestListValues\": true, \"tokenizers\": { \"empty\": [\"en\"] } }, \
             \"some\": { \"boost\": 12, \"nestListValues\": true }, \
             \"none\": {} \
           } \
         } \
       }, \
       \"includeAllFields\": true, \
-      \"locale\": \"ru_RU.KOI8-R\", \
       \"nestListValues\": true, \
       \"tokenizers\": { \"empty\": [\"en\"], \"identity\": [\"\"] } \
     }");
@@ -213,12 +207,11 @@ SECTION("test_readCustomizedValues") {
           CHECK(1.f == actual._boost);
           CHECK(true == actual._fields.empty());
           CHECK(false == actual._includeAllFields);
-          CHECK(std::string("C") == iresearch::locale_utils::name(actual._locale));
           CHECK(false == actual._nestListValues);
           CHECK(1U == actual._tokenizers.size());
           CHECK("identity" == actual._tokenizers.begin()->name());
           CHECK("" == actual._tokenizers.begin()->args());
-          CHECK(irs::flags({irs::term_attribute::type()}) == *(actual._tokenizers.begin()->features()));
+          CHECK((irs::flags({irs::term_attribute::type()}) == actual._tokenizers.begin()->features()));
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("all" == fieldOverride.key()) {
           CHECK(11. == actual._boost);
@@ -226,45 +219,42 @@ SECTION("test_readCustomizedValues") {
           CHECK(true == (actual._fields.find("d") != actual._fields.end()));
           CHECK(true == (actual._fields.find("e") != actual._fields.end()));
           CHECK(true == actual._includeAllFields);
-          CHECK(std::string("en_US.UTF-8") == irs::locale_utils::name(actual._locale));
           CHECK(true == actual._nestListValues);
           CHECK(1U == actual._tokenizers.size());
           CHECK("empty" == actual._tokenizers.begin()->name());
           CHECK("en" == actual._tokenizers.begin()->args());
-          CHECK(irs::flags({TestAttribute::type()}) == *(actual._tokenizers.begin()->features()));
+          CHECK((irs::flags({TestAttribute::type()}) == actual._tokenizers.begin()->features()));
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("some" == fieldOverride.key()) {
           CHECK(12. == actual._boost);
           CHECK(true == actual._fields.empty()); // not inherited
           CHECK(true == actual._includeAllFields); // inherited
-          CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(actual._locale)); // inherited
           CHECK(true == actual._nestListValues);
           CHECK(2U == actual._tokenizers.size());
           auto itr = actual._tokenizers.begin();
           CHECK("empty" == itr->name());
           CHECK("en" == itr->args());
-          CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
+          CHECK((irs::flags({TestAttribute::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
-          CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
+          CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
         } else if ("none" == fieldOverride.key()) {
           CHECK(10. == actual._boost); // inherited
           CHECK(true == actual._fields.empty()); // not inherited
           CHECK(true == actual._includeAllFields); // inherited
-          CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(actual._locale)); // inherited
           CHECK(true == actual._nestListValues); // inherited
           auto itr = actual._tokenizers.begin();
           CHECK("empty" == itr->name());
           CHECK("en" == itr->args());
-          CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
+          CHECK((irs::flags({TestAttribute::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
-          CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
+          CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
         }
       }
@@ -273,17 +263,16 @@ SECTION("test_readCustomizedValues") {
     CHECK(true == expectedOverrides.empty());
     CHECK(true == expectedFields.empty());
     CHECK(true == meta._includeAllFields);
-    CHECK(std::string("ru_RU.UTF-8") == irs::locale_utils::name(meta._locale));
     CHECK(true == meta._nestListValues);
     auto itr = meta._tokenizers.begin();
     CHECK("empty" == itr->name());
     CHECK("en" == itr->args());
-    CHECK(irs::flags({TestAttribute::type()}) == *(itr->features()));
+    CHECK((irs::flags({TestAttribute::type()}) == itr->features()));
     CHECK(false == !itr->tokenizer());
     ++itr;
     CHECK("identity" == itr->name());
     CHECK("" == itr->args());
-    CHECK(irs::flags({irs::term_attribute::type()}) == *(itr->features()));
+    CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
     CHECK(false == !itr->tokenizer());
   }
 }
@@ -297,15 +286,13 @@ SECTION("test_writeDefaults") {
 
   auto slice = builder.slice();
 
-  CHECK(6U == slice.length());
+  CHECK((5U == slice.length()));
   tmpSlice = slice.get("boost");
   CHECK((true == tmpSlice.isNumber() && 1. == tmpSlice.getDouble()));
   tmpSlice = slice.get("fields");
   CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
   tmpSlice = slice.get("includeAllFields");
   CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
-  tmpSlice = slice.get("locale");
-  CHECK((true == tmpSlice.isString() && std::string("C") == tmpSlice.copyString()));
   tmpSlice = slice.get("nestListValues");
   CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
   tmpSlice = slice.get("tokenizers");
@@ -327,7 +314,6 @@ SECTION("test_writeCustomizedValues") {
 
   meta._boost = 10.;
   meta._includeAllFields = true;
-  meta._locale = irs::locale_utils::locale("en_UK.UTF-8");
   meta._nestListValues = true;
   meta._tokenizers.clear();
   meta._tokenizers.emplace_back("identity", "");
@@ -353,7 +339,6 @@ SECTION("test_writeCustomizedValues") {
   overrideAll._fields["x"] = std::move(arangodb::iresearch::IResearchLinkMeta());
   overrideAll._fields["y"] = std::move(arangodb::iresearch::IResearchLinkMeta());
   overrideAll._includeAllFields = false;
-  overrideAll._locale = irs::locale_utils::locale("en_US.UTF-8");
   overrideAll._nestListValues = false;
   overrideAll._tokenizers.clear();
   overrideAll._tokenizers.emplace_back("empty", "en");
@@ -372,7 +357,7 @@ SECTION("test_writeCustomizedValues") {
 
   auto slice = builder.slice();
 
-  CHECK(6U == slice.length());
+  CHECK((5U == slice.length()));
   tmpSlice = slice.get("boost");
   CHECK((true == tmpSlice.isNumber() && 10. == tmpSlice.getDouble()));
   tmpSlice = slice.get("fields");
@@ -397,13 +382,11 @@ SECTION("test_writeCustomizedValues") {
       CHECK(1U == expectedOverrides.erase(fieldOverride.copyString()));
 
       if ("default" == fieldOverride.copyString()) {
-        CHECK(5U == sliceOverride.length());
+        CHECK((4U == sliceOverride.length()));
         tmpSlice = sliceOverride.get("boost");
         CHECK((true == tmpSlice.isNumber() && 1. == tmpSlice.getDouble()));
         tmpSlice = sliceOverride.get("includeAllFields");
         CHECK(true == (false == tmpSlice.getBool()));
-        tmpSlice = sliceOverride.get("locale");
-        CHECK((true == tmpSlice.isString() && std::string("C") == tmpSlice.copyString()));
         tmpSlice = sliceOverride.get("nestListValues");
         CHECK(true == (false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("tokenizers");
@@ -420,7 +403,7 @@ SECTION("test_writeCustomizedValues") {
         ));
       } else if ("all" == fieldOverride.copyString()) {
         std::unordered_set<std::string> expectedFields = { "x", "y" };
-        CHECK(6U == sliceOverride.length());
+        CHECK((5U == sliceOverride.length()));
         tmpSlice = sliceOverride.get("boost");
         CHECK((true == tmpSlice.isNumber() && 11. == tmpSlice.getDouble()));
         tmpSlice = sliceOverride.get("fields");
@@ -431,8 +414,6 @@ SECTION("test_writeCustomizedValues") {
         CHECK(true == expectedFields.empty());
         tmpSlice = sliceOverride.get("includeAllFields");
         CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
-        tmpSlice = sliceOverride.get("locale");
-        CHECK((true == tmpSlice.isString() && std::string("en_US.UTF-8") == tmpSlice.copyString()));
         tmpSlice = sliceOverride.get("nestListValues");
         CHECK((true == tmpSlice.isBool() && false == tmpSlice.getBool()));
         tmpSlice = sliceOverride.get("tokenizers");
@@ -463,8 +444,6 @@ SECTION("test_writeCustomizedValues") {
   CHECK(true == expectedFields.empty());
   tmpSlice = slice.get("includeAllFields");
   CHECK((true == tmpSlice.isBool() && true == tmpSlice.getBool()));
-  tmpSlice = slice.get("locale");
-  CHECK((true == tmpSlice.isString() && std::string("en_UK.UTF-8") == tmpSlice.copyString()));
   tmpSlice = slice.get("nestListValues");
   CHECK((true == tmpSlice.isBool() && true == tmpSlice.getBool()));
   tmpSlice = slice.get("tokenizers");
@@ -498,7 +477,6 @@ SECTION("test_readMaskAll") {
     \"boost\": 10, \
     \"fields\": { \"a\": {} }, \
     \"includeAllFields\": true, \
-    \"locale\": \"ru_RU.KOI8-R\", \
     \"nestListValues\": true, \
     \"tokenizers\": {} \
   }");
@@ -506,7 +484,6 @@ SECTION("test_readMaskAll") {
   CHECK(true == mask._boost);
   CHECK(true == mask._fields);
   CHECK(true == mask._includeAllFields);
-  CHECK(true == mask._locale);
   CHECK(true == mask._nestListValues);
   CHECK(true == mask._tokenizers);
 }
@@ -521,7 +498,6 @@ SECTION("test_readMaskNone") {
   CHECK(false == mask._boost);
   CHECK(false == mask._fields);
   CHECK(false == mask._includeAllFields);
-  CHECK(false == mask._locale);
   CHECK(false == mask._nestListValues);
   CHECK(false == mask._tokenizers);
 }
@@ -535,11 +511,10 @@ SECTION("test_writeMaskAll") {
 
   auto slice = builder.slice();
 
-  CHECK(6U == slice.length());
+  CHECK((5U == slice.length()));
   CHECK(true == slice.hasKey("boost"));
   CHECK(true == slice.hasKey("fields"));
   CHECK(true == slice.hasKey("includeAllFields"));
-  CHECK(true == slice.hasKey("locale"));
   CHECK(true == slice.hasKey("nestListValues"));
   CHECK(true == slice.hasKey("tokenizers"));
 }
