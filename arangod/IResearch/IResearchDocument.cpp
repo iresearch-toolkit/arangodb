@@ -466,35 +466,35 @@ bool FieldIterator::setValue(
     IResearchLinkMeta const& context
 ) {
   _begin = nullptr;
-  _end = _begin + 1;                       // set surrogate tokenizers
-  _value._boost = context._boost;                // set boost
+  _end = 1 + _begin;               // set surrogate tokenizers
+  _value._boost = context._boost;  // set boost
 
   switch (value.type()) {
     case VPackValueType::None:
     case VPackValueType::Illegal:
-      break;
+      return false;
     case VPackValueType::Null:
       setNullValue(value, nameBuffer(), _value);
-      break;
+      return true;
     case VPackValueType::Bool:
       setBoolValue(value, nameBuffer(), _value);
-      break;
+      return true;
     case VPackValueType::Array:
     case VPackValueType::Object:
-      break;
+      return true;
     case VPackValueType::Double:
       setNumericValue(value, nameBuffer(), _value);
-      break;
+      return true;
     case VPackValueType::UTCDate:
     case VPackValueType::External:
     case VPackValueType::MinKey:
     case VPackValueType::MaxKey:
-      break;
+      return false;
     case VPackValueType::Int:
     case VPackValueType::UInt:
     case VPackValueType::SmallInt:
       setNumericValue(value, nameBuffer(), _value);
-      break;
+      return true;
     case VPackValueType::String:
       resetTokenizers(context); // reset string tokenizers
       return setStringValue(value, nameBuffer(), _value, _begin);
@@ -502,10 +502,10 @@ bool FieldIterator::setValue(
     case VPackValueType::BCD:
     case VPackValueType::Custom:
     default:
-      break;
+      return false;
   }
 
-  return true;
+  return false;
 }
 
 void FieldIterator::next() {

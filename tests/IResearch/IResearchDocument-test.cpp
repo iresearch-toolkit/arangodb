@@ -489,10 +489,12 @@ SECTION("traverse_complex_object_ordered_empty_tokenizers") {
 
 SECTION("traverse_complex_object_ordered_check_value_types") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"mustBeSkipped\" : {}, \
     \"stringValue\": \"string\", \
     \"nullValue\": null, \
     \"trueValue\": true, \
     \"falseValue\": false, \
+    \"mustBeSkipped2\" : {}, \
     \"smallIntValue\": 10, \
     \"smallNegativeIntValue\": -5, \
     \"bigIntValue\": 2147483647, \
