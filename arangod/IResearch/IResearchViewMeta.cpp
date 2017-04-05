@@ -35,6 +35,12 @@
 NS_LOCAL
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief the name of the field in the iResearch View definition denoting the
+///        name of the iResearch View
+////////////////////////////////////////////////////////////////////////////////
+static const std::string VIEW_NAME_FIELD("name");
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief functrs for initializing scorers
 ////////////////////////////////////////////////////////////////////////////////
 struct ScorerMeta {
@@ -816,7 +822,7 @@ bool IResearchViewMeta::init(
 
   {
     // required string
-    static const std::string fieldName("name");
+    static const std::string fieldName(VIEW_NAME_FIELD);
 
     mask->_name = slice.hasKey(fieldName);
 
@@ -1025,7 +1031,7 @@ bool IResearchViewMeta::json(
   }
 
   if ((!ignoreEqual || _name != ignoreEqual->_name) && (!mask || mask->_name)) {
-    builder.add("name", arangodb::velocypack::Value(_name));
+    builder.add(VIEW_NAME_FIELD, arangodb::velocypack::Value(_name));
   }
 
   if ((!ignoreEqual || _nestingDelimiter != ignoreEqual->_nestingDelimiter) && (!mask || mask->_nestingDelimiter)) {
@@ -1089,6 +1095,19 @@ size_t IResearchViewMeta::memory() const {
   }
 
   return size;
+}
+
+/*static*/ bool IResearchViewMeta::setName(
+    arangodb::velocypack::Builder& builder,
+    std::string const& value
+) {
+  if (!builder.isOpenObject()) {
+    return false;
+  }
+
+  builder.add(VIEW_NAME_FIELD, arangodb::velocypack::Value(value));
+
+  return true;
 }
 
 NS_END // iresearch

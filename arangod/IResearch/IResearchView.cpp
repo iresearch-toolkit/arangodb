@@ -264,7 +264,7 @@ arangodb::Result updateLinks(
         : _collectionsToLockOffset(collectionsToLockOffset), _linkDefinitionsOffset(linkDefinitionsOffset) {}
     };
     std::vector<std::string> collectionsToLock;
-    std::vector<std::pair<arangodb::velocypack::Slice, arangodb::iresearch::IResearchLinkMeta>> linkDefinitions;
+    std::vector<std::pair<arangodb::velocypack::Builder, arangodb::iresearch::IResearchLinkMeta>> linkDefinitions;
     std::vector<State> linkModifications;
 
     for (arangodb::velocypack::ObjectIterator linksItr(links); linksItr.valid(); ++linksItr) {
@@ -287,10 +287,23 @@ arangodb::Result updateLinks(
         continue; // only removal requested
       }
 
+      arangodb::velocypack::Builder namedJson;
+
+      namedJson.openObject();
+
+      if (!arangodb::iresearch::mergeSlice(namedJson, link) || !arangodb::iresearch::IResearchLink::setName(namedJson, view.name())) {
+        return arangodb::Result(
+          TRI_ERROR_INTERNAL,
+          std::string("failed to update link definition with the view name while updating iResearch view '") + view.name() + "' collection '" + collectionName + "'"
+        );
+      }
+
+      namedJson.close();
+
       std::string error;
       arangodb::iresearch::IResearchLinkMeta linkMeta;
 
-      if (!linkMeta.init(link, error)) {
+      if (!linkMeta.init(namedJson.slice(), error)) {
         return arangodb::Result(
           TRI_ERROR_BAD_PARAMETER,
           std::string("error parsing link parameters from json for iResearch view '") + view.name() + "' collection '" + collectionName + "' error '" + error + "'"
@@ -299,7 +312,7 @@ arangodb::Result updateLinks(
 
       linkModifications.emplace_back(collectionsToLock.size(), linkDefinitions.size());
       collectionsToLock.emplace_back(collectionName);
-      linkDefinitions.emplace_back(link, std::move(linkMeta));
+      linkDefinitions.emplace_back(std::move(namedJson), std::move(linkMeta));
     }
 
     if (collectionsToLock.empty()) {
@@ -371,7 +384,7 @@ arangodb::Result updateLinks(
     for (auto& state: linkModifications) {
       if (state._valid && state._linkDefinitionsOffset < linkDefinitions.size()) {
         bool isNew = false;
-        state._valid = state._collection->createIndex(&trx, linkDefinitions[state._linkDefinitionsOffset].first, isNew) && isNew;
+        state._valid = state._collection->createIndex(&trx, linkDefinitions[state._linkDefinitionsOffset].first.slice(), isNew) && isNew;
       }
     }
 
@@ -1298,6 +1311,19 @@ arangodb::Result IResearchView::updateProperties(
     );
   }
 
+  arangodb::velocypack::Builder namedJson;
+
+  namedJson.openObject();
+
+  if (!mergeSlice(namedJson, slice) || !IResearchViewMeta::setName(namedJson, name())) {
+    return arangodb::Result(
+      TRI_ERROR_INTERNAL,
+      std::string("failed to update view definition with the view name while updating iResearch view '") + name() + "'"
+    );
+  }
+
+  namedJson.close();
+
   auto& metaStore = *(_logicalView->getPhysical());
   std::string error;
   IResearchViewMeta meta;
@@ -1305,7 +1331,7 @@ arangodb::Result IResearchView::updateProperties(
   WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
   SCOPED_LOCK(mutex);
 
-  if (!meta.init(slice, error, _meta, &mask)) {
+  if (!meta.init(namedJson.slice(), error, _meta, &mask)) {
     return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
   }
 
@@ -1327,11 +1353,20 @@ arangodb::Result IResearchView::updateProperties(
 
     auto res = updateLinks(*vocbase, *this, slice.get(LINKS_FIELD));
 
-    meta._collections.swap(_meta._collections); // collections might have been modified by create/remove
-
     if (!res.ok()) {
+      arangodb::velocypack::Builder builder;
+
+      builder.openObject();
+
+      if (meta.json(builder)) {
+        builder.close();
+        updateLinks(*vocbase, *this, builder.hasKey(LINKS_FIELD) ? builder.getKey(LINKS_FIELD) : arangodb::velocypack::Slice());
+      }
+
       return res;
     }
+
+    meta._collections.swap(_meta._collections); // collections might have been modified by create/remove
   }
 
   DataStore storePersisted; // renamed persisted data store

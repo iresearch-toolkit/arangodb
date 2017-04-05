@@ -31,8 +31,8 @@
 
 #include "utils/string.hpp" // for irs::string_ref
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 // according to Slice.h:330
 uint8_t const COMPACT_ARRAY = 0x13;
@@ -146,6 +146,15 @@ inline bool getString(
 
   return true;
 }
+
+//////////////////////////////////////////////////////////////////////////////
+/// @brief append the contents fo slice to the builder
+/// @return success
+//////////////////////////////////////////////////////////////////////////////
+bool mergeSlice(
+  arangodb::velocypack::Builder& builder,
+  arangodb::velocypack::Slice const& slice
+);
 
 ////////////////////////////////////////////////////////////////////////////
 /// @struct IteratorValue
@@ -312,6 +321,6 @@ class ObjectIterator {
   std::vector<Iterator> _stack;
 }; // ObjectIterator
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
 #endif

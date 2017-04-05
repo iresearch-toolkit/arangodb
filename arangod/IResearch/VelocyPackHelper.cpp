@@ -23,8 +23,34 @@
 
 #include "VelocyPackHelper.h"
 
-namespace arangodb {
-namespace iresearch {
+#include "velocypack/Builder.h"
+#include "velocypack/Iterator.h"
+
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
+
+bool mergeSlice(
+    arangodb::velocypack::Builder& builder,
+    arangodb::velocypack::Slice const& slice
+) {
+  if (builder.isOpenArray()) {
+    if (slice.isArray()) {
+      builder.add(arangodb::velocypack::ArrayIterator(slice));
+    } else {
+      builder.add(slice);
+    }
+
+    return true;
+  }
+
+  if (builder.isOpenObject() && slice.isObject()) {
+    builder.add(arangodb::velocypack::ObjectIterator(slice));
+
+    return true;
+  }
+
+  return false;
+}
 
 // can't make it noexcept since VPackSlice::getNthOffset is not noexcept
 void Iterator::reset() {
@@ -79,6 +105,9 @@ ObjectIterator& ObjectIterator::operator++() {
   return *this;
 }
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
 
+// -----------------------------------------------------------------------------
+// --SECTION--                                                       END-OF-FILE
+// -----------------------------------------------------------------------------

@@ -212,7 +212,7 @@ bool IResearchLink::isSorted() const {
       auto vocbase = collection->vocbase();
 
       if (vocbase && name.isString()) {
-        viewName = definition.copyString();
+        viewName = name.copyString();
 
         PTR_NAMED(IResearchLink, ptr, iid, collection, std::move(meta));
         auto* view = IResearchView::linkRegister(*vocbase, viewName, ptr);
@@ -299,6 +299,19 @@ int IResearchLink::remove(
 
   // remove documents matching on cid and rid
   return _view->remove(trx->state()->id(), _collection->cid(), rid);
+}
+
+/*static*/ bool IResearchLink::setName(
+  arangodb::velocypack::Builder& builder,
+  std::string const& value
+) {
+  if (!builder.isOpenObject()) {
+    return false;
+  }
+
+  builder.add(VIEW_NAME_FIELD, arangodb::velocypack::Value(value));
+
+  return true;
 }
 
 void IResearchLink::toVelocyPack(VPackBuilder& builder, bool withFigures) const {
