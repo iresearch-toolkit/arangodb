@@ -32,6 +32,14 @@
 #include "utils/string.hpp" // for irs::string_ref
 
 NS_BEGIN(arangodb)
+NS_BEGIN(velocypack)
+
+class Builder; // forward declarations
+
+NS_END // velocypack
+NS_END // arangodb
+
+NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
 // according to Slice.h:330
@@ -49,6 +57,16 @@ inline bool isCompactArrayOrObject(VPackSlice const& slice) {
   auto const head = slice.head();
   return COMPACT_ARRAY == head || COMPACT_OBJECT == head;
 }
+
+//////////////////////////////////////////////////////////////////////////////
+/// @return a slice representing an empty array
+//////////////////////////////////////////////////////////////////////////////
+arangodb::velocypack::Slice const& emptyArraySlice();
+
+//////////////////////////////////////////////////////////////////////////////
+/// @return a slice representing an empty object
+//////////////////////////////////////////////////////////////////////////////
+arangodb::velocypack::Slice const& emptyObjectSlice();
 
 //////////////////////////////////////////////////////////////////////////////
 /// @brief extracts string_ref from VPackSlice, note that provided 'slice'
