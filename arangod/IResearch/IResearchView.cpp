@@ -97,43 +97,6 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   return true;
 }
 
-class ScopedTransaction {
- public:
-  ScopedTransaction(arangodb::transaction::Methods& trx)
-    : _status(trx.begin()), _trx(trx) {
-    _abort = _status == TRI_ERROR_NO_ERROR;
-  }
-
-  ~ScopedTransaction() {
-    if (_abort) {
-      _trx.abort();
-    }
-  }
-
-  operator int() const noexcept {
-    return _status;
-  }
-
-  int abort() {
-    _abort = false;
-    _status = _trx.abort();
-
-    return _status;
-  }
-
-  int commit() {
-    _abort = false;
-    _status = _trx.commit();
-
-    return _status;
-  }
-
- private:
-  bool _abort;
-  int _status;
-  arangodb::transaction::Methods& _trx;
-};
-
 arangodb::Result createPersistedDataDirectory(
     irs::directory::ptr& dstDirectory, // out param
     irs::index_writer::ptr& dstWriter, // out param
@@ -329,11 +292,11 @@ arangodb::Result updateLinks(
       false, // waitForSync
       false // allowImplicitCollections
     );
-    ScopedTransaction transaction(trx);
+    auto res = trx.begin();
 
-    if (TRI_ERROR_NO_ERROR != transaction) {
+    if (TRI_ERROR_NO_ERROR != res) {
       return arangodb::Result(
-        transaction,
+        res,
         std::string("failed to start collection updating transaction for iResearch view '") + view.name() + "'"
       );
     }
@@ -398,7 +361,7 @@ arangodb::Result updateLinks(
     }
 
     if (error.empty()) {
-      return arangodb::Result(transaction.commit());
+      return arangodb::Result(trx.commit());
     }
 
     return arangodb::Result(
@@ -773,9 +736,8 @@ void IResearchView::getPropertiesVPack(
       false, // waitForSync
       false // allowImplicitCollections
     );
-    ScopedTransaction transaction(trx);
 
-    if (TRI_ERROR_NO_ERROR != transaction) {
+    if (TRI_ERROR_NO_ERROR != trx.begin()) {
       return; // nothing more to output
     }
 
@@ -811,7 +773,7 @@ void IResearchView::getPropertiesVPack(
       }
     }
 
-    transaction.commit();
+    trx.commit();
   } catch (std::exception& e) {
     LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "caught error while generating json for iResearch view '" << name() << "': " << e.what();
     IR_EXCEPTION();
@@ -1311,6 +1273,15 @@ arangodb::Result IResearchView::updateProperties(
     );
   }
 
+  auto* vocbase = _logicalView->vocbase();
+
+  if (!vocbase) {
+    return arangodb::Result(
+      TRI_ERROR_INTERNAL,
+      std::string("failed to find vocbase while updating links for iResearch view '") + name() + "'"
+    );
+  }
+
   arangodb::velocypack::Builder namedJson;
 
   namedJson.openObject();
@@ -1329,116 +1300,111 @@ arangodb::Result IResearchView::updateProperties(
   IResearchViewMeta meta;
   IResearchViewMeta::Mask mask;
   WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
-  SCOPED_LOCK(mutex);
-
-  if (!meta.init(namedJson.slice(), error, _meta, &mask)) {
-    return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
-  }
-
-  // reset non-updatable values to match current meta
-  meta._collections = _meta._collections;
-  meta._iid = _meta._iid;
-  meta._name = _meta._name;
-
-  // update links if requested
-  if (slice.hasKey(LINKS_FIELD)) {
-    auto* vocbase = _logicalView->vocbase();
-
-    if (!vocbase) {
-      return arangodb::Result(
-        TRI_ERROR_INTERNAL,
-        std::string("failed to find vocbase while updating links for iResearch view '") + name() + "'"
-      );
-    }
-
-    auto res = updateLinks(*vocbase, *this, slice.get(LINKS_FIELD));
-
-    if (!res.ok()) {
-      arangodb::velocypack::Builder builder;
-
-      builder.openObject();
-
-      if (meta.json(builder)) {
-        builder.close();
-        updateLinks(*vocbase, *this, builder.hasKey(LINKS_FIELD) ? builder.getKey(LINKS_FIELD) : arangodb::velocypack::Slice());
-      }
-
-      return res;
-    }
-
-    meta._collections.swap(_meta._collections); // collections might have been modified by create/remove
-  }
-
-  DataStore storePersisted; // renamed persisted data store
-  std::string srcDataPath = _meta._dataPath;
-  char const* dropDataPath = nullptr;
-
-  // copy directory to new location
-  if (mask._dataPath) {
-    auto res = createPersistedDataDirectory(
-      storePersisted._directory,
-      storePersisted._writer,
-      meta._dataPath,
-      _storePersisted._reader, // reader from the original persisted data store
-      name()
-    );
-
-    if (!res.ok()) {
-      return res;
-    }
-
-    try {
-      storePersisted._reader = irs::directory_reader::open(*(storePersisted._directory));
-      dropDataPath = _storePersisted ? srcDataPath.c_str() : nullptr;
-    } catch (std::exception& e) {
-      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "' data path '" + meta._dataPath + "': " << e.what();
-      IR_EXCEPTION();
-      return arangodb::Result(
-        TRI_ERROR_BAD_PARAMETER,
-        std::string("error opening iResearch view '") + name() + "' data path '" + meta._dataPath + "'"
-      );
-    } catch (...) {
-      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "' data path '" + meta._dataPath + "'";
-      IR_EXCEPTION();
-      return arangodb::Result(
-        TRI_ERROR_BAD_PARAMETER,
-        std::string("error opening iResearch view '") + name() + "' data path '" + meta._dataPath + "'"
-      );
-    }
-  }
-
-  IResearchViewMeta metaBackup;
-
-  metaBackup = std::move(_meta);
-  _meta = std::move(meta);
-
-  auto res = metaStore.persistProperties(); // persist '_meta' definition (so that on failure can revert meta)
-
-  if (!res.ok()) {
-    _meta = std::move(metaBackup); // revert to original meta
-    LOG_TOPIC(WARN, Logger::FIXME) << "failed to persist view definition while updating iResearch view '" << name() << "'";
-
-    return res;
-  }
-
-  if (mask._dataPath) {
-    _storePersisted = std::move(storePersisted);
-  }
-
-  if (mask._threadsMaxIdle) {
-    _threadPool.max_idle(meta._threadsMaxIdle);
-  }
-
-  if (mask._threadsMaxTotal) {
-    _threadPool.max_threads(meta._threadsMaxTotal);
-  }
+  arangodb::Result res;
 
   {
-    SCOPED_LOCK(_asyncMutex);
-    _asyncCondition.notify_all(); // trigger reload of timeout settings for async jobs
+    SCOPED_LOCK(mutex);
+
+    arangodb::velocypack::Builder originalMetaJson; // required for reverting links on failure
+
+    if (!_meta.json(arangodb::velocypack::ObjectBuilder(&originalMetaJson))) {
+      return arangodb::Result(
+        TRI_ERROR_INTERNAL,
+        std::string("failed to generate json definition while updating iResearch view '") + name() + "'"
+      );
+    }
+
+    if (!meta.init(namedJson.slice(), error, _meta, &mask)) {
+      return arangodb::Result(TRI_ERROR_BAD_PARAMETER, std::move(error));
+    }
+
+    // reset non-updatable values to match current meta
+    meta._collections = _meta._collections;
+    meta._iid = _meta._iid;
+    meta._name = _meta._name;
+
+    DataStore storePersisted; // renamed persisted data store
+    std::string srcDataPath = _meta._dataPath;
+    char const* dropDataPath = nullptr;
+
+    // copy directory to new location
+    if (mask._dataPath) {
+      auto res = createPersistedDataDirectory(
+        storePersisted._directory,
+        storePersisted._writer,
+        meta._dataPath,
+        _storePersisted._reader, // reader from the original persisted data store
+        name()
+      );
+
+      if (!res.ok()) {
+        return res;
+      }
+
+      try {
+        storePersisted._reader = irs::directory_reader::open(*(storePersisted._directory));
+        dropDataPath = _storePersisted ? srcDataPath.c_str() : nullptr;
+      } catch (std::exception& e) {
+        LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "' data path '" + meta._dataPath + "': " << e.what();
+        IR_EXCEPTION();
+        return arangodb::Result(
+          TRI_ERROR_BAD_PARAMETER,
+          std::string("error opening iResearch view '") + name() + "' data path '" + meta._dataPath + "'"
+        );
+      } catch (...) {
+        LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while opening iResearch view '" << name() << "' data path '" + meta._dataPath + "'";
+        IR_EXCEPTION();
+        return arangodb::Result(
+          TRI_ERROR_BAD_PARAMETER,
+          std::string("error opening iResearch view '") + name() + "' data path '" + meta._dataPath + "'"
+        );
+      }
+    }
+
+    IResearchViewMeta metaBackup;
+
+    metaBackup = std::move(_meta);
+    _meta = std::move(meta);
+
+    res = metaStore.persistProperties(); // persist '_meta' definition (so that on failure can revert meta)
+
+    if (!res.ok()) {
+      _meta = std::move(metaBackup); // revert to original meta
+      LOG_TOPIC(WARN, Logger::FIXME) << "failed to persist view definition while updating iResearch view '" << name() << "'";
+
+      return res;
+    }
+
+    if (mask._dataPath) {
+      _storePersisted = std::move(storePersisted);
+    }
+
+    if (mask._threadsMaxIdle) {
+      _threadPool.max_idle(meta._threadsMaxIdle);
+    }
+
+    if (mask._threadsMaxTotal) {
+      _threadPool.max_threads(meta._threadsMaxTotal);
+    }
+
+    {
+      SCOPED_LOCK(_asyncMutex);
+      _asyncCondition.notify_all(); // trigger reload of timeout settings for async jobs
+    }
+
+    if (dropDataPath) {
+      res = TRI_RemoveDirectory(dropDataPath); // ignore error (only done to tidy-up filesystem)
+    }
   }
 
-  return dropDataPath ? arangodb::Result(TRI_RemoveDirectory(dropDataPath)) : arangodb::Result();
+  // update links if requested (on a best-effort basis)
+  // indexing of collections is done in different threads so no locks can be held and rollback is not possible
+  // as a result it's also possible for links to be simultaneously modified via a different callflow (e.g. from collections)
+  if (slice.hasKey(LINKS_FIELD)) {
+    res = updateLinks(*vocbase, *this, slice.get(LINKS_FIELD));
+  }
+
+  return res;
 }
 
 NS_END // iresearch

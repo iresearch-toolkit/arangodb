@@ -33,6 +33,11 @@
 NS_LOCAL
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief the string representing the link type
+////////////////////////////////////////////////////////////////////////////////
+static const std::string LINK_TYPE("iresearch");
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief the name of the field in the iResearch Link definition denoting the
 ///        corresponding iResearch View
 ////////////////////////////////////////////////////////////////////////////////
@@ -52,6 +57,7 @@ VPackSlice const& emptyParentSlice() {
       fieldsBuilder.close(); // empty array
       _builder.openObject();
       _builder.add("fields", fieldsBuilder.slice()); // empty array
+      _builder.add("type", VPackValue(LINK_TYPE)); // the index type required by Index
       _builder.close(); // object with just one field required by the Index constructor
       _slice = _builder.slice();
     }
@@ -342,7 +348,7 @@ Index::IndexType IResearchLink::type() const {
 }
 
 char const* IResearchLink::typeName() const {
-  return "iresearch";
+  return LINK_TYPE.c_str();
 }
 
 int IResearchLink::unload() {

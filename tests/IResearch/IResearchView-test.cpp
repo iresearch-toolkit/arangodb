@@ -31,6 +31,7 @@
 #include "IResearch/IResearchLink.h"
 #include "IResearch/IResearchLinkMeta.h"
 #include "IResearch/IResearchView.h"
+#include "RestServer/ViewTypesFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
 #include "StorageEngine/StorageEngine.h"
 #include "StorageEngine/TransactionCollection.h"
@@ -46,7 +47,6 @@ NS_LOCAL
 
 class PhysicalCollectionMock: public arangodb::PhysicalCollection {
  public:
-  std::vector<std::shared_ptr<arangodb::Index>> _indexes;
   PhysicalCollectionMock(arangodb::LogicalCollection* collection, VPackSlice const& info): PhysicalCollection(collection, info) {}
   virtual bool applyForTickRange(TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax, std::function<bool(TRI_voc_tick_t foundTick, TRI_df_marker_t const* marker)> const& callback) override { TRI_ASSERT(false); return false; }
   virtual PhysicalCollection* clone(arangodb::LogicalCollection*, PhysicalCollection*) override { TRI_ASSERT(false); return nullptr; }
@@ -54,7 +54,7 @@ class PhysicalCollectionMock: public arangodb::PhysicalCollection {
   virtual std::shared_ptr<arangodb::Index> createIndex(arangodb::transaction::Methods* trx, arangodb::velocypack::Slice const& info, bool& created) override { _indexes.emplace_back(arangodb::iresearch::IResearchLink::make(1, _logicalCollection, info)); created = true; return _indexes.back(); }
   virtual void deferDropCollection(std::function<bool(arangodb::LogicalCollection*)> callback) override { TRI_ASSERT(false); }
   virtual bool doCompact() const override { TRI_ASSERT(false); return false; }
-  virtual bool dropIndex(TRI_idx_iid_t iid) override { TRI_ASSERT(false); return false; }
+  virtual bool dropIndex(TRI_idx_iid_t iid) override { for(auto& itr = _indexes.begin(), end = _indexes.end(); itr != end; ++itr) { if ((*itr)->id() != iid) { _indexes.erase(itr); return true; } } return false; }
   virtual void figuresSpecific(std::shared_ptr<arangodb::velocypack::Builder>&) override { TRI_ASSERT(false); }
   virtual std::unique_ptr<arangodb::IndexIterator> getAllIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr, bool reverse) override { TRI_ASSERT(false); return nullptr; }
   virtual std::unique_ptr<arangodb::IndexIterator> getAnyIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr) override { TRI_ASSERT(false); return nullptr; }
@@ -110,19 +110,19 @@ int PhysicalViewMock::persistPropertiesResult;
 
 class TransactionCollectionMock: public arangodb::TransactionCollection {
  public:
-   TransactionCollectionMock(arangodb::TransactionState* state, TRI_voc_cid_t cid): TransactionCollection(state, cid) {}
-   virtual bool canAccess(arangodb::AccessMode::Type accessType) const override { TRI_ASSERT(false); return false; }
+   TransactionCollectionMock(arangodb::TransactionState* state, TRI_voc_cid_t cid): TransactionCollection(state, cid) { }
+   virtual bool canAccess(arangodb::AccessMode::Type accessType) const override { return true; }
    virtual void freeOperations(arangodb::transaction::Methods* activeTrx, bool mustRollback) override { TRI_ASSERT(false); }
    virtual bool hasOperations() const override { TRI_ASSERT(false); return false; }
    virtual bool isLocked() const override { TRI_ASSERT(false); return false; }
    virtual bool isLocked(arangodb::AccessMode::Type, int nestingLevel) const override { TRI_ASSERT(false); return false; }
    virtual int lock() override { TRI_ASSERT(false); return TRI_ERROR_INTERNAL; }
    virtual int lock(arangodb::AccessMode::Type, int nestingLevel) override { TRI_ASSERT(false); return TRI_ERROR_INTERNAL; }
-   virtual void release() override { TRI_ASSERT(false); }
+   virtual void release() override { if (_collection) { _transaction->vocbase()->releaseCollection(_collection); _collection = nullptr; } }
    virtual int unlock(arangodb::AccessMode::Type, int nestingLevel) override { TRI_ASSERT(false); return TRI_ERROR_INTERNAL; }
-   virtual int updateUsage(arangodb::AccessMode::Type accessType, int nestingLevel) override { TRI_ASSERT(false); return TRI_ERROR_INTERNAL; }
+   virtual int updateUsage(arangodb::AccessMode::Type accessType, int nestingLevel) override { return TRI_ERROR_NO_ERROR; }
    virtual void unuse(int nestingLevel) override { TRI_ASSERT(false); }
-   virtual int use(int nestingLevel) override { TRI_ASSERT(false); return TRI_ERROR_INTERNAL; }
+   virtual int use(int nestingLevel) override { TRI_vocbase_col_status_e status; _collection = _transaction->vocbase()->useCollection(_cid, status); return _collection ? TRI_ERROR_NO_ERROR : TRI_ERROR_INTERNAL; }
 };
 
 class TransactionStateMock: public arangodb::TransactionState {
@@ -132,9 +132,9 @@ class TransactionStateMock: public arangodb::TransactionState {
   static size_t commitTransactionCount;
 
   TransactionStateMock(TRI_vocbase_t* vocbase): TransactionState(vocbase) {}
-  virtual int abortTransaction(arangodb::transaction::Methods* trx) override { ++abortTransactionCount; return TRI_ERROR_NO_ERROR; }
-  virtual int beginTransaction(arangodb::transaction::Hints hints) override { ++beginTransactionCount; return TRI_ERROR_NO_ERROR; }
-  virtual int commitTransaction(arangodb::transaction::Methods* trx) override { ++commitTransactionCount; return TRI_ERROR_NO_ERROR; }
+  virtual int abortTransaction(arangodb::transaction::Methods* trx) override { ++abortTransactionCount; updateStatus(arangodb::transaction::Status::ABORTED); unuseCollections(_nestingLevel); return TRI_ERROR_NO_ERROR; }
+  virtual int beginTransaction(arangodb::transaction::Hints hints) override { ++beginTransactionCount; useCollections(_nestingLevel); updateStatus(arangodb::transaction::Status::RUNNING); return TRI_ERROR_NO_ERROR; }
+  virtual int commitTransaction(arangodb::transaction::Methods* trx) override { ++commitTransactionCount; updateStatus(arangodb::transaction::Status::COMMITTED); unuseCollections(_nestingLevel); return TRI_ERROR_NO_ERROR; }
   virtual bool hasFailedOperations() const override { TRI_ASSERT(false); return false; }
 };
 
@@ -204,10 +204,19 @@ NS_END
 
 struct IResearchViewSetup {
   StorageEngineMock engine;
+  arangodb::application_features::ApplicationServer server;
   std::string testFilesystemPath;
 
-  IResearchViewSetup() {
+  IResearchViewSetup(): server(nullptr, nullptr) {
     arangodb::EngineSelectorFeature::ENGINE = &engine;
+    arangodb::application_features::ApplicationServer::server->addFeature(
+      new arangodb::ViewTypesFeature(arangodb::application_features::ApplicationServer::server)
+    );
+    arangodb::ViewTypesFeature::registerViewImplementation(
+      arangodb::iresearch::IResearchView::type(),
+      arangodb::iresearch::IResearchView::make
+    );
+
     PhysicalViewMock::persistPropertiesResult = TRI_ERROR_NO_ERROR;
     TransactionStateMock::abortTransactionCount = 0;
     TransactionStateMock::beginTransactionCount = 0;
@@ -228,6 +237,7 @@ struct IResearchViewSetup {
 
   ~IResearchViewSetup() {
     TRI_RemoveDirectory(testFilesystemPath.c_str());
+    arangodb::application_features::ApplicationServer::server = nullptr;
     arangodb::EngineSelectorFeature::ENGINE = nullptr;
   }
 };
@@ -348,20 +358,18 @@ SECTION("test_open") {
 }
 
 SECTION("test_update") {
-  auto namedJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testView\" }");
   auto createJson = arangodb::velocypack::Parser::fromJson("{ \
-    \"name\": \"testView\" \
+    \"name\": \"testView\", \
+    \"type\": \"iresearch\" \
   }");
-  TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
-  arangodb::LogicalView logicalView(&vocbase, namedJson->slice());
-
-  auto c = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testCollection\" }");
-  vocbase.createCollection(c->slice(), 1);
 
   // modify meta params
   {
-    auto view = arangodb::iresearch::IResearchView::make(&logicalView, createJson->slice(), false);
-    CHECK(false == (!view));
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
 
     arangodb::iresearch::IResearchViewMeta expectedMeta;
     auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
@@ -396,8 +404,12 @@ SECTION("test_update") {
 
   // test rollback on meta modification failure
   {
-    auto view = arangodb::iresearch::IResearchView::make(&logicalView, createJson->slice(), false);
-    CHECK(false == (!view));
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
     std::string dataPath = (irs::utf8_path()/s.testFilesystemPath/std::string("deleteme")).utf8();
     auto res = TRI_CreateDatafile(dataPath, 1); // create a file where the data path directory should be
     arangodb::iresearch::IResearchViewMeta expectedMeta;
@@ -430,8 +442,11 @@ SECTION("test_update") {
 
   // test rollback on persist failure
   {
-    auto view = arangodb::iresearch::IResearchView::make(&logicalView, createJson->slice(), false);
-    CHECK(false == (!view));
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
 
     arangodb::iresearch::IResearchViewMeta expectedMeta;
     auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
@@ -441,8 +456,9 @@ SECTION("test_update") {
     }");
 
     expectedMeta._name = "testView";
-    PhysicalViewMock::persistPropertiesResult = TRI_ERROR_INTERNAL;
+    PhysicalViewMock::persistPropertiesResult = TRI_ERROR_INTERNAL; // test fail
     CHECK((TRI_ERROR_INTERNAL == view->updateProperties(updateJson->slice(), true).errorNumber()));
+    PhysicalViewMock::persistPropertiesResult = TRI_ERROR_NO_ERROR; // revert to valid
 
     arangodb::velocypack::Builder builder;
 
@@ -463,15 +479,64 @@ SECTION("test_update") {
 
   // add a new link
   {
-    // FIXME TODO implement
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto collectionJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testCollection\" }");
+    auto* logicalCollection = vocbase.createCollection(collectionJson->slice(), 0);
+    CHECK((nullptr != logicalCollection));
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::iresearch::IResearchViewMeta expectedMeta;
+    std::unordered_map<std::string, arangodb::iresearch::IResearchLinkMeta> expectedLinkMeta;
+    auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+      \"links\": { \
+        \"testCollection\": { \
+        } \
+      }}");
+
+    expectedMeta._collections.insert(logicalCollection->cid());
+    expectedMeta._name = "testView";
+    expectedLinkMeta["testCollection"]; // use defaults
+    CHECK((view->updateProperties(updateJson->slice(), true).ok()));
+
+    arangodb::velocypack::Builder builder;
+
+    builder.openObject();
+    view->getPropertiesVPack(builder);
+    builder.close();
+
+    auto slice = builder.slice();
+    arangodb::iresearch::IResearchViewMeta meta;
+    std::string error;
+
+    CHECK((13U == slice.length()));
+    CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+    auto tmpSlice = slice.get("links");
+    CHECK((true == tmpSlice.isObject() && 1 == tmpSlice.length()));
+
+    for (arangodb::velocypack::ObjectIterator itr(tmpSlice); itr.valid(); ++itr) {
+      arangodb::iresearch::IResearchLinkMeta linkMeta;
+      auto key = itr.key();
+      auto value = itr.value();
+      CHECK((true == key.isString()));
+
+      auto expectedItr = expectedLinkMeta.find(key.copyString());
+      CHECK((
+        true == value.isObject()
+        && expectedItr != expectedLinkMeta.end()
+        && linkMeta.init(value, error)
+        && expectedItr->second == linkMeta
+      ));
+      expectedLinkMeta.erase(expectedItr);
+    }
+
+    CHECK((true == expectedLinkMeta.empty()));
   }
 
   // add another link and remove first link
-  {
-    // FIXME TODO implement
-  }
-
-  // test rollback on link modification failure
   {
     // FIXME TODO implement
   }
