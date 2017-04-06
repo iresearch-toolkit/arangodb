@@ -311,7 +311,7 @@ arangodb::Result updateLinks(
     }
 
     // resolve corresponding collection and link
-    for (auto itr = linkModifications.begin(), end = linkModifications.end(); itr != end;) {
+    for (auto itr = linkModifications.begin(); itr != linkModifications.end();) {
       auto& state = *itr;
       auto& collectionName = collectionsToLock[state._collectionsToLockOffset];
 
@@ -1300,7 +1300,7 @@ arangodb::Result IResearchView::updateProperties(
   IResearchViewMeta meta;
   IResearchViewMeta::Mask mask;
   WriteMutex mutex(_mutex); // '_meta' can be asynchronously read
-  arangodb::Result res;
+  arangodb::Result res = arangodb::Result(/*TRI_ERROR_NO_ERROR*/);
 
   {
     SCOPED_LOCK(mutex);

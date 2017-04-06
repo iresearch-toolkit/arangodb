@@ -54,7 +54,7 @@ class PhysicalCollectionMock: public arangodb::PhysicalCollection {
   virtual std::shared_ptr<arangodb::Index> createIndex(arangodb::transaction::Methods* trx, arangodb::velocypack::Slice const& info, bool& created) override { _indexes.emplace_back(arangodb::iresearch::IResearchLink::make(1, _logicalCollection, info)); created = true; return _indexes.back(); }
   virtual void deferDropCollection(std::function<bool(arangodb::LogicalCollection*)> callback) override { TRI_ASSERT(false); }
   virtual bool doCompact() const override { TRI_ASSERT(false); return false; }
-  virtual bool dropIndex(TRI_idx_iid_t iid) override { for(auto& itr = _indexes.begin(), end = _indexes.end(); itr != end; ++itr) { if ((*itr)->id() != iid) { _indexes.erase(itr); return true; } } return false; }
+  virtual bool dropIndex(TRI_idx_iid_t iid) override { for(auto& itr = _indexes.begin(), end = _indexes.end(); itr != end; ++itr) { if ((*itr)->id() == iid) { _indexes.erase(itr); return true; } } return false; }
   virtual void figuresSpecific(std::shared_ptr<arangodb::velocypack::Builder>&) override { TRI_ASSERT(false); }
   virtual std::unique_ptr<arangodb::IndexIterator> getAllIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr, bool reverse) override { TRI_ASSERT(false); return nullptr; }
   virtual std::unique_ptr<arangodb::IndexIterator> getAnyIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr) override { TRI_ASSERT(false); return nullptr; }
@@ -232,11 +232,13 @@ struct IResearchViewSetup {
     TRI_CreateDirectory(testFilesystemPath.c_str(), systemError, systemErrorStr);
 
     // suppress log messages since tests check error conditions
-    //irs::logger::output_le(iresearch::logger::IRL_FATAL, stderr);
+    arangodb::LogTopic::setLogLevel(arangodb::Logger::FIXME.name(), arangodb::LogLevel::FATAL);
+    irs::logger::output_le(iresearch::logger::IRL_FATAL, stderr);
   }
 
   ~IResearchViewSetup() {
     TRI_RemoveDirectory(testFilesystemPath.c_str());
+    arangodb::LogTopic::setLogLevel(arangodb::Logger::FIXME.name(), arangodb::LogLevel::DEFAULT);
     arangodb::application_features::ApplicationServer::server = nullptr;
     arangodb::EngineSelectorFeature::ENGINE = nullptr;
   }
@@ -536,9 +538,177 @@ SECTION("test_update") {
     CHECK((true == expectedLinkMeta.empty()));
   }
 
-  // add another link and remove first link
+  // add new link to non-existant collection
   {
-    // FIXME TODO implement
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::iresearch::IResearchViewMeta expectedMeta;
+    auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+      \"links\": { \
+        \"testCollection\": {} \
+      }}");
+
+    expectedMeta._name = "testView";
+    CHECK((TRI_ERROR_BAD_PARAMETER == view->updateProperties(updateJson->slice(), true).errorNumber()));
+
+    arangodb::velocypack::Builder builder;
+
+    builder.openObject();
+    view->getPropertiesVPack(builder);
+    builder.close();
+
+    auto slice = builder.slice();
+    arangodb::iresearch::IResearchViewMeta meta;
+    std::string error;
+
+    CHECK((13U == slice.length()));
+    CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+    auto tmpSlice = slice.get("links");
+    CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
+  }
+
+  // remove link
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto collectionJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testCollection\" }");
+    auto* logicalCollection = vocbase.createCollection(collectionJson->slice(), 0);
+    CHECK((nullptr != logicalCollection));
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::iresearch::IResearchViewMeta expectedMeta;
+
+    expectedMeta._collections.insert(logicalCollection->cid());
+    expectedMeta._name = "testView";
+
+    {
+      auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+        \"links\": { \
+          \"testCollection\": {} \
+      }}");
+
+      CHECK((view->updateProperties(updateJson->slice(), true).ok()));
+
+      arangodb::velocypack::Builder builder;
+
+      builder.openObject();
+      view->getPropertiesVPack(builder);
+      builder.close();
+
+      auto slice = builder.slice();
+      arangodb::iresearch::IResearchViewMeta meta;
+      std::string error;
+
+      CHECK((13U == slice.length()));
+      CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+      auto tmpSlice = slice.get("links");
+      CHECK((true == tmpSlice.isObject() && 1 == tmpSlice.length()));
+    }
+
+    {
+      auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+        \"links\": { \
+          \"testCollection\": null \
+      }}");
+
+      CHECK((view->updateProperties(updateJson->slice(), true).ok()));
+
+      arangodb::velocypack::Builder builder;
+
+      builder.openObject();
+      view->getPropertiesVPack(builder);
+      builder.close();
+
+      auto slice = builder.slice();
+      arangodb::iresearch::IResearchViewMeta meta;
+      std::string error;
+
+      CHECK((13U == slice.length()));
+      CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+      auto tmpSlice = slice.get("links");
+      CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
+    }
+  }
+
+  // remove link from non-existant collection
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::iresearch::IResearchViewMeta expectedMeta;
+    auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+      \"links\": { \
+        \"testCollection\": null \
+      }}");
+
+    expectedMeta._name = "testView";
+    CHECK((TRI_ERROR_BAD_PARAMETER == view->updateProperties(updateJson->slice(), true).errorNumber()));
+
+    arangodb::velocypack::Builder builder;
+
+    builder.openObject();
+    view->getPropertiesVPack(builder);
+    builder.close();
+
+    auto slice = builder.slice();
+    arangodb::iresearch::IResearchViewMeta meta;
+    std::string error;
+
+    CHECK((13U == slice.length()));
+    CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+    auto tmpSlice = slice.get("links");
+    CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
+  }
+
+  // remove non-existant link
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto collectionJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testCollection\" }");
+    auto* logicalCollection = vocbase.createCollection(collectionJson->slice(), 0);
+    CHECK((nullptr != logicalCollection));
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+      \"links\": { \
+        \"testCollection\": null \
+    }}");
+    arangodb::iresearch::IResearchViewMeta expectedMeta;
+
+    expectedMeta._name = "testView";
+
+    CHECK((view->updateProperties(updateJson->slice(), true).ok()));
+
+    arangodb::velocypack::Builder builder;
+
+    builder.openObject();
+    view->getPropertiesVPack(builder);
+    builder.close();
+
+    auto slice = builder.slice();
+    arangodb::iresearch::IResearchViewMeta meta;
+    std::string error;
+
+    CHECK((13U == slice.length()));
+    CHECK((meta.init(slice, error) && expectedMeta == meta));
+
+    auto tmpSlice = slice.get("links");
+    CHECK((true == tmpSlice.isObject() && 0 == tmpSlice.length()));
   }
 }
 
