@@ -9,10 +9,12 @@ endforeach()
 if (USE_IRESEARCH)
   set(IRESEARCH_TESTS_SOURCES
     IResearch/Containers-test.cpp
+    IResearch/IResearchLink-test.cpp
     IResearch/IResearchLinkMeta-test.cpp
     IResearch/IResearchView-test.cpp
     IResearch/IResearchViewMeta-test.cpp
     IResearch/IResearchDocument-test.cpp
+    IResearch/StorageEngineMock.cpp
     IResearch/VelocyPackHelper-test.cpp
   )
 endif ()
