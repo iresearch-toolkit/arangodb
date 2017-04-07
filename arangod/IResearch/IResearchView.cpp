@@ -97,6 +97,78 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   return true;
 }
 
+// a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks
+// hence causing deadlock on lookup of view during link creation/registration
+class ViewRegistry {
+ public:
+  static void insert(TRI_voc_tick_t vocbase, arangodb::iresearch::IResearchView& view);
+  static arangodb::iresearch::IResearchView* lookup(TRI_voc_tick_t vocbase, std::string const& name);
+  static void remove(arangodb::iresearch::IResearchView const& view);
+
+ private:
+  typedef std::pair<TRI_voc_tick_t, std::string> KeyType;
+  struct Hash {
+    size_t operator()(KeyType const& value) const;
+  };
+
+  static ViewRegistry _instance;
+  std::unordered_multimap<KeyType, arangodb::iresearch::IResearchView*, Hash> _map;
+  irs::async_utils::read_write_mutex _mutex;
+};
+
+/*static*/ ViewRegistry ViewRegistry::_instance;
+
+size_t ViewRegistry::Hash::operator()(ViewRegistry::KeyType const& value) const {
+  return std::hash<decltype(value.first)>()(value.first)
+   ^ std::hash<decltype(value.second)>()(value.second);
+}
+
+/*static*/ void ViewRegistry::insert(
+    TRI_voc_tick_t vocbase, arangodb::iresearch::IResearchView& view
+) {
+  WriteMutex mutex(ViewRegistry::_instance._mutex);
+  SCOPED_LOCK(mutex);
+  ViewRegistry::_instance._map.emplace(
+    std::piecewise_construct,
+    std::forward_as_tuple(vocbase, view.name()),
+    std::forward_as_tuple(&view)
+  );
+}
+
+/*static*/ arangodb::iresearch::IResearchView* ViewRegistry::lookup(
+  TRI_voc_tick_t vocbase, std::string const& name
+) {
+  arangodb::iresearch::IResearchView* view = nullptr;
+  ReadMutex mutex(ViewRegistry::_instance._mutex);
+  SCOPED_LOCK(mutex);
+  auto range = ViewRegistry::_instance._map.equal_range(std::make_pair(vocbase, name));
+
+  for (auto itr = range.first; itr != range.second; ++itr) {
+    if (view) {
+      return nullptr; // two identical names in map, don't know which to return
+    }
+
+    view = itr->second;
+  }
+
+  return view;
+}
+
+/*static*/ void ViewRegistry::remove(arangodb::iresearch::IResearchView const& view
+) {
+  WriteMutex mutex(ViewRegistry::_instance._mutex);
+  SCOPED_LOCK(mutex);
+
+  // remove all equal values
+  for (auto itr = ViewRegistry::_instance._map.begin(), end = ViewRegistry::_instance._map.end(); itr != end;) {
+    if (itr->second == &view) {
+      itr = ViewRegistry::_instance._map.erase(itr);
+    } else {
+      ++itr;
+    }
+  }
+}
+
 arangodb::Result createPersistedDataDirectory(
     irs::directory::ptr& dstDirectory, // out param
     irs::index_writer::ptr& dstWriter, // out param
@@ -528,6 +600,7 @@ IResearchView::IResearchView(
 }
 
 IResearchView::~IResearchView() {
+  ViewRegistry::remove(*this);
   _asyncTerminate.store(true); // mark long-running async jobs for terminatation
 
   {
@@ -598,6 +671,28 @@ bool IResearchView::cleanup(size_t maxMsec /*= 0*/) {
 }
 
 void IResearchView::drop() {
+  // drop all known links
+  if (_logicalView && _logicalView->vocbase()) {
+    arangodb::velocypack::Builder builder;
+    ReadMutex mutex(_mutex); // '_meta' can be asynchronously updated
+
+    {
+      arangodb::velocypack::ObjectBuilder builderWrapper(&builder);
+      SCOPED_LOCK(mutex);
+
+      for (auto& entry: _meta._collections) {
+        builderWrapper->add(
+          arangodb::basics::StringUtils::itoa(entry),
+          arangodb::velocypack::Value(arangodb::velocypack::ValueType::Null)
+        );
+      }
+    }
+
+    if (!updateLinks(*(_logicalView->vocbase()), *this, builder.slice()).ok()) {
+      throw std::runtime_error(std::string("failed to remove links while removing iResearch view '") + name() + "'");
+    }
+  }
+
   _asyncTerminate.store(true); // mark long-running async jobs for terminatation
 
   {
@@ -609,6 +704,11 @@ void IResearchView::drop() {
 
   WriteMutex mutex(_mutex); // members can be asynchronously updated
   SCOPED_LOCK(mutex);
+
+  // ArangoDB global consistency check, no known dangling links
+  if (!_meta._collections.empty() || !_links.empty()) {
+    throw std::runtime_error(std::string("links still present while removing iResearch view '") + name() + "'");
+  }
 
   // ...........................................................................
   // if an exception occurs below than a drop retry would most likely happen
@@ -624,7 +724,7 @@ void IResearchView::drop() {
       _storePersisted._directory.reset();
     }
 
-    if (TRI_ERROR_NO_ERROR == TRI_RemoveDirectory(_meta._dataPath.c_str())) {
+    if (!TRI_IsDirectory(_meta._dataPath.c_str()) || TRI_ERROR_NO_ERROR == TRI_RemoveDirectory(_meta._dataPath.c_str())) {
       return; // success
     }
   } catch (std::exception& e) {
@@ -847,6 +947,14 @@ size_t IResearchView::linkCount() const noexcept {
     return nullptr; // do not register empty pointers
   }
 
+  auto* view = ViewRegistry::lookup(vocbase.id(), viewName);
+
+  if (!view || !view->_logicalView) {
+    return nullptr; // no such view
+  }
+
+  auto* logicalView = view->_logicalView;
+/* FIXME TODO switch to vocbase's view registry once vocbase is able to do recursive locks for '_viewsLock'
   auto logicalView = vocbase.lookupView(viewName);
 
   if (!logicalView || !logicalView->getPhysical() || IResearchView::type() != logicalView->type()) {
@@ -863,7 +971,7 @@ size_t IResearchView::linkCount() const noexcept {
   if (!view) {
     return nullptr;
   }
-
+*/
   WriteMutex mutex(view->_mutex); // '_links' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -904,7 +1012,7 @@ bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
   SCOPED_LOCK(mutex);
   LinkPtr ptr;
 
-  for (auto itr = _links.begin(), end = _links.end(); itr != end; ++itr) {
+  for (auto itr = _links.begin(); itr != _links.end();) {
     if (!*itr || !(*itr)->collection()) {
       itr = _links.erase(itr); // remove stale links
 
@@ -957,6 +1065,10 @@ bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
     LOG_TOPIC(WARN, Logger::FIXME) << "failed to initialize iResearch view from definition, error: " << error;
 
     return nullptr;
+  }
+
+  if (impl._logicalView && impl._logicalView->vocbase()) {
+    ViewRegistry::insert(impl._logicalView->vocbase()->id(), impl);
   }
 
   // skip link creation for previously created views or if no links were specified in the definition

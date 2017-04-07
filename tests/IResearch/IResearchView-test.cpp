@@ -54,7 +54,7 @@ class PhysicalCollectionMock: public arangodb::PhysicalCollection {
   virtual std::shared_ptr<arangodb::Index> createIndex(arangodb::transaction::Methods* trx, arangodb::velocypack::Slice const& info, bool& created) override { _indexes.emplace_back(arangodb::iresearch::IResearchLink::make(1, _logicalCollection, info)); created = true; return _indexes.back(); }
   virtual void deferDropCollection(std::function<bool(arangodb::LogicalCollection*)> callback) override { TRI_ASSERT(false); }
   virtual bool doCompact() const override { TRI_ASSERT(false); return false; }
-  virtual bool dropIndex(TRI_idx_iid_t iid) override { for(auto& itr = _indexes.begin(), end = _indexes.end(); itr != end; ++itr) { if ((*itr)->id() == iid) { _indexes.erase(itr); return true; } } return false; }
+  virtual bool dropIndex(TRI_idx_iid_t iid) override { for (auto itr = _indexes.begin(), end = _indexes.end(); itr != end; ++itr) { if ((*itr)->id() == iid) { if (TRI_ERROR_NO_ERROR == (*itr)->drop()) { _indexes.erase(itr); return true; } } } return false; }
   virtual void figuresSpecific(std::shared_ptr<arangodb::velocypack::Builder>&) override { TRI_ASSERT(false); }
   virtual std::unique_ptr<arangodb::IndexIterator> getAllIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr, bool reverse) override { TRI_ASSERT(false); return nullptr; }
   virtual std::unique_ptr<arangodb::IndexIterator> getAnyIterator(arangodb::transaction::Methods* trx, arangodb::ManagedDocumentResult* mdr) override { TRI_ASSERT(false); return nullptr; }
@@ -348,15 +348,82 @@ SECTION("test_defaults") {
 }
 
 SECTION("test_drop") {
-  // FIXME TODO implement
+  std::string dataPath = (irs::utf8_path()/s.testFilesystemPath/std::string("deleteme")).utf8();
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"name\": \"testView\", \
+    \"type\": \"iresearch\", \
+    \"links\": { \"testCollection\": {} }, \
+    \"dataPath\": \"" + arangodb::basics::StringUtils::replace(dataPath, "\\", "/") + "\" \
+  }");
+
+  CHECK((false == TRI_IsDirectory(dataPath.c_str())));
+
+  TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+  auto collectionJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testCollection\" }");
+  auto* logicalCollection = vocbase.createCollection(collectionJson->slice(), 0);
+  CHECK((nullptr != logicalCollection));
+  CHECK((true == !vocbase.lookupView("testView")));
+  CHECK((true == logicalCollection->getIndexes().empty()));
+  auto logicalView = vocbase.createView(json->slice(), 0);
+  CHECK((false == !logicalView));
+  auto view = logicalView->getImplementation();
+  CHECK((false == !view));
+
+  CHECK((false == logicalCollection->getIndexes().empty()));
+  CHECK((false == !vocbase.lookupView("testView")));
+  CHECK((false == TRI_IsDirectory(dataPath.c_str())));
+  view->open();
+  CHECK((true == TRI_IsDirectory(dataPath.c_str())));
+  CHECK((TRI_ERROR_NO_ERROR == vocbase.dropView("testView")));
+  CHECK((true == logicalCollection->getIndexes().empty()));
+  CHECK((true == !vocbase.lookupView("testView")));
+  CHECK((false == TRI_IsDirectory(dataPath.c_str())));
 }
 
 SECTION("test_move_datapath") {
-  // FIXME TODO implement
+  std::string createDataPath = (irs::utf8_path()/s.testFilesystemPath/std::string("deleteme0")).utf8();
+  std::string updateDataPath = (irs::utf8_path()/s.testFilesystemPath/std::string("deleteme1")).utf8();
+  auto namedJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testView\" }");
+  auto createJson = arangodb::velocypack::Parser::fromJson("{ \
+    \"name\": \"testView\", \
+    \"type\": \"iresearch\", \
+    \"dataPath\": \"" + arangodb::basics::StringUtils::replace(createDataPath, "\\", "/") + "\" \
+  }");
+  auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
+    \"dataPath\": \"" + arangodb::basics::StringUtils::replace(updateDataPath, "\\", "/") + "\" \
+  }");
+
+  CHECK((false == TRI_IsDirectory(createDataPath.c_str())));
+  CHECK((false == TRI_IsDirectory(updateDataPath.c_str())));
+
+  TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+  auto logicalView = vocbase.createView(createJson->slice(), 0);
+  CHECK((false == !logicalView));
+  auto view = logicalView->getImplementation();
+  CHECK((false == !view));
+
+  CHECK((false == TRI_IsDirectory(createDataPath.c_str())));
+  view->open();
+  CHECK((true == TRI_IsDirectory(createDataPath.c_str())));
+  CHECK((view->updateProperties(updateJson->slice(), true).ok()));
+  CHECK((false == TRI_IsDirectory(createDataPath.c_str())));
+  CHECK((true == TRI_IsDirectory(updateDataPath.c_str())));
 }
 
 SECTION("test_open") {
-  // FIXME TODO implement
+  std::string dataPath = (irs::utf8_path()/s.testFilesystemPath/std::string("deleteme")).utf8();
+  auto namedJson = arangodb::velocypack::Parser::fromJson("{ \"name\": \"testView\" }");
+  auto json = arangodb::velocypack::Parser::fromJson("{ \
+    \"name\": \"testView\", \
+    \"dataPath\": \"" + arangodb::basics::StringUtils::replace(dataPath, "\\", "/") + "\" \
+  }");
+
+  CHECK((false == TRI_IsDirectory(dataPath.c_str())));
+  auto view = arangodb::iresearch::IResearchView::make(nullptr, json->slice(), false);
+  CHECK(false == (!view));
+  CHECK((false == TRI_IsDirectory(dataPath.c_str())));
+  view->open();
+  CHECK((true == TRI_IsDirectory(dataPath.c_str())));
 }
 
 SECTION("test_update") {
@@ -494,8 +561,7 @@ SECTION("test_update") {
     std::unordered_map<std::string, arangodb::iresearch::IResearchLinkMeta> expectedLinkMeta;
     auto updateJson = arangodb::velocypack::Parser::fromJson("{ \
       \"links\": { \
-        \"testCollection\": { \
-        } \
+        \"testCollection\": {} \
       }}");
 
     expectedMeta._collections.insert(logicalCollection->cid());
@@ -619,6 +685,7 @@ SECTION("test_update") {
           \"testCollection\": null \
       }}");
 
+      expectedMeta._collections.clear();
       CHECK((view->updateProperties(updateJson->slice(), true).ok()));
 
       arangodb::velocypack::Builder builder;
