@@ -1094,11 +1094,7 @@ size_t IResearchView::memory() const {
   size_t size = sizeof(IResearchView);
 
   for (auto& entry: _links) {
-    size += sizeof(entry.get()) + sizeof(*(entry.get()));
-
-    if (entry) {
-      size += entry->memory();
-    }
+    size += sizeof(entry.get()) + sizeof(*(entry.get())); // link contents are not part of size calculation
   }
 
   size += _meta.memory();

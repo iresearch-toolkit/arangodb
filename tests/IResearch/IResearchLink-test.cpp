@@ -108,11 +108,47 @@ SECTION("test_defaults") {
     bool created;
     auto link = logicalCollection->createIndex(nullptr, linkJson->slice(), created);
     CHECK((false == !link && created));
-    // TODO FIXME check all properties
-    // TODO FIXME check insert works
-    // TODO FIXME check remove works
+    CHECK((true == link->allowExpansion()));
+    CHECK((true == link->canBeDropped()));
+    CHECK((logicalCollection == link->collection()));
+    CHECK((link->fieldNames().empty()));
+    CHECK((link->fields().empty()));
+    CHECK((true == link->hasBatchInsert()));
+    CHECK((false == link->hasExpansion()));
+    CHECK((false == link->hasSelectivityEstimate()));
+    CHECK((false == link->implicitlyUnique()));
+    CHECK((true == link->isPersistent()));
+    CHECK((false == link->isSorted()));
+    CHECK((0 < link->memory()));
+    CHECK((true == link->sparse()));
+    CHECK((arangodb::Index::IndexType::TRI_IDX_TYPE_IRESEARCH_LINK == link->type()));
+    CHECK((std::string("iresearch") == link->typeName()));
+    CHECK((false == link->unique()));
+
+    arangodb::iresearch::IResearchLinkMeta actualMeta;
+    arangodb::iresearch::IResearchLinkMeta expectedMeta;
+    auto builder = link->toVelocyPack(true);
+    std::string error;
+
+    CHECK((actualMeta.init(builder->slice(), error) && expectedMeta == actualMeta));
+    auto slice = builder->slice();
+    CHECK((
+      slice.hasKey("name")
+      && slice.get("name").isString()
+      && std::string("testView") == slice.get("name").copyString()
+      && slice.hasKey("figures")
+      && slice.get("figures").isObject()
+      && slice.get("figures").hasKey("memory")
+      && slice.get("figures").get("memory").isNumber()
+      && 0 < slice.get("figures").get("memory").getUInt()
+    ));
     CHECK((logicalCollection->dropIndex(link->id()) && logicalCollection->getIndexes().empty()));
   }
+}
+
+SECTION("test_write") {
+  // TODO FIXME check insert works
+  // TODO FIXME check remove works
 }
 
 ////////////////////////////////////////////////////////////////////////////////

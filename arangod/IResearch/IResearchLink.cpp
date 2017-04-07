@@ -154,8 +154,7 @@ int IResearchLink::drop() {
 }
 
 bool IResearchLink::hasBatchInsert() const {
-  // TODO: should be true, need to implement such functionality in IResearch
-  return false;
+  return true;
 }
 
 bool IResearchLink::hasSelectivityEstimate() const {
@@ -338,7 +337,7 @@ void IResearchLink::toVelocyPack(VPackBuilder& builder, bool withFigures) const 
     figuresBuilder.openObject();
     toVelocyPackFigures(figuresBuilder);
     figuresBuilder.close();
-    figuresBuilder.add("figures", figuresBuilder.slice());
+    builder.add("figures", figuresBuilder.slice());
   }
 }
 
