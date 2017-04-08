@@ -438,10 +438,32 @@ Field& Field::operator=(Field&& rhs) {
 }
 
 FieldIterator::FieldIterator(
+    IResearchViewMeta const& viewMeta
+) : _meta(&viewMeta) {
+  // initialize iterator's value
+  _name = BufferPool.emplace();
+}
+
+FieldIterator::FieldIterator(
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
     IResearchViewMeta const& viewMeta
-) : _meta(&viewMeta) {
+) : FieldIterator(viewMeta) {
+  reset(doc, linkMeta);
+}
+
+void FieldIterator::reset(
+    VPackSlice const& doc,
+    IResearchLinkMeta const& linkMeta
+) {
+  // set surrogate tokenizers
+  _begin = nullptr;
+  _end = 1 + _begin;
+  // clear stack
+  _stack.clear();
+  // clear field name
+  _name->clear();
+
   if (!isArrayOrObject(doc)) {
     // can't handle plain objects
     return;
@@ -449,15 +471,10 @@ FieldIterator::FieldIterator(
 
   auto const* context = &linkMeta;
 
-  // initialize iterator's value
-  _name = BufferPool.emplace();
-  _name->clear();
-
   // push the provided 'doc' to stack and initialize current value
   if (!push(doc, context) || !setValue(topValue().value, *context)) {
     next();
   }
-
 }
 
 IResearchLinkMeta const* FieldIterator::nextTop() {

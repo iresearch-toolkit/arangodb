@@ -902,6 +902,12 @@ int IResearchView::insert(
     return TRI_ERROR_NO_ERROR;
   }
 
+  WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  auto& store = _storeByTid[tid]._storeByFid[fid];
+
+  mutex.unlock(true); // downgrade to a read-lock
+
   auto insert = [&body, cid, rid] (irs::index_writer::document& doc) {
     // User fields
     while (body.valid()) {
@@ -929,12 +935,6 @@ int IResearchView::insert(
     return false; // break the loop
   };
 
-  WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
-  SCOPED_LOCK(mutex);
-  auto& store = _storeByTid[tid]._storeByFid[fid];
-
-  mutex.unlock(true); // downgrade to a read-lock
-
   try {
     if (store._writer->insert(insert)) {
       return TRI_ERROR_NO_ERROR;
@@ -950,6 +950,98 @@ int IResearchView::insert(
   }
 
   return TRI_ERROR_INTERNAL;
+}
+
+int IResearchView::insert(
+    TRI_voc_fid_t fid,
+    TRI_voc_tid_t tid,
+    TRI_voc_cid_t cid,
+    std::vector<std::pair<TRI_voc_rid_t, arangodb::velocypack::Slice>> const& batch,
+    IResearchLinkMeta const& meta
+) {
+  if (batch.empty()) {
+    // nothing to insert
+    return TRI_ERROR_NO_ERROR;
+  }
+
+  WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
+  SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+  auto& store = _storeByTid[tid]._storeByFid[fid];
+  size_t commitBatch = _meta._commitBulk._commitIntervalBatchSize;
+  SyncState state = SyncState(_meta._commitBulk);
+
+  mutex.unlock(true); // downgrade to a read-lock
+
+  size_t batchCount = 0;
+  auto begin = batch.begin();
+  auto const end = batch.end();
+  FieldIterator body(_meta);
+  DocumentPrimaryKey primaryKey(cid, 0);
+
+  auto batchInsert = [&meta, &batchCount, &body, &begin, end, &primaryKey, commitBatch] (irs::index_writer::document& doc) mutable {
+    body.reset(begin->second, meta);
+    // FIXME: what to do if body is empty?
+
+    // User fields
+    while (body.valid()) {
+      doc.index_and_store(*body);
+      ++body;
+    }
+
+    // reuse the 'Field' instance stored
+    // inside the 'FieldIterator'
+    auto& field = const_cast<Field&>(*body);
+
+    // System fields
+    // Indexed: CID
+    Field::setCidValue(field, primaryKey.cid(), Field::init_t());
+    doc.index(field);
+
+    // Indexed: RID
+    Field::setRidValue(field, begin->first, Field::defer_t());
+    doc.index(field);
+
+    // Stored: CID + RID
+    primaryKey.rid(begin->first);
+    doc.store(primaryKey);
+
+    return ++begin < end && ++batchCount < commitBatch;
+  };
+
+  while(begin != end) {
+    if (commitBatch && batchCount >= commitBatch) {
+      SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+      if (!sync(state)) {
+        return TRI_ERROR_INTERNAL;
+      }
+
+      batchCount = 0;
+    }
+
+    try {
+      if (!store._writer->insert(batchInsert)) {
+        LOG_TOPIC(WARN, Logger::FIXME) << "failed inserting batch into iResearch view '" << name() << "', collection '" << cid;
+        return TRI_ERROR_INTERNAL;
+      }
+    } catch (std::exception& e) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting batch into iResearch view '" << name() << "', collection '" << cid;
+      IR_EXCEPTION();
+    } catch (...) {
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting batch into iResearch view '" << name() << "', collection '" << cid;
+      IR_EXCEPTION();
+    }
+  }
+
+  if (commitBatch) {
+    SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
+
+    if (!sync(state)) {
+      return TRI_ERROR_INTERNAL;
+    }
+  }
+
+  return TRI_ERROR_NO_ERROR;
 }
 
 size_t IResearchView::linkCount() const noexcept {

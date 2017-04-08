@@ -132,7 +132,7 @@ void IResearchLink::batchInsert(
   }
 
   TRI_voc_fid_t fid = 0; // FIXME TODO find proper fid
-  auto res = _view->insert(fid, trxState->id(), _collection->cid(), batch.begin(), batch.end(), _meta);
+  auto res = _view->insert(fid, trxState->id(), _collection->cid(), batch, _meta);
 
   if (TRI_ERROR_NO_ERROR != res) {
     queue->setStatus(res);

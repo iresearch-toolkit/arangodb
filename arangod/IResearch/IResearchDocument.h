@@ -53,7 +53,6 @@ struct Field {
   static void setRidValue(Field& field, TRI_voc_rid_t rid, defer_t);
 
   Field() = default;
-  Field(Field const&) = default;
   Field(Field&& rhs);
   Field& operator=(Field&& rhs);
 
@@ -98,6 +97,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
 
   FieldIterator() = default;
 
+  explicit FieldIterator(
+    IResearchViewMeta const& viewMeta
+  );
+
   FieldIterator(
     VPackSlice const& doc,
     IResearchLinkMeta const& linkMeta,
@@ -129,9 +132,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     return !(*this == rhs);
   }
 
-  // support range based traversal
-  FieldIterator& begin() noexcept { return *this; }
-  FieldIterator& end() noexcept { return END; };
+  void reset(
+    VPackSlice const& doc,
+    IResearchLinkMeta const& linkMeta
+  );
 
  private:
   typedef IResearchLinkMeta::TokenizerPool const* TokenizerIterator;
@@ -176,6 +180,10 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     return *_name;
   }
 
+  // disallow copy and assign
+  FieldIterator(FieldIterator const&) = delete;
+  FieldIterator& operator=(FieldIterator const&) = delete;
+
   void next();
   IResearchLinkMeta const* nextTop();
   bool push(VPackSlice slice, IResearchLinkMeta const*& topMeta);
@@ -188,7 +196,7 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   }
 
   TokenizerIterator _begin{};
-  TokenizerIterator _end{1 + _begin}; // prevent invalid behaviour on first 'next'
+  TokenizerIterator _end{};
   IResearchViewMeta const* _meta{};
   std::vector<Level> _stack;
   std::shared_ptr<std::string> _name; // buffer for field name
@@ -202,16 +210,20 @@ class DocumentPrimaryKey {
  public:
   static irs::string_ref const& PK();
 
+  DocumentPrimaryKey() = default;
   DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
 
   irs::string_ref const& name() const noexcept { return PK(); }
   bool write(irs::data_output& out) const;
 
-  DocumentPrimaryKey const* begin() const noexcept { return this; }
-  DocumentPrimaryKey const* end() const noexcept { return 1 + this; }
+  TRI_voc_cid_t cid() const noexcept { return _keys[0]; }
+  void cid(TRI_voc_cid_t cid) noexcept { _keys[0] = cid; }
+
+  TRI_voc_rid_t rid() const noexcept { return _keys[1]; }
+  void rid(TRI_voc_rid_t rid) noexcept { _keys[1] = rid; }
 
  private:
-  uint64_t _keys[2]; // TRI_voc_cid_t + TRI_voc_rid_t
+  uint64_t _keys[2]{}; // TRI_voc_cid_t + TRI_voc_rid_t
 }; // DocumentPrimaryKey
 
 } // iresearch

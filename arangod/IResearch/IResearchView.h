@@ -104,53 +104,13 @@ class IResearchView final: public arangodb::ViewImplementation {
   ///        'Itrator.second' == arangodb::velocypack::Slice
   ///        terminate on first failure
   ////////////////////////////////////////////////////////////////////////////////
-  template<typename Iterator>
   int insert(
     TRI_voc_fid_t fid,
     TRI_voc_tid_t tid,
     TRI_voc_cid_t cid,
-    Iterator begin, Iterator const& end,
+    std::vector<std::pair<TRI_voc_rid_t, arangodb::velocypack::Slice>> const& batch,
     IResearchLinkMeta const& meta
-  ) {
-    irs::async_utils::read_write_mutex::read_mutex mutex(_mutex);
-    size_t commitBatch;
-    SyncState state;
-
-    {
-      SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
-
-      commitBatch = _meta._commitBulk._commitIntervalBatchSize;
-      state = SyncState(_meta._commitBulk);
-    };
-
-    for (size_t batchCount = 0; begin != end; ++begin, ++batchCount) {
-      if (commitBatch && batchCount >= commitBatch) {
-        SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
-
-        if (!sync(state)) {
-          return TRI_ERROR_INTERNAL;
-        }
-
-        batchCount = 0;
-      }
-
-      auto res = insert(fid, tid, cid, begin->first, begin->second, meta);
-
-      if (TRI_ERROR_NO_ERROR != res) {
-        return res;
-      }
-    }
-
-    if (commitBatch) {
-      SCOPED_LOCK(mutex); // '_meta' can be asynchronously updated
-
-      if (!sync(state)) {
-        return TRI_ERROR_INTERNAL;
-      }
-    }
-
-    return TRI_ERROR_NO_ERROR;
-  }
+  );
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief count of known links registered with this view

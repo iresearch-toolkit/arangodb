@@ -162,8 +162,6 @@ SECTION("FieldIterator_default_ctor") {
   arangodb::iresearch::FieldIterator it;
   CHECK(!it.valid());
   CHECK(it == arangodb::iresearch::FieldIterator());
-  CHECK(it == it.begin());
-  CHECK(it == it.end());
   CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
@@ -364,10 +362,8 @@ SECTION("traverse_complex_object_ordered_all_fields") {
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
 
   arangodb::iresearch::FieldIterator doc(slice, linkMeta, viewMeta);
-  auto& begin = doc.begin();
-  auto& end = doc.end();
-  for (;begin != end; ++begin) {
-    auto& field = *begin;
+  for (;doc.valid(); ++doc) {
+    auto& field = *doc;
     std::string const actualName = std::string(field.name());
     CHECK(1 == expectedValues.erase(actualName));
 
