@@ -363,6 +363,26 @@ namespace iresearch {
 // --SECTION--                                             Field implementation
 // ----------------------------------------------------------------------------
 
+/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid, Field::init_t) {
+  field._tokenizer = StringStreamPool.emplace();
+  setCidValue(field, cid, Field::defer_t());
+}
+
+/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid, Field::defer_t) {
+  field._name = CID_FIELD;
+  setIdValue(cid, *field._tokenizer);
+}
+
+/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid, Field::init_t) {
+  field._tokenizer = StringStreamPool.emplace();
+  setRidValue(field, rid, Field::defer_t());
+}
+
+/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid, Field::defer_t) {
+  field._name = RID_FIELD;
+  setIdValue(rid, *field._tokenizer);
+}
+
 Field::Field(Field&& rhs)
   : _features(rhs._features),
     _tokenizer(std::move(rhs._tokenizer)),
@@ -387,6 +407,35 @@ Field& Field::operator=(Field&& rhs) {
 // ----------------------------------------------------------------------------
 
 /*static*/ FieldIterator FieldIterator::END;
+
+/*static*/ irs::filter::ptr FieldIterator::filter(TRI_voc_cid_t cid) {
+  auto filter = irs::by_term::make();
+
+  // filter matching on cid
+  static_cast<irs::by_term&>(*filter)
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid)); // set value
+
+  return std::move(filter);
+}
+
+/*static*/ irs::filter::ptr FieldIterator::filter(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid
+) {
+  auto filter = irs::And::make();
+
+  // filter matching on cid and rid
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid));   // set value
+
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(RID_FIELD) // set field
+    .term(toBytesRefLE(rid));   // set value
+
+  return std::move(filter);
+}
 
 FieldIterator::FieldIterator(
     VPackSlice const& doc,
@@ -546,73 +595,6 @@ void FieldIterator::next() {
 
   } while (!push(topValue().value, context)
            || !setValue(topValue().value, *context));
-}
-
-// ----------------------------------------------------------------------------
-// --SECTION--                        DocumentPrimaryKeyIterator implementation
-// ----------------------------------------------------------------------------
-
-/*static*/ DocumentPrimaryKeyIterator DocumentPrimaryKeyIterator::END;
-
-/*static*/ irs::filter::ptr DocumentPrimaryKeyIterator::filter(TRI_voc_cid_t cid) {
-  auto filter = irs::by_term::make();
-
-  // filter matching on cid
-  static_cast<irs::by_term&>(*filter)
-    .field(CID_FIELD) // set field
-    .term(toBytesRefLE(cid)); // set value
-
-  return std::move(filter);
-}
-
-/*static*/ irs::filter::ptr DocumentPrimaryKeyIterator::filter(
-    TRI_voc_cid_t cid,
-    TRI_voc_rid_t rid
-) {
-  auto filter = irs::And::make();
-
-  // filter matching on cid and rid
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(CID_FIELD) // set field
-    .term(toBytesRefLE(cid));   // set value
-
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(RID_FIELD) // set field
-    .term(toBytesRefLE(rid));   // set value
-
-  return std::move(filter);
-}
-
-DocumentPrimaryKeyIterator::DocumentPrimaryKeyIterator(
-    TRI_voc_cid_t const cid,
-    TRI_voc_rid_t const rid
-) : _cid(cid), _rid(rid) {
-  // init system field
-  _value._tokenizer = StringStreamPool.emplace();
-  // init CID field
-  setCidValue();
-}
-
-void DocumentPrimaryKeyIterator::next() {
-  switch (_next) {
-    case 0: {
-      setRidValue();
-      ++_next;
-    } break;
-    case 1: {
-      ++_next;
-    } break;
-  }
-}
-
-void DocumentPrimaryKeyIterator::setCidValue() {
-  _value._name = CID_FIELD;
-  setIdValue(_cid, *_value._tokenizer);
-}
-
-void DocumentPrimaryKeyIterator::setRidValue() {
-  _value._name = RID_FIELD;
-  setIdValue(_rid, *_value._tokenizer);
 }
 
 // ----------------------------------------------------------------------------

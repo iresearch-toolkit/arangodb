@@ -748,7 +748,7 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   }
 
   auto& metaStore = *(_logicalView->getPhysical());
-  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentPrimaryKeyIterator::filter(cid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid));
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -902,8 +902,32 @@ int IResearchView::insert(
     return TRI_ERROR_NO_ERROR;
   }
 
-  DocumentPrimaryKeyIterator indexedPrimaryKey(cid, rid);
-  DocumentPrimaryKey storedPrimaryKey(cid, rid);
+  auto insert = [&body, cid, rid] (irs::index_writer::document& doc) {
+    // User fields
+    while (body.valid()) {
+      doc.index_and_store(*body);
+      ++body;
+    }
+
+    // reuse the 'Field' instance stored
+    // inside the 'FieldIterator'
+    auto& field = const_cast<Field&>(*body);
+
+    // System fields
+    // Indexed: CID
+    Field::setCidValue(field, cid, Field::init_t());
+    doc.index(field);
+
+    // Indexed: RID
+    Field::setRidValue(field, rid, Field::defer_t());
+    doc.index(field);
+
+    // Stored: CID + RID
+    DocumentPrimaryKey primaryKey(cid, rid);
+    doc.store(primaryKey);
+
+    return false; // break the loop
+  };
 
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
@@ -912,10 +936,7 @@ int IResearchView::insert(
   mutex.unlock(true); // downgrade to a read-lock
 
   try {
-    if (store._writer->insert(
-          indexedPrimaryKey.begin(), indexedPrimaryKey.end(),
-          storedPrimaryKey.begin(), storedPrimaryKey.end(),
-          body.begin(), body.end())) {
+    if (store._writer->insert(insert)) {
       return TRI_ERROR_NO_ERROR;
     }
 
@@ -1216,7 +1237,7 @@ int IResearchView::remove(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  std::shared_ptr<irs::filter> shared_filter(iresearch::DocumentPrimaryKeyIterator::filter(cid, rid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid, rid));
   WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid];

@@ -44,6 +44,14 @@ struct IResearchViewMeta;
 /// @brief indexed/stored document field adapter for IResearch
 ////////////////////////////////////////////////////////////////////////////////
 struct Field {
+  struct init_t{}; // initialize stream
+  struct defer_t{}; // do not initilize stream
+
+  static void setCidValue(Field& field, TRI_voc_cid_t cid, init_t);
+  static void setRidValue(Field& field, TRI_voc_rid_t rid, init_t);
+  static void setCidValue(Field& field, TRI_voc_cid_t cid, defer_t);
+  static void setRidValue(Field& field, TRI_voc_rid_t rid, defer_t);
+
   Field() = default;
   Field(Field const&) = default;
   Field(Field&& rhs);
@@ -84,6 +92,9 @@ struct Field {
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
   static FieldIterator END; // unified end for all field iterators
+
+  static irs::filter::ptr filter(TRI_voc_cid_t cid);
+  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
   FieldIterator() = default;
 
@@ -183,55 +194,6 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   std::shared_ptr<std::string> _name; // buffer for field name
   Field _value; // iterator's value
 }; // FieldIterator
-
-////////////////////////////////////////////////////////////////////////////////
-/// @brief allows to iterate over the specified CID and RID as indexed fields
-////////////////////////////////////////////////////////////////////////////////
-class DocumentPrimaryKeyIterator : public std::iterator<std::forward_iterator_tag, Field const> {
- public:
-  static DocumentPrimaryKeyIterator END; // unified end for all document iterators
-
-  static irs::filter::ptr filter(TRI_voc_cid_t cid);
-  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
-
-  DocumentPrimaryKeyIterator(
-    TRI_voc_cid_t const cid,
-    TRI_voc_rid_t const rid
-  );
-
-  Field const& operator*() const noexcept {
-    return _value;
-  }
-
-  DocumentPrimaryKeyIterator& operator++() {
-    next();
-    return *this;
-  }
-
-  bool operator==(DocumentPrimaryKeyIterator const& rhs) const noexcept {
-    return _next == rhs._next;
-  }
-
-  bool operator!=(DocumentPrimaryKeyIterator const& rhs) const noexcept {
-    return !(*this == rhs);
-  }
-
-  // support range-based traversal
-  DocumentPrimaryKeyIterator& begin() { return *this; }
-  DocumentPrimaryKeyIterator& end() { return END; }
-
- private:
-  DocumentPrimaryKeyIterator() noexcept : _next{2} { } // end
-
-  void next();
-  void setCidValue();
-  void setRidValue();
-
-  Field _value;
-  TRI_voc_rid_t _cid;
-  TRI_voc_rid_t _rid;
-  size_t _next{};
-}; // DocumentPrimaryKeyIterator
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief represents stored primary key of the ArangoDB document

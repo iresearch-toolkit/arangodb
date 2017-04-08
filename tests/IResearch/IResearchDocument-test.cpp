@@ -1102,43 +1102,6 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   CHECK(it == arangodb::iresearch::FieldIterator());
 }
 
-SECTION("DocumentPrimaryIterator_default_ctor") {
-  CHECK(arangodb::iresearch::DocumentPrimaryKeyIterator::END == arangodb::iresearch::DocumentPrimaryKeyIterator::END.begin());
-  CHECK(arangodb::iresearch::DocumentPrimaryKeyIterator::END == arangodb::iresearch::DocumentPrimaryKeyIterator::END.end());
-}
-
-SECTION("DocumentPrimaryKeyIterator_test") {
-  arangodb::iresearch::DocumentPrimaryKeyIterator it(0, 1);
-
-  REQUIRE(arangodb::iresearch::DocumentPrimaryKeyIterator::END != it);
-  REQUIRE(it == it.begin());
-  REQUIRE(it != it.end());
-
-  {
-    auto& field = *it;
-    CHECK("@_CID" == field.name());
-    CHECK(1.f == field.boost());
-    CHECK(irs::flags::empty_instance() == field.features());
-    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
-    CHECK(stream.next());
-  }
-
-  ++it;
-  REQUIRE(arangodb::iresearch::DocumentPrimaryKeyIterator::END != it);
-
-  {
-    auto& field = *it;
-    CHECK("@_REV" == field.name());
-    CHECK(1.f == field.boost());
-    CHECK(irs::flags::empty_instance() == field.features());
-    auto& stream = dynamic_cast<irs::string_token_stream&>(field.get_tokens());
-    CHECK(stream.next());
-  }
-
-  ++it;
-  REQUIRE(arangodb::iresearch::DocumentPrimaryKeyIterator::END == it);
-}
-
 SECTION("FieldIterator_nullptr_tokenizer") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"stringValue\": \"string\" \
