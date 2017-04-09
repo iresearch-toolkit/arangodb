@@ -363,22 +363,22 @@ namespace iresearch {
 // --SECTION--                                             Field implementation
 // ----------------------------------------------------------------------------
 
-/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid, Field::init_t) {
+/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid, Field::init_stream_t) {
   field._tokenizer = StringStreamPool.emplace();
-  setCidValue(field, cid, Field::defer_t());
+  setCidValue(field, cid);
 }
 
-/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid, Field::defer_t) {
+/*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t cid) {
   field._name = CID_FIELD;
   setIdValue(cid, *field._tokenizer);
 }
 
-/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid, Field::init_t) {
+/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid, Field::init_stream_t) {
   field._tokenizer = StringStreamPool.emplace();
-  setRidValue(field, rid, Field::defer_t());
+  setRidValue(field, rid);
 }
 
-/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid, Field::defer_t) {
+/*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t rid) {
   field._name = RID_FIELD;
   setIdValue(rid, *field._tokenizer);
 }

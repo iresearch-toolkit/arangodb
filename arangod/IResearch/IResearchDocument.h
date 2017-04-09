@@ -44,13 +44,12 @@ struct IResearchViewMeta;
 /// @brief indexed/stored document field adapter for IResearch
 ////////////////////////////////////////////////////////////////////////////////
 struct Field {
-  struct init_t{}; // initialize stream
-  struct defer_t{}; // do not initilize stream
+  struct init_stream_t{}; // initialize stream
 
-  static void setCidValue(Field& field, TRI_voc_cid_t cid, init_t);
-  static void setRidValue(Field& field, TRI_voc_rid_t rid, init_t);
-  static void setCidValue(Field& field, TRI_voc_cid_t cid, defer_t);
-  static void setRidValue(Field& field, TRI_voc_rid_t rid, defer_t);
+  static void setCidValue(Field& field, TRI_voc_cid_t cid, init_stream_t);
+  static void setRidValue(Field& field, TRI_voc_rid_t rid, init_stream_t);
+  static void setCidValue(Field& field, TRI_voc_cid_t cid);
+  static void setRidValue(Field& field, TRI_voc_rid_t rid);
 
   Field() = default;
   Field(Field&& rhs);
