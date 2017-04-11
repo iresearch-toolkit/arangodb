@@ -46,10 +46,10 @@ struct IResearchViewMeta;
 struct Field {
   struct init_stream_t{}; // initialize stream
 
-  static void setCidValue(Field& field, TRI_voc_cid_t cid, init_stream_t);
-  static void setRidValue(Field& field, TRI_voc_rid_t rid, init_stream_t);
-  static void setCidValue(Field& field, TRI_voc_cid_t cid);
-  static void setRidValue(Field& field, TRI_voc_rid_t rid);
+  static void setCidValue(Field& field, TRI_voc_cid_t& cid);
+  static void setCidValue(Field& field, TRI_voc_cid_t& cid, init_stream_t);
+  static void setRidValue(Field& field, TRI_voc_rid_t& rid);
+  static void setRidValue(Field& field, TRI_voc_rid_t& rid, init_stream_t);
 
   Field() = default;
   Field(Field&& rhs);

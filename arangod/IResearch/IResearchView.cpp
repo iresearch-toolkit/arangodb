@@ -846,24 +846,30 @@ int IResearchView::finish(TRI_voc_tid_t tid, bool commit) {
     return TRI_ERROR_NO_ERROR; // nothing more to do
   }
 
+  std::vector<std::pair<MemoryStore*, MemoryStore*>> trxToWalStores;
+
+  // reserve memory for import source/destination pointers
+  trxToWalStores.reserve(tidStoreItr->second._storeByFid.size());
+
+  // reserve memory for new fid stores before processing transaction
+  for (auto& entry: tidStoreItr->second._storeByFid) {
+    _storeByWalFid[entry.first];
+  }
+
   // no need to lock TidStore::_mutex since have write-lock on IResearchView::_mutex
   auto removals = std::move(tidStoreItr->second._removals);
   auto storeByFid = std::move(tidStoreItr->second._storeByFid);
-  std::vector<std::pair<MemoryStore*, MemoryStore*>> trxToWalStores;
 
   _storeByTid.erase(tidStoreItr);
-  trxToWalStores.reserve(storeByFid.size());
+  mutex.unlock(true); // downgrade to a read-lock
 
-  // create required WAL stores before releasing write-lock
+  // track import source/destination pointers
   for (auto& entry: storeByFid) {
     trxToWalStores.emplace_back(&(entry.second), &(_storeByWalFid[entry.first]));
   }
 
-  mutex.unlock(true); // downgrade to a read-lock
-
   try {
     // transfer filters first since they only apply to pre-merge data
-    // removals of records created during the transaction are covered by the corresponding _writer
     for (auto& entry: _storeByWalFid) {
       for (auto& filter: removals) {
         entry.second._writer->remove(filter);
@@ -871,7 +877,7 @@ int IResearchView::finish(TRI_voc_tid_t tid, bool commit) {
     }
 
     // transfer filters to persisted store as well otherwise query resuts will be incorrect
-    // FIXME TODO what if after recovery removals have already been applied but WAL not synced and not replayed
+    // on recovery the same removals will be replayed from the WAL
     if (_storePersisted) {
       for (auto& filter: removals) {
         _storePersisted._writer->remove(filter);
