@@ -34,11 +34,24 @@
 #include "utils/async_utils.hpp"
 
 NS_BEGIN(arangodb)
+
+class IndexIterator; // forward declaration
+
+NS_BEGIN(aql)
+
+class Ast; // forward declaration
+struct AstNode; // forward declaration
+class SortCondition; // forward declaration
+struct Variable; // forward declaration
+
+NS_END // aql
+
 NS_BEGIN(transaction)
 
 class Methods; // forward declaration
 
 NS_END // transaction
+
 NS_END // arangodb
 
 NS_BEGIN(arangodb)
@@ -113,6 +126,21 @@ class IResearchView final: public arangodb::ViewImplementation {
   );
 
   ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called at query execution, when the AQL query engine requests data
+  ///        from the view
+  ///        the call will get the specialized filter condition and the sort
+  ///        condition from the previous calls
+  /// @return an IndexIterator which the AQL query engine will use for fetching
+  ///         results from the view
+  ////////////////////////////////////////////////////////////////////////////////
+  virtual arangodb::IndexIterator* iteratorForCondition(
+    transaction::Methods* trx,
+    arangodb::aql::AstNode const* node,
+    arangodb::aql::Variable const* reference,
+    arangodb::aql::SortCondition const* sortCondition
+  ) /*override*/;
+
+  ////////////////////////////////////////////////////////////////////////////////
   /// @brief count of known links registered with this view
   ////////////////////////////////////////////////////////////////////////////////
   size_t linkCount() const noexcept;
@@ -176,6 +204,63 @@ class IResearchView final: public arangodb::ViewImplementation {
   ///        to be done in the scope of transaction 'tid'
   ////////////////////////////////////////////////////////////////////////////////
   int remove(TRI_voc_tid_t tid, TRI_voc_cid_t cid, TRI_voc_rid_t rid);
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called for a filter condition that was previously handed to the view
+  ///        in `supportsFilterCondition`, and for which the view has claimed to
+  ///        support it (at least partially)
+  ///        this call gives the view the chance to filter out all parts of the
+  ///        filter condition that it cannot handle itself
+  ///        if the view does not support the entire filter condition (or needs to
+  ///        rewrite the filter condition somehow), it may return a new AstNode,
+  ///        it is not allowed to modify the AstNode
+  ////////////////////////////////////////////////////////////////////////////////
+  virtual arangodb::aql::AstNode* specializeCondition(
+    arangodb::aql::Ast* ast,
+    arangodb::aql::AstNode const* node,
+    arangodb::aql::Variable const* reference
+  ) /*override*/;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called by the AQL optimizer to check if the view supports a filter
+  ///        condition (as identified by the AST node `node`) at least partially
+  ///        the AQL variable `reference` is the variable that was used for
+  ///        accessing the view in the AQL query
+  /// @return boolean
+  ///         can provide an estimate for the number of items to return and
+  ///         can provide an estimated cost value
+  ///         Note: that these return values are informational only (e.g. for
+  ///               displaying them in the AQL explain output)
+  ////////////////////////////////////////////////////////////////////////////////
+  virtual bool supportsFilterCondition(
+    arangodb::aql::AstNode const* node,
+    arangodb::aql::Variable const* reference,
+    size_t& estimatedItems,
+    double& estimatedCost
+  ) const /*override*/;
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief called by the AQL optimizer to check if the view supports a
+  ///        particular sort condition (as identifier by the `sortCondition`
+  ///        passed) at least partially
+  /// @param reference identifies the variable in the AQL query that is used to
+  ///        access the view
+  /// @return boolean
+  ///         can provide an estimated cost value
+  ///         Note: that this return value is informational only (e.g. for
+  ///               displaying them in the AQL explain output)
+  ///         it must also return the number of sort condition parts that are
+  ///         covered by the view, from left to right, starting at the first sort
+  ///         condition part
+  ///         if the first sort condition part is not covered by the view, then
+  ///         `coveredAttributes` must be `0`
+  ////////////////////////////////////////////////////////////////////////////////
+  virtual bool supportsSortCondition(
+    arangodb::aql::SortCondition const* sortCondition,
+    arangodb::aql::Variable const* reference,
+    double& estimatedCost,
+    size_t& coveredAttributes
+  ) const /*override*/;
 
   ////////////////////////////////////////////////////////////////////////////////
   /// @brief wait for a flush of all index data to its respective stores

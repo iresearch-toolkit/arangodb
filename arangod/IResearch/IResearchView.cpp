@@ -34,6 +34,7 @@
 #include "Basics/Result.h"
 #include "Basics/files.h"
 #include "Indexes/Index.h"
+#include "Indexes/IndexIterator.h"
 #include "Logger/Logger.h"
 #include "Logger/LogMacros.h"
 #include "Transaction/StandaloneContext.h"
@@ -1024,6 +1025,16 @@ int IResearchView::insert(
   return TRI_ERROR_NO_ERROR;
 }
 
+arangodb::IndexIterator* IResearchView::iteratorForCondition(
+    transaction::Methods* trx,
+    arangodb::aql::AstNode const* node,
+    arangodb::aql::Variable const* reference,
+    arangodb::aql::SortCondition const* sortCondition
+) {
+  // TODO FIXME implement
+  return nullptr;
+}
+
 size_t IResearchView::linkCount() const noexcept {
   ReadMutex mutex(_mutex); // '_links' can be asynchronously updated
   SCOPED_LOCK(mutex);
@@ -1338,6 +1349,35 @@ int IResearchView::remove(
   }
 
   return TRI_ERROR_INTERNAL;
+}
+
+arangodb::aql::AstNode* IResearchView::specializeCondition(
+  arangodb::aql::Ast* ast,
+  arangodb::aql::AstNode const* node,
+  arangodb::aql::Variable const* reference
+) {
+  // FIXME TODO implement
+  return nullptr;
+}
+
+bool IResearchView::supportsFilterCondition(
+  arangodb::aql::AstNode const* node,
+  arangodb::aql::Variable const* reference,
+  size_t& estimatedItems,
+  double& estimatedCost
+) const {
+  // FIXME TODO implement
+  return false;
+}
+
+bool IResearchView::supportsSortCondition(
+  arangodb::aql::SortCondition const* sortCondition,
+  arangodb::aql::Variable const* reference,
+  double& estimatedCost,
+  size_t& coveredAttributes
+) const {
+  // FIXME TODO implement
+  return false;
 }
 
 bool IResearchView::sync(size_t maxMsec /*= 0*/) {
