@@ -225,6 +225,7 @@ SECTION("test_write") {
   CHECK((true == view->sync()));
   CHECK((1 == reader.reopen().live_docs_count()));
   logicalCollection->dropIndex(link->id());
+  CHECK((true == view->sync()));
   CHECK((0 == reader.reopen().live_docs_count()));
 }
 
