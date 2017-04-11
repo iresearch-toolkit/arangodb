@@ -92,6 +92,7 @@ REGISTER_ANALYZER(IdentityTokenizer);
 IdentityTokenizer::IdentityTokenizer()
   : irs::analysis::analyzer(IdentityTokenizer::type()), _empty(true) {
   _attrs.add<IdentityValue>();
+  _attrs.add<irs::increment>();
 }
 
 irs::attributes const& IdentityTokenizer::attributes() const NOEXCEPT {

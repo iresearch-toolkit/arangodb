@@ -495,6 +495,10 @@ NS_END
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
+IResearchView::DataStore::DataStore(DataStore&& other) noexcept {
+  *this = std::move(other);
+}
+
 IResearchView::DataStore& IResearchView::DataStore::operator=(
     IResearchView::DataStore&& other
 ) noexcept {
@@ -519,6 +523,7 @@ IResearchView::MemoryStore::MemoryStore() {
   // create writer before reader to ensure data directory is present
   _writer = irs::index_writer::make(*_directory, format, irs::OM_CREATE_APPEND);
   _writer->commit(); // initialize 'store'
+  _reader = irs::directory_reader::open(*_directory); // open after 'commit' for valid 'store'
 }
 
 IResearchView::SyncState::PolicyState::PolicyState(
@@ -826,6 +831,109 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   return TRI_ERROR_INTERNAL;
 }
 
+int IResearchView::finish(TRI_voc_tid_t tid, bool commit) {
+  WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  auto tidStoreItr = _storeByTid.find(tid);
+
+  if (tidStoreItr == _storeByTid.end()) {
+    return TRI_ERROR_NO_ERROR; // nothing to finish
+  }
+
+  if (!commit) {
+    _storeByTid.erase(tidStoreItr);
+
+    return TRI_ERROR_NO_ERROR; // nothing more to do
+  }
+
+  // no need to lock TidStore::_mutex since have write-lock on IResearchView::_mutex
+  auto removals = std::move(tidStoreItr->second._removals);
+  auto storeByFid = std::move(tidStoreItr->second._storeByFid);
+  std::vector<std::pair<MemoryStore*, MemoryStore*>> trxToWalStores;
+
+  _storeByTid.erase(tidStoreItr);
+  trxToWalStores.reserve(storeByFid.size());
+
+  // create required WAL stores before releasing write-lock
+  for (auto& entry: storeByFid) {
+    trxToWalStores.emplace_back(&(entry.second), &(_storeByWalFid[entry.first]));
+  }
+
+  mutex.unlock(true); // downgrade to a read-lock
+
+  try {
+    // transfer filters first since they only apply to pre-merge data
+    // removals of records created during the transaction are covered by the corresponding _writer
+    for (auto& entry: _storeByWalFid) {
+      for (auto& filter: removals) {
+        entry.second._writer->remove(filter);
+      }
+    }
+
+    // transfer filters to persisted store as well otherwise query resuts will be incorrect
+    // FIXME TODO what if after recovery removals have already been applied but WAL not synced and not replayed
+    if (_storePersisted) {
+      for (auto& filter: removals) {
+        _storePersisted._writer->remove(filter);
+      }
+    }
+
+    for (auto& entry: trxToWalStores) {
+      auto& src = *(entry.first);
+      auto& dst = *(entry.second);
+
+      src._writer->commit(); // ensure have latest view in reader
+      dst._writer->import(src._reader.reopen());
+    }
+
+    return TRI_ERROR_NO_ERROR;
+  } catch (std::exception& e) {
+    LOG_TOPIC(ERR, Logger::FIXME) << "caught exception while committing transaction for iResearch view '" << name() << "', tid '" << tid << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(ERR, Logger::FIXME) << "caught exception while committing transaction for iResearch view '" << name() << "', tid '" << tid << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
+}
+
+int IResearchView::finish(TRI_voc_fid_t const& fid) {
+  WriteMutex mutex(_mutex); // '_storeByWalFid' & '_storePersisted' can be asynchronously updated
+  SCOPED_LOCK(mutex);
+  auto fidStoreItr = _storeByWalFid.find(fid);
+
+  if (fidStoreItr == _storeByWalFid.end()) {
+    return TRI_ERROR_NO_ERROR; // nothing to finish
+  }
+
+  auto store = std::move(fidStoreItr->second);
+
+  _storeByWalFid.erase(fidStoreItr);
+  mutex.unlock(true); // downgrade to a read-lock
+
+  if (!_storePersisted) {
+    return TRI_ERROR_NO_ERROR; // nothing more to do
+  }
+
+  try {
+    if (_storePersisted) {
+      store._writer->commit(); // ensure have latest view in reader
+      _storePersisted._writer->import(store._reader.reopen());
+    }
+
+    return TRI_ERROR_NO_ERROR;
+  } catch (std::exception& e) {
+    LOG_TOPIC(ERR, Logger::FIXME) << "caught exception while committing WAL for iResearch view '" << name() << "', fid '" << fid << "': " << e.what();
+    IR_EXCEPTION();
+  } catch (...) {
+    LOG_TOPIC(ERR, Logger::FIXME) << "caught exception while committing WAL for iResearch view '" << name() << "', fid '" << fid << "'";
+    IR_EXCEPTION();
+  }
+
+  return TRI_ERROR_INTERNAL;
+}
+
 void IResearchView::getPropertiesVPack(
   arangodb::velocypack::Builder& builder
 ) const {
@@ -1008,7 +1116,7 @@ int IResearchView::insert(
         return TRI_ERROR_INTERNAL;
       }
     } catch (std::exception& e) {
-      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting batch into iResearch view '" << name() << "', collection '" << cid;
+      LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting batch into iResearch view '" << name() << "', collection '" << cid << e.what();
       IR_EXCEPTION();
     } catch (...) {
       LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while inserting batch into iResearch view '" << name() << "', collection '" << cid;

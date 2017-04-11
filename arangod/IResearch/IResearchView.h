@@ -91,6 +91,16 @@ class IResearchView final: public arangodb::ViewImplementation {
   ////////////////////////////////////////////////////////////////////////////////
   int drop(TRI_voc_cid_t cid);
 
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief process a finished transaction and release resources held by it
+  ////////////////////////////////////////////////////////////////////////////////
+  int finish(TRI_voc_tid_t tid, bool commit);
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /// @brief persist the specified WAL file into permanent storage
+  ////////////////////////////////////////////////////////////////////////////////
+  int finish(TRI_voc_fid_t const& fid);
+
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief fill and return a JSON description of a IResearchView object
   ///        only fields describing the view itself, not 'link' descriptions
@@ -288,6 +298,8 @@ class IResearchView final: public arangodb::ViewImplementation {
     irs::directory::ptr _directory;
     irs::directory_reader _reader;
     irs::index_writer::ptr _writer;
+    DataStore() = default;
+    DataStore(DataStore&& other) noexcept;
     DataStore& operator=(DataStore&& other) noexcept;
     operator bool() const noexcept;
   };

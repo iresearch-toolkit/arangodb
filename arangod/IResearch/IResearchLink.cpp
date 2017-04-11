@@ -183,6 +183,7 @@ int IResearchLink::insert(
 
   TRI_voc_fid_t fid = 0; // FIXME TODO find proper fid
 
+  // FIXME TODO after insertion add a transaction commit/abort to call _view->finish(trxState->id(), commit)
   return _view->insert(fid, trxState->id(), _collection->cid(), rid, doc, _meta);
 }
 
