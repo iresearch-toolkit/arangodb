@@ -466,28 +466,28 @@ inline void insertDocument(
     TRI_voc_rid_t rid) {
   using namespace arangodb::iresearch;
 
+  // reuse the 'Field' instance stored
+  // inside the 'FieldIterator' after
+  auto& field = const_cast<Field&>(*body);
+
   // User fields
   while (body.valid()) {
-    doc.index_and_store(*body);
+    doc.insert<irs::Action::INDEX | irs::Action::STORE>(field);
     ++body;
   }
-
-  // reuse the 'Field' instance stored
-  // inside the 'FieldIterator'
-  auto& field = const_cast<Field&>(*body);
 
   // System fields
   // Indexed: CID
   Field::setCidValue(field, cid, Field::init_stream_t());
-  doc.index(field);
+  doc.insert<irs::Action::INDEX>(field);
 
   // Indexed: RID
   Field::setRidValue(field, rid);
-  doc.index(field);
+  doc.insert<irs::Action::INDEX>(field);
 
   // Stored: CID + RID
   DocumentPrimaryKey const primaryKey(cid, rid);
-  doc.store(primaryKey);
+  doc.insert<irs::Action::STORE>(primaryKey);
 }
 
 NS_END
