@@ -366,6 +366,8 @@ namespace iresearch {
 /*static*/ void Field::setCidValue(Field& field, TRI_voc_cid_t& cid) {
   field._name = CID_FIELD;
   setIdValue(cid, *field._tokenizer);
+  field._boost = 1.f;
+  field._features = &irs::flags::empty_instance();
 }
 
 /*static*/ void Field::setCidValue(
@@ -380,6 +382,8 @@ namespace iresearch {
 /*static*/ void Field::setRidValue(Field& field, TRI_voc_rid_t& rid) {
   field._name = RID_FIELD;
   setIdValue(rid, *field._tokenizer);
+  field._boost = 1.f;
+  field._features = &irs::flags::empty_instance();
 }
 
 /*static*/ void Field::setRidValue(
