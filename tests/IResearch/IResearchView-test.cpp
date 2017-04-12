@@ -30,7 +30,7 @@
 
 #include "Aql/SortCondition.h"
 #include "Basics/files.h"
-#include "indexes/IndexIterator.h"
+#include "Indexes/IndexIterator.h"
 #include "IResearch/IResearchLinkMeta.h"
 #include "IResearch/IResearchView.h"
 #include "Logger/Logger.h"

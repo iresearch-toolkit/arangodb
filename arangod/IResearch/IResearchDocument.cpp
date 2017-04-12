@@ -418,7 +418,7 @@ Field& Field::operator=(Field&& rhs) {
 // --SECTION--                                     FieldIterator implementation
 // ----------------------------------------------------------------------------
 
-/*static*/ FieldIterator FieldIterator::END;
+/*static*/ FieldIterator const FieldIterator::END;
 
 /*static*/ irs::filter::ptr FieldIterator::filter(TRI_voc_cid_t cid) {
   auto filter = irs::by_term::make();

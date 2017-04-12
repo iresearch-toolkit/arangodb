@@ -89,12 +89,10 @@ struct Field {
 ////////////////////////////////////////////////////////////////////////////////
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
-  static FieldIterator END; // unified end for all field iterators
+  static FieldIterator const END; // unified end for all field iterators
 
   static irs::filter::ptr filter(TRI_voc_cid_t cid);
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
-
-  FieldIterator() = default;
 
   explicit FieldIterator(
     IResearchViewMeta const& viewMeta
@@ -164,6 +162,8 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     IResearchLinkMeta const* meta; // metadata
     Filter filter;
   }; // Level
+
+  FieldIterator() = default;
 
   Level& top() noexcept {
     TRI_ASSERT(!_stack.empty());

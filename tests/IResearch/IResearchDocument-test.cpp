@@ -116,7 +116,68 @@ TEST_CASE("IResearchDocumentTest", "[iresearch][iresearch-document]") {
   IResearchDocumentSetup s;
   UNUSED(s);
 
-SECTION("static_checks") {
+SECTION("Field_setCid") {
+  irs::flags features;
+  features.add<TestAttribute>();
+
+  arangodb::iresearch::Field field;
+
+  // reset field
+  field._boost = 25;
+  field._features = &features;
+  field._tokenizer = nullptr;
+
+  // check CID value
+  {
+    TRI_voc_cid_t cid = 10;
+    arangodb::iresearch::Field::setCidValue(field, cid, arangodb::iresearch::Field::init_stream_t());
+    CHECK(1.f == field._boost);
+    CHECK("@_CID" == field._name);
+    CHECK(&irs::flags::empty_instance() == field._features);
+
+    auto* stream = dynamic_cast<irs::string_token_stream*>(field._tokenizer.get());
+    REQUIRE(nullptr != stream);
+    CHECK(stream->next());
+    CHECK(!stream->next());
+
+    arangodb::iresearch::Field::setCidValue(field, cid);
+    CHECK(1.f == field._boost);
+    CHECK("@_CID" == field._name);
+    CHECK(&irs::flags::empty_instance() == field._features);
+    CHECK(stream == field._tokenizer.get());
+    CHECK(stream->next());
+    CHECK(!stream->next());
+  }
+
+  // reset field
+  field._boost = 25;
+  field._features = &features;
+  field._tokenizer = nullptr;
+
+  // check RID value
+  {
+    TRI_voc_rid_t rid = 10;
+    arangodb::iresearch::Field::setRidValue(field, rid, arangodb::iresearch::Field::init_stream_t());
+    CHECK(1.f == field._boost);
+    CHECK("@_REV" == field._name);
+    CHECK(&irs::flags::empty_instance() == field._features);
+
+    auto* stream = dynamic_cast<irs::string_token_stream*>(field._tokenizer.get());
+    REQUIRE(nullptr != stream);
+    CHECK(stream->next());
+    CHECK(!stream->next());
+
+    arangodb::iresearch::Field::setRidValue(field, rid);
+    CHECK(1.f == field._boost);
+    CHECK("@_REV" == field._name);
+    CHECK(&irs::flags::empty_instance() == field._features);
+    CHECK(stream == field._tokenizer.get());
+    CHECK(stream->next());
+    CHECK(!stream->next());
+  }
+}
+
+SECTION("FieldIterator_static_checks") {
   static_assert(
     std::is_same<
       std::forward_iterator_tag,
@@ -158,14 +219,15 @@ SECTION("static_checks") {
   );
 }
 
-SECTION("FieldIterator_default_ctor") {
-  arangodb::iresearch::FieldIterator it;
+SECTION("FieldIterator_construct") {
+  arangodb::iresearch::IResearchViewMeta viewMeta;
+  arangodb::iresearch::FieldIterator it(viewMeta);
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator(viewMeta));
   CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_custom_nested_delimiter") {
+SECTION("FieldIterator_traverse_complex_object_custom_nested_delimiter") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -206,7 +268,7 @@ SECTION("traverse_complex_object_custom_nested_delimiter") {
   linkMeta._includeAllFields = true; // include all fields
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-  CHECK(it != arangodb::iresearch::FieldIterator());
+  CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
@@ -231,10 +293,10 @@ SECTION("traverse_complex_object_custom_nested_delimiter") {
   }
 
   CHECK(expectedValues.empty());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_all_fields") {
+SECTION("FieldIterator_traverse_complex_object_all_fields") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -274,7 +336,7 @@ SECTION("traverse_complex_object_all_fields") {
   linkMeta._includeAllFields = true;
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-  CHECK(it != arangodb::iresearch::FieldIterator());
+  CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
@@ -299,10 +361,10 @@ SECTION("traverse_complex_object_all_fields") {
   }
 
   CHECK(expectedValues.empty());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_ordered_all_fields") {
+SECTION("FieldIterator_traverse_complex_object_ordered_all_fields") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -376,7 +438,7 @@ SECTION("traverse_complex_object_ordered_all_fields") {
   CHECK(expectedValues.empty());
 }
 
-SECTION("traverse_complex_object_ordered_filtered") {
+SECTION("FieldIterator_traverse_complex_object_ordered_filtered") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -410,7 +472,7 @@ SECTION("traverse_complex_object_ordered_filtered") {
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   auto& value = *it;
   CHECK(mangleName("boost","identity") == value.name());
@@ -422,10 +484,10 @@ SECTION("traverse_complex_object_ordered_filtered") {
 
   ++it;
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_ordered_filtered") {
+SECTION("FieldIterator_traverse_complex_object_ordered_filtered") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -451,10 +513,10 @@ SECTION("traverse_complex_object_ordered_filtered") {
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_ordered_empty_tokenizers") {
+SECTION("FieldIterator_traverse_complex_object_ordered_empty_tokenizers") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -480,10 +542,10 @@ SECTION("traverse_complex_object_ordered_empty_tokenizers") {
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_ordered_check_value_types") {
+SECTION("FieldIterator_traverse_complex_object_ordered_check_value_types") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"mustBeSkipped\" : {}, \
     \"stringValue\": \"string\", \
@@ -508,7 +570,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
   linkMeta._includeAllFields = true; // include all fields
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-  CHECK(it != arangodb::iresearch::FieldIterator());
+  CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // stringValue (with IdentityTokenizer)
   {
@@ -524,7 +586,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // stringValue (with EmptyTokenizer)
   {
@@ -540,7 +602,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // nullValue
   {
@@ -554,7 +616,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // trueValue
   {
@@ -568,7 +630,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // falseValue
   {
@@ -582,7 +644,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // smallIntValue
   {
@@ -596,7 +658,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // smallNegativeIntValue
   {
@@ -610,7 +672,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // bigIntValue
   {
@@ -624,7 +686,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // bigNegativeIntValue
   {
@@ -638,7 +700,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // smallDoubleValue
   {
@@ -652,7 +714,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // bigDoubleValue
   {
@@ -666,7 +728,7 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // bigNegativeDoubleValue
   {
@@ -680,10 +742,71 @@ SECTION("traverse_complex_object_ordered_check_value_types") {
 
   ++it;
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_suffix") {
+SECTION("FieldIterator_reset") {
+  auto json0 = arangodb::velocypack::Parser::fromJson("{ \
+    \"boost\": \"10\", \
+    \"depth\": \"20\" \
+  }");
+
+  auto json1 = arangodb::velocypack::Parser::fromJson("{ \
+    \"name\": \"foo\" \
+  }");
+
+  arangodb::iresearch::IResearchViewMeta viewMeta;
+  arangodb::iresearch::IResearchLinkMeta linkMeta;
+  linkMeta._includeAllFields = true; // include all fields
+
+  arangodb::iresearch::FieldIterator it(json0->slice(), linkMeta, viewMeta);
+  REQUIRE(it.valid());
+
+  {
+    auto& value = *it;
+    CHECK(mangleName("boost", "identity") == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(it.valid());
+
+  // depth (with IdentityTokenizer)
+  {
+    auto& value = *it;
+    CHECK(mangleName("depth", "identity") == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(!it.valid());
+
+  it.reset(json1->slice(), linkMeta);
+  REQUIRE(it.valid());
+
+  {
+    auto& value = *it;
+    CHECK(mangleName("name", "identity") == value.name());
+    const auto expected_analyzer = irs::analysis::analyzers::get("identity", "");
+    auto& analyzer = dynamic_cast<irs::analysis::analyzer&>(value.get_tokens());
+    CHECK(expected_analyzer->attributes().features() == value.features());
+    CHECK(&expected_analyzer->type() == &analyzer.type());
+    CHECK(1.f == value.boost());
+  }
+
+  ++it;
+  REQUIRE(!it.valid());
+}
+
+SECTION("FieldIterator_traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_suffix") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -742,12 +865,12 @@ SECTION("traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_su
   linkMeta._nestListValues = true; // allow indexes in field names
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
-  CHECK(it != arangodb::iresearch::FieldIterator());
+  CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
 
-  for (arangodb::iresearch::FieldIterator const end; it != end; ++it) {
+  for ( ; it != arangodb::iresearch::FieldIterator::END; ++it) {
     auto& field = *it;
     std::string const actualName = std::string(field.name());
     CHECK(1 == expectedValues.erase(actualName));
@@ -759,10 +882,10 @@ SECTION("traverse_complex_object_ordered_all_fields_custom_list_offset_prefix_su
   }
 
   CHECK(expectedValues.empty());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
-SECTION("traverse_complex_object_check_meta_inheritance") {
+SECTION("FieldIterator_traverse_complex_object_check_meta_inheritance") {
   auto json = arangodb::velocypack::Parser::fromJson("{ \
     \"nested\": { \"foo\": \"str\" }, \
     \"keys\": [ \"1\",\"2\",\"3\",\"4\" ], \
@@ -806,7 +929,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // nested.foo (with IdentityTokenizer)
   {
@@ -821,7 +944,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // nested.foo (with EmptyTokenizer)
   {
@@ -836,7 +959,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   for (size_t i = 0; i < 4; ++i) {
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     auto& value = *it;
     CHECK(mangleName("keys", "identity") == value.name());
@@ -850,7 +973,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // boost
   {
@@ -865,7 +988,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // depth
   {
@@ -878,7 +1001,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // fields.fieldA (with IdenitytTokenizer)
   {
@@ -893,7 +1016,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // fields.fieldA (with EmptyTokenizer)
   {
@@ -906,7 +1029,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // listValuation (with IdenitytTokenizer)
   {
@@ -921,7 +1044,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // listValuation (with EmptyTokenizer)
   {
@@ -934,7 +1057,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // locale
   {
@@ -947,7 +1070,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // array[0].id
   {
@@ -963,7 +1086,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   for (size_t i = 0; i < 3; ++i) {
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // IdentityTokenizer
     {
@@ -978,7 +1101,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // EmptyTokenizer
     {
@@ -994,7 +1117,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   for (size_t i = 0; i < 3; ++i) {
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // IdentityTokenizer
     {
@@ -1009,7 +1132,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // EmptyTokenizer
     {
@@ -1023,7 +1146,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // array[1].id (IdentityTokenizer)
   {
@@ -1038,7 +1161,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // array[1].id (EmptyTokenizer)
   {
@@ -1051,7 +1174,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   REQUIRE(it.valid());
-  REQUIRE(it != arangodb::iresearch::FieldIterator());
+  REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
   // array[2].id (IdentityTokenizer)
   {
@@ -1066,7 +1189,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
   for (size_t i = 0; i < 3; ++i) {
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // IdentityTokenizer
     {
@@ -1081,7 +1204,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
     ++it;
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // EmptyTokenizer
     {
@@ -1095,7 +1218,7 @@ SECTION("traverse_complex_object_check_meta_inheritance") {
 
   ++it;
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator());
+  CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
 SECTION("FieldIterator_nullptr_tokenizer") {
@@ -1121,7 +1244,7 @@ SECTION("FieldIterator_nullptr_tokenizer") {
 
     arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // stringValue (with IdentityTokenizer)
     {
@@ -1175,7 +1298,7 @@ SECTION("FieldIterator_nullptr_tokenizer") {
 
     arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
     REQUIRE(it.valid());
-    REQUIRE(it != arangodb::iresearch::FieldIterator());
+    REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
     // stringValue (with EmptyTokenizer)
     {
