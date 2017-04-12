@@ -31,6 +31,7 @@
 #include "IResearchDocument.h"
 #include "IResearchLink.h"
 
+#include "Aql/SortCondition.h"
 #include "Basics/Result.h"
 #include "Basics/files.h"
 #include "Indexes/Index.h"
@@ -96,6 +97,85 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   );
 
   return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief minimal implementation of an index for use with iterators
+////////////////////////////////////////////////////////////////////////////////
+class MinimalIndex: public arangodb::Index {
+ public:
+  MinimalIndex(): Index(0, nullptr, arangodb::iresearch::emptyObjectSlice()) {}
+  virtual bool allowExpansion() const override { return false; }
+  virtual IndexType type() const override { return IndexType::TRI_IDX_TYPE_UNKNOWN; }
+  virtual bool canBeDropped() const override { return false; }
+  virtual bool isSorted() const override { return false; }
+  virtual bool hasSelectivityEstimate() const override { return false; }
+  virtual size_t memory() const  override { return 0; }
+  virtual int insert(arangodb::transaction::Methods*, TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&, bool isRollback) override { return TRI_ERROR_NOT_IMPLEMENTED; }
+  virtual int remove(arangodb::transaction::Methods*, TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&, bool isRollback) override { return TRI_ERROR_NOT_IMPLEMENTED; }
+  virtual int unload() override { return TRI_ERROR_NO_ERROR; }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief minimal implementation of a logical collection for use with iterators
+////////////////////////////////////////////////////////////////////////////////
+class MinimalLogicalCollection: public arangodb::LogicalCollection {
+ public:
+  MinimalLogicalCollection(): LogicalCollection(nullptr, arangodb::iresearch::emptyObjectSlice()) {}
+};
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief iterator for ordered set of query results from iResearch View
+////////////////////////////////////////////////////////////////////////////////
+class OrderedIndexIterator: public arangodb::IndexIterator {
+ public:
+  DECLARE_PTR(arangodb::IndexIterator);
+  OrderedIndexIterator(arangodb::transaction::Methods& trx);
+  virtual bool next(TokenCallback const& callback, size_t limit) override;
+  virtual char const* typeName() const override;
+
+ private:
+  MinimalLogicalCollection _collection;
+  MinimalIndex _index;
+};
+
+OrderedIndexIterator::OrderedIndexIterator(arangodb::transaction::Methods& trx)
+  : IndexIterator(&_collection, &trx, nullptr, &_index) {
+}
+
+bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
+  return false;
+}
+
+char const* OrderedIndexIterator::typeName() const {
+  return "iresearch-ordered-iterator";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief iterator for unordered set of query results from iResearch View
+////////////////////////////////////////////////////////////////////////////////
+class UnorderedIndexIterator: public arangodb::IndexIterator {
+ public:
+  DECLARE_PTR(arangodb::IndexIterator);
+  UnorderedIndexIterator(arangodb::transaction::Methods& trx);
+  virtual bool next(TokenCallback const& callback, size_t limit) override;
+  virtual char const* typeName() const override;
+
+ private:
+  MinimalLogicalCollection _collection;
+  MinimalIndex _index;
+};
+
+UnorderedIndexIterator::UnorderedIndexIterator(arangodb::transaction::Methods& trx)
+  : IndexIterator(&_collection, &trx, nullptr, &_index) {
+}
+
+bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
+  return false;
+}
+
+char const* UnorderedIndexIterator::typeName() const {
+  return "iresearch-ordered-iterator";
 }
 
 // a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks
@@ -954,7 +1034,7 @@ void IResearchView::getPropertiesVPack(
 
   std::vector<std::string> collections;
 
-  // add CIDs of fully indexed collections to list
+  // add CIDs of known collections to list
   for (auto& entry: _meta._collections) {
     collections.emplace_back(arangodb::basics::StringUtils::itoa(entry));
   }
@@ -1145,8 +1225,25 @@ arangodb::IndexIterator* IResearchView::iteratorForCondition(
     arangodb::aql::Variable const* reference,
     arangodb::aql::SortCondition const* sortCondition
 ) {
+  if (!trx) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "no transaction supplied while querying iResearch view '" << name() << "'";
+
+    return nullptr;
+  }
+
+  if (sortCondition && !sortCondition->isEmpty()) {
+    PTR_NAMED(OrderedIndexIterator, iterator, *trx);
+
+    // TODO FIXME implement
+
+    return iterator.release();
+  }
+
+  PTR_NAMED(UnorderedIndexIterator, iterator, *trx);
+
   // TODO FIXME implement
-  return nullptr;
+
+  return iterator.release();
 }
 
 size_t IResearchView::linkCount() const noexcept {
@@ -1285,6 +1382,7 @@ bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
     return nullptr;
   }
 
+  // FIXME TODO remove once vocbase is able to do recursive locks for '_viewsLock'
   if (impl._logicalView && impl._logicalView->vocbase()) {
     ViewRegistry::insert(impl._logicalView->vocbase()->id(), impl);
   }
@@ -1399,18 +1497,18 @@ int IResearchView::query(
   std::ostream* error /*= nullptr*/
 ) {
   std::vector<irs::directory_reader> readers;
-  WriteMutex mutex(_mutex); // members can be asynchronously updated
+  ReadMutex mutex(_mutex); // members can be asynchronously updated
   SCOPED_LOCK(mutex);
 
   try {
     for (auto& fidStore: _storeByWalFid) {
-      fidStore.second._reader = fidStore.second._reader.reopen(); // refresh to latest version
-      readers.emplace_back(fidStore.second._reader);
+      readers.emplace_back(fidStore.second._reader.reopen()); // refresh to latest version
+      fidStore.second._reader = readers.back(); // cache reopened reader for reuse by other queries
     }
 
     if (_storePersisted) {
-      _storePersisted._reader = _storePersisted._reader.reopen(); // refresh to latest version
-      readers.emplace_back(_storePersisted._reader);
+      readers.emplace_back(_storePersisted._reader.reopen()); // refresh to latest version
+      _storePersisted._reader = readers.back(); // cache reopened reader for reuse by other queries
     }
   } catch (std::exception& e) {
     LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "': " << e.what();
@@ -1422,7 +1520,24 @@ int IResearchView::query(
     return TRI_ERROR_INTERNAL;
   }
 
-  mutex.unlock(true); // downgrade to a read-lock
+  // add CIDs of known collections to transaction
+  for (auto& entry: _meta._collections) {
+    trx.addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(entry));
+  }
+
+  // add CIDs of registered collections to transaction
+  for (auto& entry: _links) {
+    if (entry) {
+      auto* collection = entry->collection();
+
+      if (collection) {
+        trx.addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(collection->cid()));
+      }
+    }
+  }
+
+  PTR_NAMED(OrderedIndexIterator, orderedIterator, trx);
+  PTR_NAMED(UnorderedIndexIterator, unorderedIterator, trx);
 
   // FIXME TODO execute query and order results
 

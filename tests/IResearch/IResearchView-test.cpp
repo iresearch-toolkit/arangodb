@@ -269,6 +269,41 @@ SECTION("test_open") {
   CHECK((true == TRI_IsDirectory(dataPath.c_str())));
 }
 
+SECTION("test_query") {
+  auto createJson = arangodb::velocypack::Parser::fromJson("{ \
+    \"name\": \"testView\", \
+    \"type\": \"iresearch\" \
+  }");
+
+  // no transaction provided
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    CHECK((nullptr == dynamic_cast<arangodb::iresearch::IResearchView*>(view)->iteratorForCondition(nullptr, nullptr, nullptr, nullptr)));
+  }
+
+  // ordered iterator
+  {
+    // FIXME TODO implement
+  }
+
+  // unordered iterator (nullptr sort condition)
+  {
+    // FIXME TODO implement
+  }
+
+  // unordered iterator (empty sort condition)
+  {
+    // FIXME TODO implement
+  }
+
+  // FIXME TODO implement
+}
+
 SECTION("test_update") {
   auto createJson = arangodb::velocypack::Parser::fromJson("{ \
     \"name\": \"testView\", \
