@@ -104,7 +104,7 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
 ////////////////////////////////////////////////////////////////////////////////
 class MinimalIndex: public arangodb::Index {
  public:
-  MinimalIndex(): Index(0, nullptr, arangodb::iresearch::emptyObjectSlice()) {}
+  MinimalIndex(): Index(0, nullptr, definitionSlice()) {}
   virtual bool allowExpansion() const override { return false; }
   virtual IndexType type() const override { return IndexType::TRI_IDX_TYPE_UNKNOWN; }
   virtual bool canBeDropped() const override { return false; }
@@ -114,6 +114,22 @@ class MinimalIndex: public arangodb::Index {
   virtual int insert(arangodb::transaction::Methods*, TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&, bool isRollback) override { return TRI_ERROR_NOT_IMPLEMENTED; }
   virtual int remove(arangodb::transaction::Methods*, TRI_voc_rid_t revisionId, arangodb::velocypack::Slice const&, bool isRollback) override { return TRI_ERROR_NOT_IMPLEMENTED; }
   virtual int unload() override { return TRI_ERROR_NO_ERROR; }
+ private:
+  static arangodb::velocypack::Slice definitionSlice() {
+    static struct State {
+      arangodb::velocypack::Builder builder;
+      State() {
+        arangodb::velocypack::Builder subBuilder;
+        subBuilder.openArray();
+        subBuilder.close();
+        builder.openObject();
+        builder.add("fields", subBuilder.slice());
+        builder.add("type", arangodb::velocypack::Value(""));
+        builder.close();
+      }
+    } instance;
+    return instance.builder.slice();
+  }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,7 +137,22 @@ class MinimalIndex: public arangodb::Index {
 ////////////////////////////////////////////////////////////////////////////////
 class MinimalLogicalCollection: public arangodb::LogicalCollection {
  public:
-  MinimalLogicalCollection(): LogicalCollection(nullptr, arangodb::iresearch::emptyObjectSlice()) {}
+  MinimalLogicalCollection(): LogicalCollection(nullptr, definitionSlice()) {}
+ private:
+  static arangodb::velocypack::Slice definitionSlice() {
+    static struct State {
+      arangodb::velocypack::Builder builder;
+      State() {
+        builder.openObject();
+        builder.add("deleted", arangodb::velocypack::Value(true));
+        builder.add("id", arangodb::velocypack::Value(0));
+        builder.add("isSystem", arangodb::velocypack::Value(true));
+        builder.add("name", arangodb::velocypack::Value("_"));
+        builder.close();
+      }
+    } instance;
+    return instance.builder.slice();
+  }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -144,6 +175,7 @@ OrderedIndexIterator::OrderedIndexIterator(arangodb::transaction::Methods& trx)
 }
 
 bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
+  // FIXME TODO implement
   return false;
 }
 
@@ -171,11 +203,12 @@ UnorderedIndexIterator::UnorderedIndexIterator(arangodb::transaction::Methods& t
 }
 
 bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
+  // FIXME TODO implement
   return false;
 }
 
 char const* UnorderedIndexIterator::typeName() const {
-  return "iresearch-ordered-iterator";
+  return "iresearch-unordered-iterator";
 }
 
 // a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks

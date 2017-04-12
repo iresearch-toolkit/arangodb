@@ -168,7 +168,7 @@ arangodb::Result PhysicalCollectionMock::persistProperties() {
 }
 
 void PhysicalCollectionMock::prepareIndexes(arangodb::velocypack::Slice indexesSlice) {
-  TRI_ASSERT(false);
+  // NOOP
 }
 
 int PhysicalCollectionMock::read(arangodb::transaction::Methods*, arangodb::velocypack::Slice const key, arangodb::ManagedDocumentResult& result, bool) {

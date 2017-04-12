@@ -28,13 +28,17 @@
 #include "utils/log.hpp"
 #include "utils/utf8_path.hpp"
 
+#include "Aql/SortCondition.h"
 #include "Basics/files.h"
+#include "indexes/IndexIterator.h"
 #include "IResearch/IResearchLinkMeta.h"
 #include "IResearch/IResearchView.h"
 #include "Logger/Logger.h"
 #include "Logger/LogTopic.h"
 #include "RestServer/ViewTypesFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
+#include "Transaction/StandaloneContext.h"
+#include "Utils/UserTransaction.h"
 #include "velocypack/Iterator.h"
 #include "velocypack/Parser.h"
 #include "VocBase/KeyGenerator.h"
@@ -274,6 +278,7 @@ SECTION("test_query") {
     \"name\": \"testView\", \
     \"type\": \"iresearch\" \
   }");
+  static std::vector<std::string> const EMPTY;
 
   // no transaction provided
   {
@@ -284,6 +289,89 @@ SECTION("test_query") {
     CHECK((false == !view));
 
     CHECK((nullptr == dynamic_cast<arangodb::iresearch::IResearchView*>(view)->iteratorForCondition(nullptr, nullptr, nullptr, nullptr)));
+  }
+
+  // empty ordered iterator
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    std::vector<std::pair<arangodb::aql::VariableId, bool>> sorts;
+    std::vector<std::vector<arangodb::basics::AttributeName>> constAttributes;
+    std::unordered_map<arangodb::aql::VariableId, arangodb::aql::AstNode const*> variableDefinitions;
+
+    sorts.emplace_back(std::make_pair(0, true)); // add one condition
+
+    arangodb::aql::SortCondition order(sorts, constAttributes, variableDefinitions);
+    arangodb::UserTransaction trx(arangodb::transaction::StandaloneContext::Create(&vocbase), EMPTY, EMPTY, EMPTY, arangodb::transaction::Methods::DefaultLockTimeout, false, false);
+    CHECK((TRI_ERROR_NO_ERROR == trx.begin()));
+    std::unique_ptr<arangodb::IndexIterator> itr(dynamic_cast<arangodb::iresearch::IResearchView*>(view)->iteratorForCondition(&trx, nullptr, nullptr, &order));
+
+    CHECK((false == !itr));
+    CHECK((std::string("iresearch-ordered-iterator") == itr->typeName()));
+    CHECK((&trx == itr->transaction()));
+    CHECK((nullptr != itr->collection()));
+    CHECK((false == itr->hasExtra()));
+    CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
+    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    uint64_t skipped = 0;
+    CHECK_NOTHROW((itr->skip(5, skipped)));
+    CHECK((0 == skipped));
+    CHECK_NOTHROW((itr->reset()));
+  }
+
+  // empty unordered iterator (nullptr sort condition)
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::UserTransaction trx(arangodb::transaction::StandaloneContext::Create(&vocbase), EMPTY, EMPTY, EMPTY, arangodb::transaction::Methods::DefaultLockTimeout, false, false);
+    CHECK((TRI_ERROR_NO_ERROR == trx.begin()));
+    std::unique_ptr<arangodb::IndexIterator> itr(dynamic_cast<arangodb::iresearch::IResearchView*>(view)->iteratorForCondition(&trx, nullptr, nullptr, nullptr));
+
+    CHECK((false == !itr));
+    CHECK((std::string("iresearch-unordered-iterator") == itr->typeName()));
+    CHECK((&trx == itr->transaction()));
+    CHECK((nullptr != itr->collection()));
+    CHECK((false == itr->hasExtra()));
+    CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
+    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    uint64_t skipped = 0;
+    CHECK_NOTHROW((itr->skip(5, skipped)));
+    CHECK((0 == skipped));
+    CHECK_NOTHROW((itr->reset()));
+  }
+
+  // empty unordered iterator (empty sort condition)
+  {
+    TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
+    auto logicalView = vocbase.createView(createJson->slice(), 0);
+    CHECK((false == !logicalView));
+    auto view = logicalView->getImplementation();
+    CHECK((false == !view));
+
+    arangodb::aql::SortCondition order;
+    arangodb::UserTransaction trx(arangodb::transaction::StandaloneContext::Create(&vocbase), EMPTY, EMPTY, EMPTY, arangodb::transaction::Methods::DefaultLockTimeout, false, false);
+    CHECK((TRI_ERROR_NO_ERROR == trx.begin()));
+    std::unique_ptr<arangodb::IndexIterator> itr(dynamic_cast<arangodb::iresearch::IResearchView*>(view)->iteratorForCondition(&trx, nullptr, nullptr, &order));
+
+    CHECK((false == !itr));
+    CHECK((std::string("iresearch-unordered-iterator") == itr->typeName()));
+    CHECK((&trx == itr->transaction()));
+    CHECK((nullptr != itr->collection()));
+    CHECK((false == itr->hasExtra()));
+    CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
+    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    uint64_t skipped = 0;
+    CHECK_NOTHROW((itr->skip(5, skipped)));
+    CHECK((0 == skipped));
+    CHECK_NOTHROW((itr->reset()));
   }
 
   // ordered iterator
