@@ -198,18 +198,6 @@ class IResearchView final: public arangodb::ViewImplementation {
   void open() override;
 
   ////////////////////////////////////////////////////////////////////////////////
-  /// @brief query the iResearch View and return error code
-  ///        visitor: returns TRI_ERROR_NO_ERROR if no error, else stops iteration
-  /// @return error code and optionally write message to non-nullptr 'error'
-  ////////////////////////////////////////////////////////////////////////////////
-  int query(
-    std::function<int(arangodb::transaction::Methods const&, arangodb::velocypack::Slice const&)> const& visitor,
-    arangodb::transaction::Methods& trx,
-    std::string const& query,
-    std::ostream* error = nullptr
-  );
-
-  ////////////////////////////////////////////////////////////////////////////////
   /// @brief remove documents matching 'cid' and 'rid' from the iResearch View
   ///        to be done in the scope of transaction 'tid'
   ////////////////////////////////////////////////////////////////////////////////

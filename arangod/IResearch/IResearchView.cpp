@@ -22,6 +22,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "formats/formats.hpp"
+#include "search/boolean_filter.hpp"
+#include "search/scorers.hpp"
 #include "store/memory_directory.hpp"
 #include "store/fs_directory.hpp"
 #include "utils/directory_utils.hpp"
@@ -31,6 +33,7 @@
 #include "IResearchDocument.h"
 #include "IResearchLink.h"
 
+#include "Aql/AstNode.h"
 #include "Aql/SortCondition.h"
 #include "Basics/Result.h"
 #include "Basics/files.h"
@@ -64,6 +67,115 @@ const std::string LINKS_FIELD("links");
 
 typedef irs::async_utils::read_write_mutex::read_mutex ReadMutex;
 typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief index reader implementation over multiple directory readers
+////////////////////////////////////////////////////////////////////////////////
+class CompoundReader: public irs::index_reader {
+ public:
+  irs::sub_reader const& operator[](size_t i) const;
+  void add(irs::directory_reader const& reader);
+  virtual reader_iterator begin() const override;
+  virtual uint64_t docs_count(const irs::string_ref& field) const override;
+  virtual uint64_t docs_count() const override;
+  virtual reader_iterator end() const override;
+  virtual uint64_t live_docs_count() const override;
+  virtual size_t size() const override;
+
+ private:
+  typedef std::vector<irs::sub_reader*> SubReadersType;
+  class IteratorImpl: public irs::index_reader::reader_iterator_impl {
+   public:
+    IteratorImpl(SubReadersType::const_iterator const& itr);
+    virtual void operator++() override;
+    virtual reference operator*() override;
+    virtual const_reference operator*() const override;
+    virtual bool operator==(const reader_iterator_impl& other) override;
+
+   private:
+    SubReadersType::const_iterator _itr;
+  };
+
+  std::vector<irs::directory_reader> _readers;
+  SubReadersType _subReaders;
+};
+
+CompoundReader::IteratorImpl::IteratorImpl(
+    SubReadersType::const_iterator const& itr
+): _itr(itr) {
+}
+
+void CompoundReader::IteratorImpl::operator++() {
+  ++_itr;
+}
+
+irs::index_reader::reader_iterator_impl::reference CompoundReader::IteratorImpl::operator*() {
+  return **_itr;
+}
+
+irs::index_reader::reader_iterator_impl::const_reference CompoundReader::IteratorImpl::operator*() const {
+  return **_itr;
+}
+
+bool CompoundReader::IteratorImpl::operator==(
+    reader_iterator_impl const& other
+) {
+  return static_cast<IteratorImpl const&>(other)._itr == _itr;
+}
+
+irs::sub_reader const& CompoundReader::operator[](size_t i) const {
+  return *(_subReaders[i]);
+}
+
+void CompoundReader::add(irs::directory_reader const& reader) {
+  _readers.emplace_back(reader);
+
+  for(auto& entry: _readers.back()) {
+    _subReaders.emplace_back(&entry);
+  }
+}
+
+irs::index_reader::reader_iterator CompoundReader::begin() const {
+  return reader_iterator(new IteratorImpl(_subReaders.begin()));
+}
+
+uint64_t CompoundReader::docs_count(const irs::string_ref& field) const {
+  uint64_t count = 0;
+
+  for (auto& entry: _subReaders) {
+    count += entry->docs_count(field);
+  }
+
+  return count;
+}
+
+uint64_t CompoundReader::docs_count() const {
+  uint64_t count = 0;
+
+  for (auto& entry: _subReaders) {
+    count += entry->docs_count();
+  }
+
+  return count;
+}
+
+irs::index_reader::reader_iterator CompoundReader::end() const {
+  return reader_iterator(new IteratorImpl(_subReaders.end())); 
+}
+
+uint64_t CompoundReader::live_docs_count() const {
+  uint64_t count = 0;
+
+  for (auto& entry: _subReaders) {
+    count += entry->live_docs_count();
+  }
+
+  return count;
+}
+
+size_t CompoundReader::size() const {
+  return _subReaders.size();
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief minimal implementation of an index for use with iterators
@@ -122,22 +234,85 @@ class MinimalLogicalCollection: public arangodb::LogicalCollection {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-/// @brief iterator for ordered set of query results from iResearch View
+/// @brief base class for iterators of query results from iResearch View
 ////////////////////////////////////////////////////////////////////////////////
-class OrderedIndexIterator: public arangodb::IndexIterator {
+class IndexIteratorBase: public arangodb::IndexIterator {
  public:
   DECLARE_PTR(arangodb::IndexIterator);
-  OrderedIndexIterator(arangodb::transaction::Methods& trx);
-  virtual bool next(TokenCallback const& callback, size_t limit) override;
+  IndexIteratorBase(
+    const char* typeName,
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader
+  );
   virtual char const* typeName() const override;
+
+ protected:
+  CompoundReader _reader;
 
  private:
   MinimalLogicalCollection _collection;
   MinimalIndex _index;
+  char const* _typeName;
 };
 
-OrderedIndexIterator::OrderedIndexIterator(arangodb::transaction::Methods& trx)
-  : IndexIterator(&_collection, &trx, nullptr, &_index) {
+IndexIteratorBase::IndexIteratorBase(
+    char const* typeName,
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader
+): IndexIterator(&_collection, &trx, nullptr, &_index),
+   _reader(std::move(reader)),
+   _typeName(typeName) {
+}
+
+char const* IndexIteratorBase::typeName() const {
+  return _typeName;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief iterator for ordered set of query results from iResearch View
+////////////////////////////////////////////////////////////////////////////////
+class OrderedIndexIterator: public IndexIteratorBase {
+ public:
+  OrderedIndexIterator(
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader,
+    irs::filter const& filter,
+    irs::order const& order
+  );
+  virtual bool next(TokenCallback const& callback, size_t limit) override;
+
+ private:
+  struct OrderLess {
+    OrderedIndexIterator const& _parent;
+    OrderLess(OrderedIndexIterator const& parent);
+    bool operator()(irs::bstring const& lhs, irs::bstring const& rhs) const;
+  };
+
+  irs::order::prepared _order;
+  std::multimap<const irs::bstring, std::pair<size_t, irs::doc_id_t>, OrderLess> _orderedDocIds;
+  irs::query _query;
+};
+
+OrderedIndexIterator::OrderLess::OrderLess(OrderedIndexIterator const& parent)
+  : _parent(parent) {
+}
+
+bool OrderedIndexIterator::OrderLess::operator()(
+    irs::bstring const& lhs,
+    irs::bstring const& rhs
+) const {
+  return _parent._order.less(lhs.c_str(), rhs.c_str());
+}
+
+OrderedIndexIterator::OrderedIndexIterator(
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader,
+    irs::filter const& filter,
+    irs::order const& order
+): IndexIteratorBase("iresearch-ordered-iterator", trx, std::move(reader)),
+   _order(order.prepare()),
+   _orderedDocIds(OrderLess(*this)),
+   _query(irs::query::prepare(_reader, filter, order)) {
 }
 
 bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
@@ -145,36 +320,33 @@ bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
   return false;
 }
 
-char const* OrderedIndexIterator::typeName() const {
-  return "iresearch-ordered-iterator";
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief iterator for unordered set of query results from iResearch View
 ////////////////////////////////////////////////////////////////////////////////
-class UnorderedIndexIterator: public arangodb::IndexIterator {
+class UnorderedIndexIterator: public IndexIteratorBase {
  public:
-  DECLARE_PTR(arangodb::IndexIterator);
-  UnorderedIndexIterator(arangodb::transaction::Methods& trx);
+  UnorderedIndexIterator(
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader,
+    irs::filter const& filter
+  );
   virtual bool next(TokenCallback const& callback, size_t limit) override;
-  virtual char const* typeName() const override;
 
  private:
-  MinimalLogicalCollection _collection;
-  MinimalIndex _index;
+  irs::query _query;
 };
 
-UnorderedIndexIterator::UnorderedIndexIterator(arangodb::transaction::Methods& trx)
-  : IndexIterator(&_collection, &trx, nullptr, &_index) {
+UnorderedIndexIterator::UnorderedIndexIterator(
+    arangodb::transaction::Methods& trx,
+    CompoundReader&& reader,
+    irs::filter const& filter
+): IndexIteratorBase("iresearch-unordered-iterator", trx, std::move(reader)),
+   _query(irs::query::prepare(_reader, filter)) {
 }
 
 bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
   // FIXME TODO implement
   return false;
-}
-
-char const* UnorderedIndexIterator::typeName() const {
-  return "iresearch-unordered-iterator";
 }
 
 // a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks
@@ -247,6 +419,35 @@ size_t ViewRegistry::Hash::operator()(ViewRegistry::KeyType const& value) const 
       ++itr;
     }
   }
+}
+
+bool appendFilter(irs::boolean_filter& buf, arangodb::aql::AstNode const& root) {
+  // FIXME TODO implement
+  return true;
+}
+
+bool appendOrder(irs::order& buf, arangodb::aql::SortCondition const& root) {
+  struct NoopSort: public irs::sort {
+    struct Prepared: irs::sort::prepared_base<bool> {
+      virtual void add(score_t& dst, score_t const& src) const override {}
+      virtual const irs::flags& features() const override { return irs::flags::empty_instance(); }
+      virtual bool less(const score_t& lhs, const score_t& rhs) const override { return false; }
+      virtual collector::ptr prepare_collector() const override { return nullptr; }
+      virtual scorer::ptr prepare_scorer(irs::sub_reader const& segment, irs::term_reader const& field, irs::attributes const& query_attrs, irs::attributes const& doc_attrs) const override { return nullptr; }
+    };
+    DECLARE_TYPE_ID(irs::sort::type_id) { static irs::sort::type_id type("noop_sort"); return type; }
+    NoopSort(): sort(NoopSort::type()) {}
+    static ptr make() { PTR_NAMED(NoopSort, ptr); return ptr; }
+    virtual prepared::ptr prepare() const override { PTR_NAMED(Prepared, ptr); return ptr; }
+  };
+
+  // fill 'buf' with dummy 'sort' objects equal in number to the count of conditions in 'root'
+  for (auto i = root.numAttributes(); i > 0; --i) {
+    buf.add<NoopSort>();
+  }
+
+  // FIXME TODO implement
+  return true;
 }
 
 arangodb::Result createPersistedDataDirectory(
@@ -1230,17 +1431,80 @@ arangodb::IndexIterator* IResearchView::iteratorForCondition(
     return nullptr;
   }
 
-  if (sortCondition && !sortCondition->isEmpty()) {
-    PTR_NAMED(OrderedIndexIterator, iterator, *trx);
+  if (!node) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "no query supplied while querying iResearch view '" << name() << "'";
 
-    // TODO FIXME implement
+    return nullptr;
+  }
+
+  irs::Or filter;
+
+  if (!appendFilter(filter, *node)) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to build filter while querying iResearch view '" << name() << "', query" << node->toVelocyPack(true)->toJson();
+
+    return nullptr;
+  }
+
+  irs::order order;
+
+  if (sortCondition && !appendOrder(order, *sortCondition)) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "failed to build order while querying iResearch view '" << name() << "', query" << node->toVelocyPack(true)->toJson();
+
+    return nullptr;
+  }
+
+  CompoundReader compoundReader;
+  ReadMutex mutex(_mutex); // members can be asynchronously updated
+
+  try {
+    SCOPED_LOCK(mutex);
+
+    for (auto& fidStore: _storeByWalFid) {
+      auto reader = fidStore.second._reader.reopen(); // refresh to latest version
+
+      compoundReader.add(reader);
+      fidStore.second._reader = reader; // cache reopened reader for reuse by other queries
+    }
+
+    if (_storePersisted) {
+      auto reader = _storePersisted._reader.reopen(); // refresh to latest version
+
+      compoundReader.add(reader);
+      _storePersisted._reader = reader; // cache reopened reader for reuse by other queries
+    }
+  } catch (std::exception& e) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "': " << e.what();
+    IR_EXCEPTION();
+    return nullptr;
+  } catch (...) {
+    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "'";
+    IR_EXCEPTION();
+    return nullptr;
+  }
+
+  // add CIDs of known collections to transaction
+  for (auto& entry: _meta._collections) {
+    trx->addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(entry));
+  }
+
+  // add CIDs of registered collections to transaction
+  for (auto& entry: _links) {
+    if (entry) {
+      auto* collection = entry->collection();
+
+      if (collection) {
+        trx->addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(collection->cid()));
+      }
+    }
+  }
+
+  if (order.empty()) {
+    PTR_NAMED(UnorderedIndexIterator, iterator, *trx, std::move(compoundReader), filter);
 
     return iterator.release();
   }
 
-  PTR_NAMED(UnorderedIndexIterator, iterator, *trx);
-
-  // TODO FIXME implement
+  PTR_NAMED(OrderedIndexIterator, iterator, *trx, std::move(compoundReader), filter, order);
 
   return iterator.release();
 }
@@ -1487,60 +1751,6 @@ void IResearchView::open() {
 
   LOG_TOPIC(WARN, Logger::FIXME) << "failed to open iResearch view '" << name() << "'";
   throw std::runtime_error(std::string("failed to open iResearch view '") + name() + "'");
-}
-
-int IResearchView::query(
-  std::function<int(arangodb::transaction::Methods const&, arangodb::velocypack::Slice const&)> const& visitor,
-  arangodb::transaction::Methods& trx,
-  std::string const& query,
-  std::ostream* error /*= nullptr*/
-) {
-  std::vector<irs::directory_reader> readers;
-  ReadMutex mutex(_mutex); // members can be asynchronously updated
-  SCOPED_LOCK(mutex);
-
-  try {
-    for (auto& fidStore: _storeByWalFid) {
-      readers.emplace_back(fidStore.second._reader.reopen()); // refresh to latest version
-      fidStore.second._reader = readers.back(); // cache reopened reader for reuse by other queries
-    }
-
-    if (_storePersisted) {
-      readers.emplace_back(_storePersisted._reader.reopen()); // refresh to latest version
-      _storePersisted._reader = readers.back(); // cache reopened reader for reuse by other queries
-    }
-  } catch (std::exception& e) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "': " << e.what();
-    IR_EXCEPTION();
-    return TRI_ERROR_INTERNAL;
-  } catch (...) {
-    LOG_TOPIC(WARN, Logger::FIXME) << "caught exception while collecting readers for querying iResearch view '" << name() << "'";
-    IR_EXCEPTION();
-    return TRI_ERROR_INTERNAL;
-  }
-
-  // add CIDs of known collections to transaction
-  for (auto& entry: _meta._collections) {
-    trx.addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(entry));
-  }
-
-  // add CIDs of registered collections to transaction
-  for (auto& entry: _links) {
-    if (entry) {
-      auto* collection = entry->collection();
-
-      if (collection) {
-        trx.addCollectionAtRuntime(arangodb::basics::StringUtils::itoa(collection->cid()));
-      }
-    }
-  }
-
-  PTR_NAMED(OrderedIndexIterator, orderedIterator, trx);
-  PTR_NAMED(UnorderedIndexIterator, unorderedIterator, trx);
-
-  // FIXME TODO execute query and order results
-
-  return 0; // FIXME TODO
 }
 
 int IResearchView::remove(
