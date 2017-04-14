@@ -330,7 +330,9 @@ SECTION("test_query") {
     CHECK((nullptr != itr->collection()));
     CHECK((false == itr->hasExtra()));
     CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
-    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    size_t count = 0;
+    CHECK((false == itr->next([&count](arangodb::DocumentIdentifierToken const&)->void{ ++count; }, 42)));
+    CHECK((0 == count));
     uint64_t skipped = 0;
     CHECK_NOTHROW((itr->skip(5, skipped)));
     CHECK((0 == skipped));
@@ -355,7 +357,9 @@ SECTION("test_query") {
     CHECK((nullptr != itr->collection()));
     CHECK((false == itr->hasExtra()));
     CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
-    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    size_t count = 0;
+    CHECK((false == itr->next([&count](arangodb::DocumentIdentifierToken const&)->void{ ++count; }, 42)));
+    CHECK((0 == count));
     uint64_t skipped = 0;
     CHECK_NOTHROW((itr->skip(5, skipped)));
     CHECK((0 == skipped));
@@ -381,7 +385,9 @@ SECTION("test_query") {
     CHECK((nullptr != itr->collection()));
     CHECK((false == itr->hasExtra()));
     CHECK_THROWS(itr->nextExtra([](arangodb::DocumentIdentifierToken const&, arangodb::velocypack::Slice)->void{}, 42));
-    CHECK((false == itr->next([](arangodb::DocumentIdentifierToken const&)->void{}, 42)));
+    size_t count = 0;
+    CHECK((false == itr->next([&count](arangodb::DocumentIdentifierToken const&)->void{ ++count; }, 42)));
+    CHECK((0 == count));
     uint64_t skipped = 0;
     CHECK_NOTHROW((itr->skip(5, skipped)));
     CHECK((0 == skipped));

@@ -379,27 +379,14 @@ class OrderedIndexIterator: public IndexIteratorBase {
   virtual void reset() override;
 
  private:
-  struct OrderLess {
-    OrderedIndexIterator const& _parent;
-    OrderLess(OrderedIndexIterator const& parent);
-    bool operator()(irs::bstring const& lhs, irs::bstring const& rhs) const;
+  struct State {
+    size_t _skip;
   };
 
+  irs::filter::prepared::ptr _filter;
   irs::order::prepared _order;
-  std::multimap<const irs::bstring, std::pair<size_t, irs::doc_id_t>, OrderLess> _orderedDocIds;
-  irs::query _query;
+  State _state; // previous iteration state
 };
-
-OrderedIndexIterator::OrderLess::OrderLess(OrderedIndexIterator const& parent)
-  : _parent(parent) {
-}
-
-bool OrderedIndexIterator::OrderLess::operator()(
-    irs::bstring const& lhs,
-    irs::bstring const& rhs
-) const {
-  return _parent._order.less(lhs.c_str(), rhs.c_str());
-}
 
 OrderedIndexIterator::OrderedIndexIterator(
     arangodb::transaction::Methods& trx,
@@ -407,9 +394,9 @@ OrderedIndexIterator::OrderedIndexIterator(
     irs::filter const& filter,
     irs::order const& order
 ): IndexIteratorBase("iresearch-ordered-iterator", trx, std::move(reader)),
-   _order(order.prepare()),
-   _orderedDocIds(OrderLess(*this)),
-   _query(irs::query::prepare(_reader, filter, order)) {
+   _order(order.prepare()) {
+  _filter = filter.prepare(_reader, _order);
+  reset();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -421,15 +408,73 @@ OrderedIndexIterator::OrderedIndexIterator(
 /// @return has more
 ////////////////////////////////////////////////////////////////////////////////
 bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
-  // FIXME TODO implement
-  return false;
+  auto& order = _order;
+  auto scoreLess = [&order](
+      irs::bstring const& lhs,
+      irs::bstring const& rhs
+  )->bool {
+    return order.less(lhs.c_str(), rhs.c_str());
+  };
+  std::multimap<irs::bstring, arangodb::DocumentIdentifierToken, decltype(scoreLess)> orderedDocTokens(scoreLess);
+  auto maxDocCount = _state._skip + limit;
+  arangodb::DocumentIdentifierToken tmpToken;
+
+  for (size_t i = 0, count = _reader.size(); i < count; ++i) {
+    auto& segmentReader = _reader[i];
+    auto itr = _filter->execute(segmentReader, _order);
+    auto& score = itr->attributes().get<irs::score>();
+
+    while (itr->next()) {
+      if (!loadToken(tmpToken, i, itr->value())) {
+        LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "failed to generate document identifier token while iterating iResearch view, ignoring: reader_id '" << i << "', doc_id '" << itr->value() << "'";
+
+        continue; // if here then there is probably a bug in IResearchView while indexing
+      }
+
+      itr->score(); // compute a score for the current document
+
+      if (!score) {
+        LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "failed to generate document score while iterating iResearch view, ignoring: reader_id '" << i << "', doc_id '" << itr->value() << "'";
+
+        continue; // if here then there is probably a bug in IResearchView or in the iResearch library
+      }
+
+      orderedDocTokens.emplace(score->value(), tmpToken);
+
+      if (orderedDocTokens.size() > maxDocCount) {
+        orderedDocTokens.erase(--(orderedDocTokens.end())); // remove element with the least score
+      }
+    }
+  }
+
+  auto tokenItr = orderedDocTokens.begin();
+  auto tokenEnd = orderedDocTokens.end();
+
+  // skip documents previously returned
+  for (size_t i = _state._skip; i; --i, ++tokenItr) {
+    if (tokenItr == tokenEnd) {
+      LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "document count less than the document count during the previous iteration on the same query while iterating iResearch view'";
+
+      break; // if here then there is probably a bug in the iResearch library
+    }
+  }
+
+  // iterate through documents
+  while (limit && tokenItr != tokenEnd) {
+    callback(tokenItr->second);
+    ++tokenItr;
+    ++_state._skip;
+    --limit;
+  }
+
+  return limit == 0; // exceeded limit
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief resets the iterator
 ////////////////////////////////////////////////////////////////////////////////
 void OrderedIndexIterator::reset() {
-  // TODO FIXME implement
+  _state._skip = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -473,8 +518,7 @@ UnorderedIndexIterator::UnorderedIndexIterator(
 /// @return has more
 ////////////////////////////////////////////////////////////////////////////////
 bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
-  irs::bytes_ref docPkBuf;
-  arangodb::DocumentIdentifierToken token;
+  arangodb::DocumentIdentifierToken tmpToken;
 
   for (size_t count = _reader.size();
        _state._readerOffset < count;
@@ -487,13 +531,13 @@ bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
     }
 
     while (limit && _state._itr->next()) {
-      if (!loadToken(token, _state._readerOffset, _state._itr->value())) {
+      if (!loadToken(tmpToken, _state._readerOffset, _state._itr->value())) {
         LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "failed to generate document identifier token while iterating iResearch view, ignoring: reader_id '" << _state._readerOffset << "', doc_id '" << _state._itr->value() << "'";
 
         continue;
       }
 
-      callback(token);
+      callback(tmpToken);
       --limit;
     }
   }
