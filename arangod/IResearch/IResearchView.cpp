@@ -73,17 +73,18 @@ typedef irs::async_utils::read_write_mutex::write_mutex WriteMutex;
 ////////////////////////////////////////////////////////////////////////////////
 class CompoundReader: public irs::index_reader {
  public:
-  irs::sub_reader const& operator[](size_t i) const;
+  irs::sub_reader const& operator[](size_t subReaderId) const;
   void add(irs::directory_reader const& reader);
   virtual reader_iterator begin() const override;
   virtual uint64_t docs_count(const irs::string_ref& field) const override;
   virtual uint64_t docs_count() const override;
   virtual reader_iterator end() const override;
   virtual uint64_t live_docs_count() const override;
+  irs::field_id pkColumnId(size_t subReaderId) const;
   virtual size_t size() const override;
 
  private:
-  typedef std::vector<irs::sub_reader*> SubReadersType;
+  typedef std::vector<std::pair<irs::sub_reader*, irs::field_id>> SubReadersType;
   class IteratorImpl: public irs::index_reader::reader_iterator_impl {
    public:
     IteratorImpl(SubReadersType::const_iterator const& itr);
@@ -110,11 +111,11 @@ void CompoundReader::IteratorImpl::operator++() {
 }
 
 irs::index_reader::reader_iterator_impl::reference CompoundReader::IteratorImpl::operator*() {
-  return **_itr;
+  return *(_itr->first);
 }
 
 irs::index_reader::reader_iterator_impl::const_reference CompoundReader::IteratorImpl::operator*() const {
-  return **_itr;
+  return *(_itr->first);
 }
 
 bool CompoundReader::IteratorImpl::operator==(
@@ -123,15 +124,23 @@ bool CompoundReader::IteratorImpl::operator==(
   return static_cast<IteratorImpl const&>(other)._itr == _itr;
 }
 
-irs::sub_reader const& CompoundReader::operator[](size_t i) const {
-  return *(_subReaders[i]);
+irs::sub_reader const& CompoundReader::operator[](size_t subReaderId) const {
+  return *(_subReaders[subReaderId].first);
 }
 
 void CompoundReader::add(irs::directory_reader const& reader) {
   _readers.emplace_back(reader);
 
   for(auto& entry: _readers.back()) {
-    _subReaders.emplace_back(&entry);
+    auto* pkColMeta = entry.column(arangodb::iresearch::DocumentPrimaryKey::PK());
+
+    if (!pkColMeta) {
+      LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "encountered a sub-reader without a primary key column creating reader for iResearch view, ignoring";
+
+      continue;
+    }
+
+    _subReaders.emplace_back(&entry, pkColMeta->id);
   }
 }
 
@@ -143,7 +152,7 @@ uint64_t CompoundReader::docs_count(const irs::string_ref& field) const {
   uint64_t count = 0;
 
   for (auto& entry: _subReaders) {
-    count += entry->docs_count(field);
+    count += entry.first->docs_count(field);
   }
 
   return count;
@@ -153,7 +162,7 @@ uint64_t CompoundReader::docs_count() const {
   uint64_t count = 0;
 
   for (auto& entry: _subReaders) {
-    count += entry->docs_count();
+    count += entry.first->docs_count();
   }
 
   return count;
@@ -167,10 +176,14 @@ uint64_t CompoundReader::live_docs_count() const {
   uint64_t count = 0;
 
   for (auto& entry: _subReaders) {
-    count += entry->live_docs_count();
+    count += entry.first->live_docs_count();
   }
 
   return count;
+}
+
+irs::field_id CompoundReader::pkColumnId(size_t subReaderId) const {
+  return _subReaders[subReaderId].second;
 }
 
 size_t CompoundReader::size() const {
@@ -244,15 +257,34 @@ class IndexIteratorBase: public arangodb::IndexIterator {
     arangodb::transaction::Methods& trx,
     CompoundReader&& reader
   );
+  bool readDocument(
+    arangodb::DocumentIdentifierToken const& token,
+    arangodb::ManagedDocumentResult& result
+  ) const;
   virtual char const* typeName() const override;
 
  protected:
   CompoundReader _reader;
 
+  bool loadToken(
+    arangodb::DocumentIdentifierToken& buf,
+    size_t subReaderId,
+    irs::doc_id_t subDocId
+  ) const noexcept;
+
  private:
   MinimalLogicalCollection _collection;
   MinimalIndex _index;
+  size_t _subDocIdBits; // bits reserved for doc_id of sub-readers (depends on size of sub_readers)
+  size_t _subDocIdMask; // bit mask for the sub-reader doc_id portion of doc_id
   char const* _typeName;
+
+  irs::doc_id_t subDocId(
+    arangodb::DocumentIdentifierToken const& token
+  ) const noexcept;
+  size_t subReaderId(
+    arangodb::DocumentIdentifierToken const& token
+  ) const noexcept;
 };
 
 IndexIteratorBase::IndexIteratorBase(
@@ -262,6 +294,70 @@ IndexIteratorBase::IndexIteratorBase(
 ): IndexIterator(&_collection, &trx, nullptr, &_index),
    _reader(std::move(reader)),
    _typeName(typeName) {
+  _subDocIdBits = _reader.size();
+  _subDocIdMask = (size_t(1) <<_subDocIdBits) - 1;
+}
+
+bool IndexIteratorBase::loadToken(
+  arangodb::DocumentIdentifierToken& buf,
+  size_t subReaderId,
+  irs::doc_id_t subDocId
+) const noexcept {
+  if (subReaderId >= _reader.size() || subDocId > _subDocIdMask) {
+    return false; // no valid token can be specified for these args
+  }
+
+  buf._data = (subReaderId << _subDocIdBits) | subDocId;
+
+  return true;
+}
+
+bool IndexIteratorBase::readDocument(
+    arangodb::DocumentIdentifierToken const& token,
+    arangodb::ManagedDocumentResult& result
+) const {
+  auto docId = subDocId(token);
+  auto readerId = subReaderId(token);
+  auto& reader = _reader[readerId];
+  auto pkColId = _reader.pkColumnId(readerId);
+  arangodb::iresearch::DocumentPrimaryKey docPk;
+  irs::bytes_ref tmpRef;
+
+  if (!reader.values(pkColId)(docId, tmpRef) || !docPk.read(tmpRef)) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "failed to read document primary key while reading document from iResearch view, doc_id '" << docId << "'";
+
+    return false; // not a valid document reference
+  }
+
+  static const std::string unknown("<unknown>");
+
+  _trx->addCollectionAtRuntime(docPk.cid(), unknown);
+
+  auto* collection = _trx->documentCollection(docPk.cid());
+
+  if (!collection) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "failed to find collection while reading document from iResearch view, cid '" << docPk.cid() << "', rid '" << docPk.rid() << "'";
+
+    return false; // not a valid collection reference
+  }
+
+  arangodb::DocumentIdentifierToken colToken;
+
+  colToken._data = docPk.rid();
+
+  return collection->readDocument(_trx, colToken, result);
+}
+
+irs::doc_id_t IndexIteratorBase::subDocId(
+  arangodb::DocumentIdentifierToken const& token
+) const noexcept {
+  return irs::doc_id_t(token._data & _subDocIdMask);
+}
+
+size_t IndexIteratorBase::subReaderId(
+  arangodb::DocumentIdentifierToken const& token
+) const noexcept {
+  return token._data >> _subDocIdBits;
 }
 
 char const* IndexIteratorBase::typeName() const {
@@ -280,6 +376,7 @@ class OrderedIndexIterator: public IndexIteratorBase {
     irs::order const& order
   );
   virtual bool next(TokenCallback const& callback, size_t limit) override;
+  virtual void reset() override;
 
  private:
   struct OrderLess {
@@ -315,9 +412,24 @@ OrderedIndexIterator::OrderedIndexIterator(
    _query(irs::query::prepare(_reader, filter, order)) {
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief expects a callback taking DocumentIdentifierTokens that are created
+///        from RevisionIds. In addition it expects a limit.
+///        The iterator has to walk through the Index and call the callback with
+///        at most limit many elements. On the next iteration it has to continue
+///        after the last returned Token.
+/// @return has more
+////////////////////////////////////////////////////////////////////////////////
 bool OrderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
   // FIXME TODO implement
   return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief resets the iterator
+////////////////////////////////////////////////////////////////////////////////
+void OrderedIndexIterator::reset() {
+  // TODO FIXME implement
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -331,9 +443,16 @@ class UnorderedIndexIterator: public IndexIteratorBase {
     irs::filter const& filter
   );
   virtual bool next(TokenCallback const& callback, size_t limit) override;
+  virtual void reset() override;
 
  private:
-  irs::query _query;
+  struct State {
+    irs::doc_iterator::ptr _itr;
+    size_t _readerOffset;
+  };
+
+  irs::filter::prepared::ptr _filter;
+  State _state; // previous iteration state
 };
 
 UnorderedIndexIterator::UnorderedIndexIterator(
@@ -341,12 +460,53 @@ UnorderedIndexIterator::UnorderedIndexIterator(
     CompoundReader&& reader,
     irs::filter const& filter
 ): IndexIteratorBase("iresearch-unordered-iterator", trx, std::move(reader)),
-   _query(irs::query::prepare(_reader, filter)) {
+   _filter(filter.prepare(_reader)) {
+  reset();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief expects a callback taking DocumentIdentifierTokens that are created
+///        from RevisionIds. In addition it expects a limit.
+///        The iterator has to walk through the Index and call the callback with
+///        at most limit many elements. On the next iteration it has to continue
+///        after the last returned Token.
+/// @return has more
+////////////////////////////////////////////////////////////////////////////////
 bool UnorderedIndexIterator::next(TokenCallback const& callback, size_t limit) {
-  // FIXME TODO implement
-  return false;
+  irs::bytes_ref docPkBuf;
+  arangodb::DocumentIdentifierToken token;
+
+  for (size_t count = _reader.size();
+       _state._readerOffset < count;
+       ++_state._readerOffset, _state._itr.reset()
+  ) {
+    auto& segmentReader = _reader[_state._readerOffset];
+
+    if (!_state._itr) {
+      _state._itr = _filter->execute(segmentReader);
+    }
+
+    while (limit && _state._itr->next()) {
+      if (!loadToken(token, _state._readerOffset, _state._itr->value())) {
+        LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "failed to generate document identifier token while iterating iResearch view, ignoring: reader_id '" << _state._readerOffset << "', doc_id '" << _state._itr->value() << "'";
+
+        continue;
+      }
+
+      callback(token);
+      --limit;
+    }
+  }
+
+  return limit == 0; // exceeded limit
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief resets the iterator
+////////////////////////////////////////////////////////////////////////////////
+void UnorderedIndexIterator::reset() {
+  _state._itr.reset();
+  _state._readerOffset = 0;
 }
 
 // a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks

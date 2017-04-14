@@ -40,7 +40,7 @@
    (((val) <<  8) & UINT64_C(0x000000FF00000000)) | (((val) << 24) & UINT64_C(0x0000FF0000000000)) | \
    (((val) << 40) & UINT64_C(0x00FF000000000000)) | (((val) << 56) & UINT64_C(0xFF00000000000000)) )
 
-namespace {
+NS_LOCAL
 
 irs::string_ref const CID_FIELD("@_CID");
 irs::string_ref const RID_FIELD("@_REV");
@@ -354,10 +354,10 @@ void setIdValue(
   sstream.reset(toBytesRefLE(value));
 }
 
-}
+NS_END
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 // ----------------------------------------------------------------------------
 // --SECTION--                                             Field implementation
@@ -642,6 +642,16 @@ DocumentPrimaryKey::DocumentPrimaryKey(
   static_assert(sizeof(_keys) == sizeof(cid) + sizeof(rid), "Invalid size");
 }
 
+bool DocumentPrimaryKey::read(irs::bytes_ref& in) noexcept {
+  if (sizeof(_keys) != in.size()) {
+    return false;
+  }
+
+  std::memcpy(_keys, in.c_str(), sizeof(_keys));
+
+  return true;
+}
+
 bool DocumentPrimaryKey::write(irs::data_output& out) const {
   out.write_bytes(
     reinterpret_cast<const irs::byte_type*>(_keys),
@@ -651,8 +661,8 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   return true;
 }
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                                       END-OF-FILE

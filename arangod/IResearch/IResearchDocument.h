@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -35,8 +34,8 @@
 #include "analysis/token_streams.hpp"
 #include "search/filter.hpp"
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 struct IResearchViewMeta;
 
@@ -213,6 +212,7 @@ class DocumentPrimaryKey {
   DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
 
   irs::string_ref const& name() const noexcept { return PK(); }
+  bool read(irs::bytes_ref& in) noexcept;
   bool write(irs::data_output& out) const;
 
   TRI_voc_cid_t cid() const noexcept { return _keys[0]; }
@@ -225,7 +225,6 @@ class DocumentPrimaryKey {
   uint64_t _keys[2]{}; // TRI_voc_cid_t + TRI_voc_rid_t
 }; // DocumentPrimaryKey
 
-} // iresearch
-} // arangodb
-
+NS_END // iresearch
+NS_END // arangodb
 #endif
