@@ -123,14 +123,12 @@ struct PairHash {
 
 template<>
 size_t PairHash::operator()<std::string, std::string>(std::pair<std::string, std::string> const& value) const {
-  static irs::string_ref_hash_t hasher;
-  return hasher(value.first) ^ hasher(value.second);
+  return irs::hash_utils::hash(value.first) ^ irs::hash_utils::hash(value.second);
 }
 
 template<>
 size_t PairHash::operator()<irs::string_ref, irs::string_ref>(std::pair<irs::string_ref, irs::string_ref> const& value) const {
-  static irs::string_ref_hash_t hasher;
-  return hasher(value.first) ^ hasher(value.second);
+  return irs::hash_utils::hash(value.first) ^ irs::hash_utils::hash(value.second);
 }
 
 bool equalTokenizers(
@@ -193,8 +191,7 @@ IResearchLinkMeta::Mask::Mask(bool mask /*= false*/) noexcept
 }
 
 size_t IResearchLinkMeta::TokenizerPool::Hash::operator()(TokenizerPool const& value) const {
-  static irs::string_ref_hash_t hasher;
-  return hasher(value._name) ^ hasher(value._args);
+  return irs::hash_utils::hash(value._name) ^ irs::hash_utils::hash(value._args);
 }
 
 /*static*/ IResearchLinkMeta::TokenizerPool::TokenizerBuilder::ptr IResearchLinkMeta::TokenizerPool::TokenizerBuilder::make(

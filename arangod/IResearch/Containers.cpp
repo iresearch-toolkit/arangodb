@@ -28,16 +28,12 @@ NS_BEGIN(iresearch)
 
 template<>
 size_t Hasher::operator()<irs::bytes_ref>(irs::bytes_ref const& value) const {
-  static irs::bytes_ref_hash_t hasher;
-
-  return hasher(value);
+  return irs::hash_utils::hash(value);
 }
 
 template<>
 size_t Hasher::operator()<irs::string_ref>(irs::string_ref const& value) const {
-  static irs::string_ref_hash_t hasher;
-
-  return hasher(value);
+  return irs::hash_utils::hash(value);
 }
 
 NS_END // iresearch
