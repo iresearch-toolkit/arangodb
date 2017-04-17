@@ -421,11 +421,6 @@ size_t ViewRegistry::Hash::operator()(ViewRegistry::KeyType const& value) const 
   }
 }
 
-bool appendFilter(irs::boolean_filter& buf, arangodb::aql::AstNode const& root) {
-  // FIXME TODO implement
-  return true;
-}
-
 bool appendOrder(irs::order& buf, arangodb::aql::SortCondition const& root) {
   struct NoopSort: public irs::sort {
     struct Prepared: irs::sort::prepared_base<bool> {
@@ -1066,7 +1061,7 @@ int IResearchView::drop(TRI_voc_cid_t cid) {
   }
 
   auto& metaStore = *(_logicalView->getPhysical());
-  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FilterFactory::filter(cid));
   WriteMutex mutex(_mutex); // '_storeByTid' & '_storeByWalFid' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
@@ -1439,7 +1434,7 @@ arangodb::IndexIterator* IResearchView::iteratorForCondition(
 
   irs::Or filter;
 
-  if (!appendFilter(filter, *node)) {
+  if (!arangodb::iresearch::FilterFactory::filter(filter, *node)) {
     LOG_TOPIC(WARN, Logger::FIXME) << "failed to build filter while querying iResearch view '" << name() << "', query" << node->toVelocyPack(true)->toJson();
 
     return nullptr;
@@ -1758,7 +1753,7 @@ int IResearchView::remove(
   TRI_voc_cid_t cid,
   TRI_voc_rid_t rid
 ) {
-  std::shared_ptr<irs::filter> shared_filter(iresearch::FieldIterator::filter(cid, rid));
+  std::shared_ptr<irs::filter> shared_filter(iresearch::FilterFactory::filter(cid, rid));
   WriteMutex mutex(_mutex); // '_storeByTid' can be asynchronously updated
   SCOPED_LOCK(mutex);
   auto& store = _storeByTid[tid];

@@ -27,6 +27,7 @@
 
 #include "VocBase/voc-types.h"
 
+#include "Aql/AstNode.h"
 #include "IResearchLinkMeta.h"
 #include "VelocyPackHelper.h"
 
@@ -34,6 +35,12 @@
 #include "utils/attributes.hpp"
 #include "analysis/token_streams.hpp"
 #include "search/filter.hpp"
+
+namespace iresearch {
+
+class boolean_filter;
+
+} // iresearch
 
 namespace arangodb {
 namespace iresearch {
@@ -90,9 +97,6 @@ struct Field {
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
   static FieldIterator const END; // unified end for all field iterators
-
-  static irs::filter::ptr filter(TRI_voc_cid_t cid);
-  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
 
   explicit FieldIterator(
     IResearchViewMeta const& viewMeta
@@ -224,6 +228,36 @@ class DocumentPrimaryKey {
  private:
   uint64_t _keys[2]{}; // TRI_voc_cid_t + TRI_voc_rid_t
 }; // DocumentPrimaryKey
+
+struct FilterFactory {
+  static irs::filter::ptr filter(TRI_voc_cid_t cid);
+  static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
+  static bool filter(irs::boolean_filter& rootFilter, arangodb::aql::AstNode const& root);
+}; // FilterFactory
+
+template<bool Preorder, typename Visitor>
+bool visit(arangodb::aql::AstNode const& root, Visitor visitor) {
+  if (Preorder && !visitor(root)) {
+    return false;
+  }
+
+  size_t const n = root.numMembers();
+
+  for (size_t i = 0; i < n; ++i) {
+    auto const* member = root.getMemberUnchecked(i);
+    TRI_ASSERT(member);
+
+    if (!visit<Preorder>(*member, visitor)) {
+      return false;
+    }
+  }
+
+  if (!Preorder && !visitor(root)) {
+    return false;
+  }
+
+  return true;
+};
 
 } // iresearch
 } // arangodb

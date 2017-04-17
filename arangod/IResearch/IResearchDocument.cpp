@@ -30,6 +30,8 @@
 #include "analysis/token_attributes.hpp"
 #include "search/boolean_filter.hpp"
 #include "search/term_filter.hpp"
+#include "search/range_filter.hpp"
+#include "search/granular_range_filter.hpp"
 
 #include "utils/log.hpp"
 #include "utils/numeric_utils.hpp"
@@ -224,6 +226,11 @@ inline Filter getFilter(
 
 typedef arangodb::iresearch::IResearchLinkMeta::TokenizerPool const* TokenizerPoolPtr;
 
+void mangleNull(std::string& name) {
+  static irs::string_ref const SUFFIX("\0_n", 3);
+  name.append(SUFFIX.c_str(), SUFFIX.size());
+}
+
 void setNullValue(
     VPackSlice const& value,
     std::string& name,
@@ -232,8 +239,7 @@ void setNullValue(
   TRI_ASSERT(value.isNull());
 
   // mangle name
-  static irs::string_ref const SUFFIX("\0_n", 3);
-  name.append(SUFFIX.c_str(), SUFFIX.size());
+  mangleNull(name);
 
   // init stream
   auto stream = NullStreamPool.emplace();
@@ -245,6 +251,11 @@ void setNullValue(
   field._features = &irs::flags::empty_instance();
 }
 
+void mangleBool(std::string& name) {
+  static irs::string_ref const SUFFIX("\0_b", 3);
+  name.append(SUFFIX.c_str(), SUFFIX.size());
+}
+
 void setBoolValue(
     VPackSlice const& value,
     std::string& name,
@@ -253,8 +264,7 @@ void setBoolValue(
   TRI_ASSERT(value.isBool());
 
   // mangle name
-  static irs::string_ref const SUFFIX("\0_b", 3);
-  name.append(SUFFIX.c_str(), SUFFIX.size());
+  mangleBool(name);
 
   // init stream
   auto stream = BoolStreamPool.emplace();
@@ -266,6 +276,11 @@ void setBoolValue(
   field._features = &irs::flags::empty_instance();
 }
 
+void mangleNumeric(std::string& name) {
+  static irs::string_ref const SUFFIX("\0_d", 3);
+  name.append(SUFFIX.c_str(), SUFFIX.size());
+}
+
 void setNumericValue(
     VPackSlice const& value,
     std::string& name,
@@ -274,8 +289,7 @@ void setNumericValue(
   TRI_ASSERT(value.isNumber());
 
   // mangle name
-  static irs::string_ref const SUFFIX("\0_d", 3);
-  name.append(SUFFIX.c_str(), SUFFIX.size());
+  mangleNumeric(name);
 
   // init stream
   auto stream = NumericStreamPool.emplace();
@@ -419,35 +433,6 @@ Field& Field::operator=(Field&& rhs) {
 // ----------------------------------------------------------------------------
 
 /*static*/ FieldIterator const FieldIterator::END;
-
-/*static*/ irs::filter::ptr FieldIterator::filter(TRI_voc_cid_t cid) {
-  auto filter = irs::by_term::make();
-
-  // filter matching on cid
-  static_cast<irs::by_term&>(*filter)
-    .field(CID_FIELD) // set field
-    .term(toBytesRefLE(cid)); // set value
-
-  return std::move(filter);
-}
-
-/*static*/ irs::filter::ptr FieldIterator::filter(
-    TRI_voc_cid_t cid,
-    TRI_voc_rid_t rid
-) {
-  auto filter = irs::And::make();
-
-  // filter matching on cid and rid
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(CID_FIELD) // set field
-    .term(toBytesRefLE(cid));   // set value
-
-  static_cast<irs::And&>(*filter).add<irs::by_term>()
-    .field(RID_FIELD) // set field
-    .term(toBytesRefLE(rid));   // set value
-
-  return std::move(filter);
-}
 
 FieldIterator::FieldIterator(
     IResearchViewMeta const& viewMeta
@@ -649,6 +634,467 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
   );
 
   return true;
+}
+
+/*static*/ irs::filter::ptr FilterFactory::filter(TRI_voc_cid_t cid) {
+  auto filter = irs::by_term::make();
+
+  // filter matching on cid
+  static_cast<irs::by_term&>(*filter)
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid)); // set value
+
+  return std::move(filter);
+}
+
+/*static*/ irs::filter::ptr FilterFactory::filter(
+    TRI_voc_cid_t cid,
+    TRI_voc_rid_t rid
+) {
+  auto filter = irs::And::make();
+
+  // filter matching on cid and rid
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(CID_FIELD) // set field
+    .term(toBytesRefLE(cid));   // set value
+
+  static_cast<irs::And&>(*filter).add<irs::by_term>()
+    .field(RID_FIELD) // set field
+    .term(toBytesRefLE(rid));   // set value
+
+  return std::move(filter);
+}
+
+inline irs::bytes_ref toBytesRef(arangodb::aql::AstNode const& node) {
+  TRI_ASSERT(arangodb::aql::NODE_TYPE_VALUE == node.type
+             && arangodb::aql::VALUE_TYPE_STRING == node.value.type);
+
+  return irs::bytes_ref(
+    reinterpret_cast<irs::byte_type const*>(node.getStringValue()),
+    node.getStringLength()
+  );
+}
+
+// generates field name from the specified 'node' and value 'type'
+std::string nameFromAttributeAccess(
+    arangodb::aql::AstNode const& node,
+    arangodb::aql::AstNodeValueType type
+) {
+  TRI_ASSERT(arangodb::aql::NODE_TYPE_ATTRIBUTE_ACCESS == node.type);
+
+  std::string name;
+
+  auto visitor = [&name](arangodb::aql::AstNode const& node) mutable {
+    if (arangodb::aql::NODE_TYPE_ATTRIBUTE_ACCESS == node.type) {
+      name.append(node.getStringValue(), node.getStringLength());
+      name += '.';
+    }
+    return true;
+  };
+  arangodb::iresearch::visit<false>(node, visitor);
+  name.pop_back(); // remove extra '.'
+
+  switch (type) {
+    case arangodb::aql::VALUE_TYPE_NULL:
+      mangleNull(name);
+      break;
+    case arangodb::aql::VALUE_TYPE_BOOL:
+      mangleBool(name);
+      break;
+    case arangodb::aql::VALUE_TYPE_INT:
+    case arangodb::aql::VALUE_TYPE_DOUBLE:
+      mangleNumeric(name);
+      break;
+    case arangodb::aql::VALUE_TYPE_STRING:
+      //mangleStringField(name);
+      break;
+  }
+
+  return name;
+}
+
+bool processSubnode(
+  irs::boolean_filter& rootFilter,
+  arangodb::aql::AstNode const& node
+);
+
+template<typename Filter>
+bool from(
+  irs::boolean_filter& rootFilter,
+  arangodb::aql::AstNode const& node
+);
+
+template<typename Filter>
+Filter& negation(irs::boolean_filter& rootFilter) {
+  return rootFilter.add<irs::Not>().filter<Filter>();
+}
+
+irs::by_term& byTerm(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& attributeNode,
+    arangodb::aql::AstNode const& valueNode
+) {
+  auto& filter = rootFilter.add<irs::by_term>();
+
+  switch (valueNode.value.type) {
+    case arangodb::aql::VALUE_TYPE_NULL:
+      filter.term(irs::null_token_stream::value_null());
+      break;
+    case arangodb::aql::VALUE_TYPE_BOOL:
+      filter.term(valueNode.getBoolValue()
+        ? irs::boolean_token_stream::value_true()
+        : irs::boolean_token_stream::value_false());
+      break;
+    case arangodb::aql::VALUE_TYPE_INT:
+    case arangodb::aql::VALUE_TYPE_DOUBLE: {
+      irs::numeric_token_stream stream;
+      irs::term_attribute const* term = stream.attributes().get<irs::term_attribute>();
+      TRI_ASSERT(term);
+      stream.reset(valueNode.getDoubleValue());
+      stream.next();
+
+      filter.term(term->value());
+     } break;
+    case arangodb::aql::VALUE_TYPE_STRING:
+      filter.term(toBytesRef(valueNode));
+      break;
+  }
+
+  filter.field(
+    nameFromAttributeAccess(attributeNode, valueNode.value.type)
+  );
+
+  return filter;
+}
+
+template<irs::Bound Bound, bool Include>
+irs::filter& byRange(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& attributeNode,
+    arangodb::aql::AstNode const& valueNode
+) {
+  switch (valueNode.value.type) {
+    case arangodb::aql::VALUE_TYPE_NULL: {
+      auto& filter = rootFilter.add<irs::by_range>();
+      filter.field(nameFromAttributeAccess(attributeNode, valueNode.value.type));
+      filter.term<Bound>(irs::null_token_stream::value_null());
+      filter.include<Bound>(Include);
+      return filter;
+    }
+    case arangodb::aql::VALUE_TYPE_BOOL: {
+      auto& filter = rootFilter.add<irs::by_range>();
+
+      auto const& value = valueNode.getBoolValue()
+          ? irs::boolean_token_stream::value_true()
+          : irs::boolean_token_stream::value_false();
+
+      filter.field(nameFromAttributeAccess(attributeNode, valueNode.value.type));
+      filter.term<Bound>(value);
+      filter.include<Bound>(Include);
+      return filter;
+    }
+    case arangodb::aql::VALUE_TYPE_INT:
+    case arangodb::aql::VALUE_TYPE_DOUBLE: {
+      auto& filter = rootFilter.add<irs::by_granular_range>();
+      filter.field(nameFromAttributeAccess(attributeNode, valueNode.value.type));
+      filter.include<Bound>(Include);
+
+      irs::numeric_token_stream stream;
+      stream.reset(valueNode.getDoubleValue());
+      filter.insert<Bound>(stream);
+      return filter;
+    }
+    case arangodb::aql::VALUE_TYPE_STRING: {
+      auto& filter = rootFilter.add<irs::by_range>();
+      filter.field(nameFromAttributeAccess(attributeNode, valueNode.value.type));
+      filter.term<Bound>(toBytesRef(valueNode));
+      filter.include<Bound>(Include);
+      return filter;
+    }
+  }
+
+  TRI_ASSERT(false);
+  return rootFilter;
+}
+
+template<irs::Bound Bound, bool Include>
+bool fromInterval(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(
+    2 == node.numMembers()
+    && ((arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LT == node.type && irs::Bound::MAX == Bound && !Include)
+     || (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LE == node.type && irs::Bound::MAX == Bound && Include)
+     || (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GT == node.type && irs::Bound::MIN == Bound && !Include)
+     || (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GE == node.type && irs::Bound::MIN == Bound && Include))
+  );
+
+  auto const* attributeNode = node.getMemberUnchecked(0);
+  TRI_ASSERT(attributeNode);
+  auto const* valueNode = node.getMemberUnchecked(1);
+  TRI_ASSERT(attributeNode);
+
+  if (!valueNode->isConstant()) {
+    return false;
+  }
+
+  byRange<Bound, Include>(rootFilter, *attributeNode, *valueNode);
+  return true;
+}
+
+bool fromBinaryEq(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(
+    2 == node.numMembers()
+    && (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_EQ == node.type
+    || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_ARRAY_NE == node.type));
+
+  auto* attributeNode = node.getMemberUnchecked(0);
+  TRI_ASSERT(attributeNode);
+  auto* valueNode = node.getMemberUnchecked(1);
+  TRI_ASSERT(attributeNode);
+
+  if (!valueNode->isConstant()) {
+    return false;
+  }
+
+  byTerm(rootFilter, *attributeNode, *valueNode);
+  return true;
+}
+
+bool fromRange(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(2 == node.numMembers() && arangodb::aql::NODE_TYPE_RANGE == node.type);
+
+  auto* min = node.getMemberUnchecked(0);
+  TRI_ASSERT(min);
+  auto* max = node.getMemberUnchecked(1);
+  TRI_ASSERT(max);
+
+  if (min->value.type != max->value.type) {
+    // type mismatch
+    return false;
+  }
+
+  //FIXME TODO
+  return false;
+}
+
+bool appendFromArray(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(
+    2 == node.numMembers()
+    && (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_IN == node.type
+    || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NIN == node.type));
+
+  auto* attributeNode = node.getMemberUnchecked(0);
+  TRI_ASSERT(attributeNode);
+  auto* valueNode = node.getMemberUnchecked(1);
+  TRI_ASSERT(valueNode);
+
+  size_t const n = valueNode->numMembers();
+
+  for (size_t i = 0; i < n; ++i) {
+    auto const* elementNode = valueNode->getMemberUnchecked(i);
+    TRI_ASSERT(valueNode);
+
+    if (elementNode->type != arangodb::aql::NODE_TYPE_VALUE
+        || !elementNode->isConstant()) {
+      return false;
+    }
+
+    byTerm(rootFilter, *attributeNode, *elementNode);
+  }
+
+  return true;
+}
+
+bool fromArrayIn(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  return appendFromArray(rootFilter.add<irs::Or>(), node);
+}
+
+bool fromArrayNotIn(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  return appendFromArray(negation<irs::And>(rootFilter), node);
+}
+
+bool fromValue(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(arangodb::aql::NODE_TYPE_VALUE == node.type
+             || arangodb::aql::NODE_TYPE_ARRAY == node.type);
+
+  if (node.isTrue()) {
+    rootFilter.add<irs::all>();
+  } else {
+    // empty filter
+  }
+
+  return true;
+}
+
+bool fromNegation(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(
+    1 == node.numMembers()
+    && arangodb::aql::NODE_TYPE_OPERATOR_UNARY_NOT == node.type
+  );
+
+  auto const* member = node.getMemberUnchecked(0);
+  TRI_ASSERT(member);
+
+  return processSubnode(negation<irs::And>(rootFilter), *member);
+}
+
+bool fromBinaryAnd(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(arangodb::aql::NODE_TYPE_OPERATOR_BINARY_AND == node.type);
+  TRI_ASSERT(2 == node.numMembers());
+
+  auto* lhs = node.getMemberUnchecked(0);
+  TRI_ASSERT(lhs);
+  auto* rhs = node.getMemberUnchecked(1);
+  TRI_ASSERT(rhs);
+
+  bool const includeMin = arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GE == lhs->type;
+  bool const includeMax = arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LE == lhs->type;
+
+  if ((includeMin || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GT == lhs->type)
+      && (includeMax || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LT == lhs->type)) {
+    TRI_ASSERT(2 == lhs->numMembers());
+    auto const* lhsAttribute = lhs->getMemberUnchecked(0);
+    auto const* lhsValue = lhs->getMemberUnchecked(1);
+    TRI_ASSERT(2 == rhs->numMembers());
+    auto const* rhsAttribute = rhs->getMemberUnchecked(0);
+    auto const* rhsValue = rhs->getMemberUnchecked(1);
+
+    if (lhsValue->value.type == rhsValue->value.type) {
+
+    }
+    // FIXME range case
+  }
+
+  // treat as ordinal 'And'
+  return from<irs::And>(rootFilter, node);
+}
+
+template<typename Filter>
+bool from(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  TRI_ASSERT(arangodb::aql::NODE_TYPE_OPERATOR_BINARY_AND == node.type
+   || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_OR == node.type
+   || arangodb::aql::NODE_TYPE_OPERATOR_NARY_AND == node.type
+   || arangodb::aql::NODE_TYPE_OPERATOR_NARY_OR == node.type);
+
+  size_t const n = node.numMembers();
+
+  if (!n) {
+    // nothing to do
+    return true;
+  }
+
+  auto& filter = rootFilter.add<Filter>();
+
+  for (size_t i = 0; i < n; ++i) {
+    auto const* valueNode = node.getMemberUnchecked(i);
+    TRI_ASSERT(valueNode);
+
+    if (!processSubnode(filter, *valueNode)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool processSubnode(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& node
+) {
+  switch (node.type) {
+    case arangodb::aql::NODE_TYPE_OPERATOR_UNARY_NOT: // unary minus
+      return fromNegation(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_AND: // logical and
+      return fromBinaryAnd(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_OR: // logical or
+      return from<irs::Or>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_EQ: // compare ==
+      return fromBinaryEq(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NE: // compare !=
+      return fromBinaryEq(negation<irs::And>(rootFilter), node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LT: // compare <
+      return fromInterval<irs::Bound::MAX, false>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LE: // compare <=
+      return fromInterval<irs::Bound::MAX, true>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GT: // compare >
+      return fromInterval<irs::Bound::MIN, false>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GE: // compare >=
+      return fromInterval<irs::Bound::MIN, true>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_IN: // compare in
+      return fromArrayIn(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NIN: // compare not in
+      return fromArrayNotIn(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_TERNARY: // ternary
+      break;
+    case arangodb::aql::NODE_TYPE_VALUE : // value
+    case arangodb::aql::NODE_TYPE_ARRAY: // array
+      return fromValue(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_FCALL: // function call
+      // FIXME TODO
+      break;
+    case arangodb::aql::NODE_TYPE_FCALL_USER: // user function call
+      // FIXME TODO
+      break;
+    case arangodb::aql::NODE_TYPE_RANGE: // range
+      return fromRange(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_NARY_AND: // n-ary and
+      return from<irs::And>(rootFilter, node);
+    case arangodb::aql::NODE_TYPE_OPERATOR_NARY_OR: // n-ary or
+      return from<irs::Or>(rootFilter, node);
+    default:
+      break;
+  }
+
+  // unsupported type
+  return false;
+}
+
+/*static*/ bool FilterFactory::filter(
+    irs::boolean_filter& rootFilter,
+    arangodb::aql::AstNode const& root
+) {
+  if (arangodb::aql::NODE_TYPE_FILTER != root.type) {
+    // wrong root node type
+    return false;
+  }
+
+  if (1 != root.numMembers()) {
+    //. wrong number of members
+    return false;
+  }
+
+  auto const* member = root.getMemberUnchecked(0);
+
+  return member && processSubnode(rootFilter, *member);
 }
 
 } // iresearch

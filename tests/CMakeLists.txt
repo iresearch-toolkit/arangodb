@@ -14,6 +14,7 @@ if (USE_IRESEARCH)
     IResearch/IResearchView-test.cpp
     IResearch/IResearchViewMeta-test.cpp
     IResearch/IResearchDocument-test.cpp
+    IResearch/IResearchFilter-test.cpp
     IResearch/StorageEngineMock.cpp
     IResearch/VelocyPackHelper-test.cpp
   )
