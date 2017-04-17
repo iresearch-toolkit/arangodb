@@ -321,51 +321,6 @@ SECTION("BinaryEq") {
   }
 }
 
-SECTION("Visit_Ast") {
-  std::string const queryString = "FOR d IN collection FILTER d.b.c.a == 1 RETURN d";
-
-  TRI_vocbase_t vocbase(TRI_vocbase_type_e::TRI_VOCBASE_TYPE_NORMAL, 1, "testVocbase");
-
-  arangodb::aql::Query query(
-     true, &vocbase, queryString.c_str(),
-     queryString.size(), nullptr, nullptr,
-     arangodb::aql::PART_MAIN
-  );
-
-  auto const parseResult = query.parse();
-  REQUIRE(TRI_ERROR_NO_ERROR == parseResult.code);
-
-  auto* root = query.ast()->root();
-  REQUIRE(root);
-  auto* filterNode = root->getMember(1);
-  REQUIRE(filterNode);
-
-
-  arangodb::iresearch::visit<false>(*filterNode, [](arangodb::aql::AstNode const& node) {
-    if (node.type == arangodb::aql::NODE_TYPE_REFERENCE) {
-      return true;
-    }
-
-    try {
-      std::cout << node.toString() << std::endl;
-    } catch (...) { }
-    return true;
-  });
-
-  std::cout << std::endl;
-
-  arangodb::iresearch::visit<true>(*filterNode, [](arangodb::aql::AstNode const& node) {
-    if (node.type == arangodb::aql::NODE_TYPE_REFERENCE) {
-      return true;
-    }
-
-    try {
-      std::cout << node.toString() << std::endl;
-    } catch (...) { }
-    return true;
-  });
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief generate tests
 ////////////////////////////////////////////////////////////////////////////////

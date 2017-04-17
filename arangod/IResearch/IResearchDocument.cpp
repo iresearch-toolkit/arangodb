@@ -42,7 +42,7 @@
    (((val) <<  8) & UINT64_C(0x000000FF00000000)) | (((val) << 24) & UINT64_C(0x0000FF0000000000)) | \
    (((val) << 40) & UINT64_C(0x00FF000000000000)) | (((val) << 56) & UINT64_C(0xFF00000000000000)) )
 
-namespace {
+NS_LOCAL
 
 irs::string_ref const CID_FIELD("@_CID");
 irs::string_ref const RID_FIELD("@_REV");
@@ -368,10 +368,10 @@ void setIdValue(
   sstream.reset(toBytesRefLE(value));
 }
 
-}
+NS_END
 
-namespace arangodb {
-namespace iresearch {
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 // ----------------------------------------------------------------------------
 // --SECTION--                                             Field implementation
@@ -627,6 +627,16 @@ DocumentPrimaryKey::DocumentPrimaryKey(
   static_assert(sizeof(_keys) == sizeof(cid) + sizeof(rid), "Invalid size");
 }
 
+bool DocumentPrimaryKey::read(irs::bytes_ref const& in) noexcept {
+  if (sizeof(_keys) != in.size()) {
+    return false;
+  }
+
+  std::memcpy(_keys, in.c_str(), sizeof(_keys));
+
+  return true;
+}
+
 bool DocumentPrimaryKey::write(irs::data_output& out) const {
   out.write_bytes(
     reinterpret_cast<const irs::byte_type*>(_keys),
@@ -635,6 +645,10 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
 
   return true;
 }
+
+// ----------------------------------------------------------------------------
+// --SECTION--                                      FilerFactory implementation
+// ----------------------------------------------------------------------------
 
 /*static*/ irs::filter::ptr FilterFactory::filter(TRI_voc_cid_t cid) {
   auto filter = irs::by_term::make();
@@ -664,6 +678,34 @@ bool DocumentPrimaryKey::write(irs::data_output& out) const {
 
   return std::move(filter);
 }
+
+template<bool Preorder, typename Visitor>
+bool visit(arangodb::aql::AstNode const& root, Visitor visitor) {
+  if (Preorder && !visitor(root)) {
+    return false;
+  }
+
+  if (Preorder && !visitor(root)) {
+    return false;
+  }
+
+  size_t const n = root.numMembers();
+
+  for (size_t i = 0; i < n; ++i) {
+    auto const* member = root.getMemberUnchecked(i);
+    TRI_ASSERT(member);
+
+    if (!visit<Preorder>(*member, visitor)) {
+      return false;
+    }
+  }
+
+  if (!Preorder && !visitor(root)) {
+    return false;
+  }
+
+  return true;
+};
 
 inline irs::bytes_ref toBytesRef(arangodb::aql::AstNode const& node) {
   TRI_ASSERT(arangodb::aql::NODE_TYPE_VALUE == node.type

@@ -1,4 +1,3 @@
-
 //////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -217,6 +216,7 @@ class DocumentPrimaryKey {
   DocumentPrimaryKey(TRI_voc_cid_t cid, TRI_voc_rid_t rid) noexcept;
 
   irs::string_ref const& name() const noexcept { return PK(); }
+  bool read(irs::bytes_ref const& in) noexcept;
   bool write(irs::data_output& out) const;
 
   TRI_voc_cid_t cid() const noexcept { return _keys[0]; }
@@ -226,6 +226,7 @@ class DocumentPrimaryKey {
   void rid(TRI_voc_rid_t rid) noexcept { _keys[1] = rid; }
 
  private:
+  // FIXME: define storage format (LE or BE)
   uint64_t _keys[2]{}; // TRI_voc_cid_t + TRI_voc_rid_t
 }; // DocumentPrimaryKey
 
@@ -234,30 +235,6 @@ struct FilterFactory {
   static irs::filter::ptr filter(TRI_voc_cid_t cid, TRI_voc_rid_t rid);
   static bool filter(irs::boolean_filter& rootFilter, arangodb::aql::AstNode const& root);
 }; // FilterFactory
-
-template<bool Preorder, typename Visitor>
-bool visit(arangodb::aql::AstNode const& root, Visitor visitor) {
-  if (Preorder && !visitor(root)) {
-    return false;
-  }
-
-  size_t const n = root.numMembers();
-
-  for (size_t i = 0; i < n; ++i) {
-    auto const* member = root.getMemberUnchecked(i);
-    TRI_ASSERT(member);
-
-    if (!visit<Preorder>(*member, visitor)) {
-      return false;
-    }
-  }
-
-  if (!Preorder && !visitor(root)) {
-    return false;
-  }
-
-  return true;
-};
 
 } // iresearch
 } // arangodb
