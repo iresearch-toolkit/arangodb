@@ -37,6 +37,8 @@
 #include "analysis/token_streams.hpp"
 #include "analysis/token_attributes.hpp"
 #include "search/term_filter.hpp"
+#include "search/range_filter.hpp"
+#include "search/granular_range_filter.hpp"
 #include "search/boolean_filter.hpp"
 
 namespace {
@@ -316,6 +318,625 @@ SECTION("BinaryEq") {
 
     irs::Or expected;
     expected.add<irs::by_term>().field(mangleNumeric("a.b.c.numeric")).term(term->value());
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryNotEq") {
+  // simple string attribute
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a != '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field("a").term("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex attribute name, string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c != '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field("a.b.c").term("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, true
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c != true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field(mangleBool("a.b.c")).term(irs::boolean_token_stream::value_true());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, false
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool != false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field(mangleBool("a.b.c.bool")).term(irs::boolean_token_stream::value_false());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, null
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool != null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field(mangleNull("a.b.c.bool")).term(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, numeric
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.numeric != 3 RETURN d";
+
+    irs::numeric_token_stream stream;
+    stream.reset(3.);
+    CHECK(stream.next());
+    auto& term = stream.attributes().get<irs::term_attribute>();
+
+    irs::Or expected;
+    expected.add<irs::Not>().filter<irs::by_term>().field(mangleNumeric("a.b.c.numeric")).term(term->value());
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryGE") {
+  // simple string attribute
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a >= '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a")
+            .include<irs::Bound::MIN>(true).term<irs::Bound::MIN>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex attribute name, string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a.b.c")
+            .include<irs::Bound::MIN>(true).term<irs::Bound::MIN>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, true
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c"))
+            .include<irs::Bound::MIN>(true).term<irs::Bound::MIN>(irs::boolean_token_stream::value_true());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, false
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool >= false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c.bool"))
+            .include<irs::Bound::MIN>(true).term<irs::Bound::MIN>(irs::boolean_token_stream::value_false());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, null
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.nil >= null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleNull("a.b.c.nil"))
+            .include<irs::Bound::MIN>(true).term<irs::Bound::MIN>(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, numeric
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.numeric >= 13 RETURN d";
+
+    irs::numeric_token_stream stream;
+    stream.reset(13.);
+
+    irs::Or expected;
+    expected.add<irs::by_granular_range>()
+            .field(mangleNumeric("a.b.c.numeric"))
+            .include<irs::Bound::MIN>(true).insert<irs::Bound::MIN>(stream);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryGT") {
+  // simple string attribute
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a > '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a")
+            .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex attribute name, string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a.b.c")
+            .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, true
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c"))
+            .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>(irs::boolean_token_stream::value_true());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, false
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool > false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c.bool"))
+            .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>(irs::boolean_token_stream::value_false());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, null
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.nil > null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleNull("a.b.c.nil"))
+            .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, numeric
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.numeric > 13 RETURN d";
+
+    irs::numeric_token_stream stream;
+    stream.reset(13.);
+
+    irs::Or expected;
+    expected.add<irs::by_granular_range>()
+            .field(mangleNumeric("a.b.c.numeric"))
+            .include<irs::Bound::MIN>(false).insert<irs::Bound::MIN>(stream);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryLE") {
+  // simple string attribute
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a <= '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a")
+            .include<irs::Bound::MAX>(true).term<irs::Bound::MAX>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex attribute name, string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c <= '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a.b.c")
+            .include<irs::Bound::MAX>(true).term<irs::Bound::MAX>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, true
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c <= true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c"))
+            .include<irs::Bound::MAX>(true).term<irs::Bound::MAX>(irs::boolean_token_stream::value_true());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, false
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool <= false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c.bool"))
+            .include<irs::Bound::MAX>(true).term<irs::Bound::MAX>(irs::boolean_token_stream::value_false());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, null
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.nil <= null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleNull("a.b.c.nil"))
+            .include<irs::Bound::MAX>(true).term<irs::Bound::MAX>(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, numeric
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.numeric <= 13 RETURN d";
+
+    irs::numeric_token_stream stream;
+    stream.reset(13.);
+
+    irs::Or expected;
+    expected.add<irs::by_granular_range>()
+            .field(mangleNumeric("a.b.c.numeric"))
+            .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(stream);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryLT") {
+  // simple string attribute
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a < '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a")
+            .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex attribute name, string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c < '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field("a.b.c")
+            .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>("1");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, true
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c < true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c"))
+            .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>(irs::boolean_token_stream::value_true());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, false
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.bool < false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleBool("a.b.c.bool"))
+            .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>(irs::boolean_token_stream::value_false());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, null
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.nil < null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::by_range>()
+            .field(mangleNull("a.b.c.nil"))
+            .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // complex boolean attribute, numeric
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c.numeric < 13 RETURN d";
+
+    irs::numeric_token_stream stream;
+    stream.reset(13.);
+
+    irs::Or expected;
+    expected.add<irs::by_granular_range>()
+            .field(mangleNumeric("a.b.c.numeric"))
+            .include<irs::Bound::MAX>(false).insert<irs::Bound::MAX>(stream);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryOr") {
+  // string and string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a == '1' or d.b == '2' RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_term>().field("a").term("1");
+    root.add<irs::by_term>().field("b").term("2");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // string or string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c < '1' or d.c.b.a == '2' RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_range>()
+        .field("a.b.c")
+        .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>("1");
+    root.add<irs::by_term>().field("c.b.a").term("2");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // bool and null
+  {
+    std::string const queryString = "FOR d IN collection FILTER k.b.c > false or d.a.b.c == null RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_range>()
+        .field(mangleBool("b.c"))
+        .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>(irs::boolean_token_stream::value_false());
+    root.add<irs::by_term>().field(mangleNull("a.b.c")).term(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > 15 or d.a.b.c < 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(false).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(false).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= 15 or d.a.b.c < 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(true).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(false).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= 15 or d.a.b.c <= 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(true).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > 15 or d.a.b.c <= 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::Or>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(false).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("BinaryAnd") {
+  // string and string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a == '1' and d.b == '2' RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_term>().field("a").term("1");
+    root.add<irs::by_term>().field("b").term("2");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // string and string
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c < '1' and d.c.b.a == '2' RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_range>()
+        .field("a.b.c")
+        .include<irs::Bound::MAX>(false).term<irs::Bound::MAX>("1");
+    root.add<irs::by_term>().field("c.b.a").term("2");
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // bool and null
+  {
+    std::string const queryString = "FOR d IN collection FILTER k.b.c > false and d.a.b.c == null RETURN d";
+
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_range>()
+        .field(mangleBool("b.c"))
+        .include<irs::Bound::MIN>(false).term<irs::Bound::MIN>(irs::boolean_token_stream::value_false());
+    root.add<irs::by_term>().field(mangleNull("a.b.c")).term(irs::null_token_stream::value_null());
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > 15 and d.a.b.c < 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(false).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(false).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= 15 and d.a.b.c < 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(true).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(false).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c >= 15 and d.a.b.c <= 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(true).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // numeric range
+  {
+    std::string const queryString = "FOR d IN collection FILTER d.a.b.c > 15 and d.a.b.c <= 40 RETURN d";
+
+    irs::numeric_token_stream minTerm; minTerm.reset(15.);
+    irs::numeric_token_stream maxTerm; maxTerm.reset(40.);
+
+    // FIXME
+    irs::Or expected;
+    auto& root = expected.add<irs::And>();
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MIN>(false).insert<irs::Bound::MIN>(minTerm);
+    root.add<irs::by_granular_range>()
+        .field(mangleNumeric("a.b.c"))
+        .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(maxTerm);
 
     assertFilterSuccess(queryString, expected);
   }

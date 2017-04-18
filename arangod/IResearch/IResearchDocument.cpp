@@ -766,18 +766,11 @@ bool from(
   arangodb::aql::AstNode const& node
 );
 
-template<typename Filter>
-Filter& negation(irs::boolean_filter& rootFilter) {
-  return rootFilter.add<irs::Not>().filter<Filter>();
-}
-
 irs::by_term& byTerm(
-    irs::boolean_filter& rootFilter,
+    irs::by_term& filter,
     arangodb::aql::AstNode const& attributeNode,
     arangodb::aql::AstNode const& valueNode
 ) {
-  auto& filter = rootFilter.add<irs::by_term>();
-
   switch (valueNode.value.type) {
     case arangodb::aql::VALUE_TYPE_NULL:
       filter.term(irs::null_token_stream::value_null());
@@ -892,7 +885,7 @@ bool fromBinaryEq(
   TRI_ASSERT(
     2 == node.numMembers()
     && (arangodb::aql::NODE_TYPE_OPERATOR_BINARY_EQ == node.type
-    || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_ARRAY_NE == node.type));
+    || arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NE == node.type));
 
   auto* attributeNode = node.getMemberUnchecked(0);
   TRI_ASSERT(attributeNode);
@@ -903,7 +896,11 @@ bool fromBinaryEq(
     return false;
   }
 
-  byTerm(rootFilter, *attributeNode, *valueNode);
+  auto& filter =  arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NE == node.type
+    ? rootFilter.add<irs::Not>().filter<irs::by_term>()
+    : rootFilter.add<irs::by_term>();
+
+  byTerm(filter, *attributeNode, *valueNode);
   return true;
 }
 
@@ -927,7 +924,7 @@ bool fromRange(
   return false;
 }
 
-bool appendFromArray(
+bool fromArrayIn(
     irs::boolean_filter& rootFilter,
     arangodb::aql::AstNode const& node
 ) {
@@ -943,6 +940,15 @@ bool appendFromArray(
 
   size_t const n = valueNode->numMembers();
 
+  if (!n) {
+    // nothing to do
+    return true;
+  }
+
+  irs::boolean_filter& filter = arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NIN == node.type
+    ? static_cast<irs::boolean_filter&>(rootFilter.add<irs::Not>().filter<irs::And>())
+    : static_cast<irs::boolean_filter&>(rootFilter.add<irs::Or>());
+
   for (size_t i = 0; i < n; ++i) {
     auto const* elementNode = valueNode->getMemberUnchecked(i);
     TRI_ASSERT(valueNode);
@@ -952,24 +958,10 @@ bool appendFromArray(
       return false;
     }
 
-    byTerm(rootFilter, *attributeNode, *elementNode);
+    byTerm(filter.add<irs::by_term>(), *attributeNode, *elementNode);
   }
 
   return true;
-}
-
-bool fromArrayIn(
-    irs::boolean_filter& rootFilter,
-    arangodb::aql::AstNode const& node
-) {
-  return appendFromArray(rootFilter.add<irs::Or>(), node);
-}
-
-bool fromArrayNotIn(
-    irs::boolean_filter& rootFilter,
-    arangodb::aql::AstNode const& node
-) {
-  return appendFromArray(negation<irs::And>(rootFilter), node);
 }
 
 bool fromValue(
@@ -1000,7 +992,9 @@ bool fromNegation(
   auto const* member = node.getMemberUnchecked(0);
   TRI_ASSERT(member);
 
-  return processSubnode(negation<irs::And>(rootFilter), *member);
+  auto& filter = rootFilter.add<irs::Not>().filter<irs::And>();
+
+  return processSubnode(filter, *member);
 }
 
 bool fromBinaryAnd(
@@ -1080,9 +1074,8 @@ bool processSubnode(
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_OR: // logical or
       return from<irs::Or>(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_EQ: // compare ==
-      return fromBinaryEq(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NE: // compare !=
-      return fromBinaryEq(negation<irs::And>(rootFilter), node);
+      return fromBinaryEq(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LT: // compare <
       return fromInterval<irs::Bound::MAX, false>(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_LE: // compare <=
@@ -1092,9 +1085,8 @@ bool processSubnode(
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_GE: // compare >=
       return fromInterval<irs::Bound::MIN, true>(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_IN: // compare in
-      return fromArrayIn(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NIN: // compare not in
-      return fromArrayNotIn(rootFilter, node);
+      return fromArrayIn(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_TERNARY: // ternary
       break;
     case arangodb::aql::NODE_TYPE_VALUE : // value
