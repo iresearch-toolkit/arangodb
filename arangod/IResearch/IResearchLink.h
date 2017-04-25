@@ -125,6 +125,17 @@ class IResearchLink final: public Index {
   );
 
   ////////////////////////////////////////////////////////////////////////////////
+  /// @brief set a flag in the builder to prevent registration with the
+  ///        corresponding iResearch View during construction of the object
+  ///        NOTE: required to avoid deadlock when looking-up view in vocbase
+  /// @return success
+  ////////////////////////////////////////////////////////////////////////////////
+  static bool setSkipViewRegistration(
+    arangodb::velocypack::Builder& builder,
+    std::string const& value
+  );
+
+  ////////////////////////////////////////////////////////////////////////////////
   /// @brief fill and return a JSON description of a IResearchLink object
   /// @param withFigures output 'figures' section with e.g. memory size
   ////////////////////////////////////////////////////////////////////////////////
@@ -146,6 +157,7 @@ class IResearchLink final: public Index {
   int unload() override;
 
  private:
+  friend bool IResearchView::linkRegister(LinkPtr&);
   IResearchLinkMeta _meta; // how this collection should be indexed
   IResearchView* _view; // effectively the index itself (nullptr == not associated)
 

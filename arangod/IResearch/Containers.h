@@ -41,11 +41,6 @@ NS_END
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
-struct Hasher {
-  template<typename T>
-  size_t operator()(T const& value) const;
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief a wrapper around a type, placing the value on the heap to allow
 ///        declaration of map member variables whos' values are of the type
@@ -136,6 +131,7 @@ struct UnorderedRefKeyMapBase {
 
   typedef typename MapType::key_type KeyType;
   typedef V value_type;
+  typedef std::hash<typename MapType::key_type::base_t> KeyHasher;
 
   struct KeyGenerator {
     KeyType operator()(
@@ -143,12 +139,6 @@ struct UnorderedRefKeyMapBase {
         typename MapType::mapped_type const& value
     ) const {
       return KeyType(key.hash(), value.first);
-    }
-  };
-
-  struct KeyHasher : private Hasher {
-    size_t operator()(typename MapType::key_type::base_t const& value) const {
-      return static_cast<Hasher const&>(*this)(value);
     }
   };
 };

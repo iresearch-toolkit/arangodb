@@ -555,78 +555,6 @@ void UnorderedIndexIterator::reset() {
   _state._readerOffset = 0;
 }
 
-// a reimplementation of the view registry in vocbase because vocbase uses non-recursive locks
-// hence causing deadlock on lookup of view during link creation/registration
-class ViewRegistry {
- public:
-  static void insert(TRI_voc_tick_t vocbase, arangodb::iresearch::IResearchView& view);
-  static arangodb::iresearch::IResearchView* lookup(TRI_voc_tick_t vocbase, std::string const& name);
-  static void remove(arangodb::iresearch::IResearchView const& view);
-
- private:
-  typedef std::pair<TRI_voc_tick_t, std::string> KeyType;
-  struct Hash {
-    size_t operator()(KeyType const& value) const;
-  };
-
-  static ViewRegistry _instance;
-  std::unordered_multimap<KeyType, arangodb::iresearch::IResearchView*, Hash> _map;
-  irs::async_utils::read_write_mutex _mutex;
-};
-
-/*static*/ ViewRegistry ViewRegistry::_instance;
-
-size_t ViewRegistry::Hash::operator()(ViewRegistry::KeyType const& value) const {
-  return std::hash<decltype(value.first)>()(value.first)
-   ^ std::hash<decltype(value.second)>()(value.second);
-}
-
-/*static*/ void ViewRegistry::insert(
-    TRI_voc_tick_t vocbase, arangodb::iresearch::IResearchView& view
-) {
-  WriteMutex mutex(ViewRegistry::_instance._mutex);
-  SCOPED_LOCK(mutex);
-  ViewRegistry::_instance._map.emplace(
-    std::piecewise_construct,
-    std::forward_as_tuple(vocbase, view.name()),
-    std::forward_as_tuple(&view)
-  );
-}
-
-/*static*/ arangodb::iresearch::IResearchView* ViewRegistry::lookup(
-  TRI_voc_tick_t vocbase, std::string const& name
-) {
-  arangodb::iresearch::IResearchView* view = nullptr;
-  ReadMutex mutex(ViewRegistry::_instance._mutex);
-  SCOPED_LOCK(mutex);
-  auto range = ViewRegistry::_instance._map.equal_range(std::make_pair(vocbase, name));
-
-  for (auto itr = range.first; itr != range.second; ++itr) {
-    if (view) {
-      return nullptr; // two identical names in map, don't know which to return
-    }
-
-    view = itr->second;
-  }
-
-  return view;
-}
-
-/*static*/ void ViewRegistry::remove(arangodb::iresearch::IResearchView const& view
-) {
-  WriteMutex mutex(ViewRegistry::_instance._mutex);
-  SCOPED_LOCK(mutex);
-
-  // remove all equal values
-  for (auto itr = ViewRegistry::_instance._map.begin(), end = ViewRegistry::_instance._map.end(); itr != end;) {
-    if (itr->second == &view) {
-      itr = ViewRegistry::_instance._map.erase(itr);
-    } else {
-      ++itr;
-    }
-  }
-}
-
 bool appendOrder(irs::order& buf, arangodb::aql::SortCondition const& root) {
   struct NoopSort: public irs::sort {
     struct Prepared: irs::sort::prepared_base<bool> {
@@ -758,7 +686,7 @@ arangodb::iresearch::IResearchLink* findFirstMatchingLink(
 
 arangodb::Result updateLinks(
     TRI_vocbase_t& vocbase,
-    arangodb::iresearch::IResearchView const& view,
+    arangodb::iresearch::IResearchView& view,
     arangodb::velocypack::Slice const& links
 ) noexcept {
   try {
@@ -808,7 +736,9 @@ arangodb::Result updateLinks(
 
       namedJson.openObject();
 
-      if (!arangodb::iresearch::mergeSlice(namedJson, link) || !arangodb::iresearch::IResearchLink::setName(namedJson, view.name())) {
+      if (!arangodb::iresearch::mergeSlice(namedJson, link)
+          || !arangodb::iresearch::IResearchLink::setName(namedJson, view.name())
+          || !arangodb::iresearch::IResearchLink::setSkipViewRegistration(namedJson, view.name())) {
         return arangodb::Result(
           TRI_ERROR_INTERNAL,
           std::string("failed to update link definition with the view name while updating iResearch view '") + view.name() + "' collection '" + collectionName + "'"
@@ -901,7 +831,19 @@ arangodb::Result updateLinks(
     for (auto& state: linkModifications) {
       if (state._valid && state._linkDefinitionsOffset < linkDefinitions.size()) {
         bool isNew = false;
-        state._valid = state._collection->createIndex(&trx, linkDefinitions[state._linkDefinitionsOffset].first.slice(), isNew) && isNew;
+        auto linkPtr = state._collection->createIndex(&trx, linkDefinitions[state._linkDefinitionsOffset].first.slice(), isNew);
+
+        // TODO FIXME find a better way to retrieve an iResearch Link
+        #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+          auto* ptr = dynamic_cast<arangodb::iresearch::IResearchLink*>(linkPtr.get());
+        #else
+          auto* ptr = static_cast<arangodb::iresearch::IResearchLink*>(linkPtr.get());
+        #endif
+
+        // convert to pointer type registerable with IResearchView, and hold a reference to the original
+        auto irsLinkPtr = arangodb::iresearch::IResearchView::LinkPtr(ptr, [linkPtr](arangodb::iresearch::IResearchLink*)->void{});
+
+        state._valid = linkPtr && isNew && view.linkRegister(irsLinkPtr);
       }
     }
 
@@ -1119,7 +1061,6 @@ IResearchView::IResearchView(
 }
 
 IResearchView::~IResearchView() {
-  ViewRegistry::remove(*this);
   _asyncTerminate.store(true); // mark long-running async jobs for terminatation
 
   {
@@ -1717,67 +1658,39 @@ size_t IResearchView::linkCount() const noexcept {
   return _meta._collections.size();
 }
 
-/*static*/ IResearchView* IResearchView::linkRegister(
-    TRI_vocbase_t& vocbase,
-    std::string const& viewName,
-    LinkPtr const& ptr
-) {
+bool IResearchView::linkRegister(LinkPtr& ptr) {
   if (!ptr || !ptr->collection()) {
-    return nullptr; // do not register empty pointers
+    return false; // do not register empty pointers
   }
 
-  auto* view = ViewRegistry::lookup(vocbase.id(), viewName);
-
-  if (!view || !view->_logicalView) {
-    return nullptr; // no such view
+  if (!_logicalView || !_logicalView->getPhysical()) {
+    return false; // cannot persist view
   }
 
-  auto* logicalView = view->_logicalView;
-/* FIXME TODO switch to vocbase's view registry once vocbase is able to do recursive locks for '_viewsLock'
-  auto logicalView = vocbase.lookupView(viewName);
-
-  if (!logicalView || !logicalView->getPhysical() || IResearchView::type() != logicalView->type()) {
-    return nullptr; // no such view
-  }
-
-  // TODO FIXME find a better way to look up an iResearch View
-  #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
-    auto* view = dynamic_cast<IResearchView*>(logicalView->getImplementation());
-  #else
-    auto* view = static_cast<IResearchView*>(logicalView->getImplementation());
-  #endif
-
-  if (!view) {
-    return nullptr;
-  }
-*/
-  WriteMutex mutex(view->_mutex); // '_links' can be asynchronously updated
+  WriteMutex mutex(_mutex); // '_links' can be asynchronously updated
   SCOPED_LOCK(mutex);
 
-  auto itr = view->_links.emplace(ptr);
+  auto itr = _links.emplace(ptr);
+  auto registered = _meta._collections.emplace(ptr->collection()->cid()).second;
 
   // do not allow duplicate registration
-  auto registered = view->_meta._collections.emplace(ptr->collection()->cid()).second;
-
-  if (!registered) {
-    return nullptr;
-  }
-
-  auto res = logicalView->getPhysical()->persistProperties(); // persist '_meta' definition
-
-  if (res.ok()) {
-    return view;
-  }
-
-  if (itr.second) { 
-    view->_links.erase(itr.first); // revert state
-  }
-
   if (registered) {
-    view->_meta._collections.erase(ptr->collection()->cid()); // revert state
+    auto res = _logicalView->getPhysical()->persistProperties(); // persist '_meta' definition
+
+    if (res.ok()) {
+      ptr->_view = this;
+
+      return true;
+    }
+
+    _meta._collections.erase(ptr->collection()->cid()); // revert state
   }
 
-  return nullptr;
+  if (itr.second) {
+    _links.erase(itr.first); // revert state
+  }
+
+  return false;
 }
 
 bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
@@ -1844,11 +1757,6 @@ bool IResearchView::linkUnregister(TRI_voc_cid_t cid) {
     LOG_TOPIC(WARN, Logger::FIXME) << "failed to initialize iResearch view from definition, error: " << error;
 
     return nullptr;
-  }
-
-  // FIXME TODO remove once vocbase is able to do recursive locks for '_viewsLock'
-  if (impl._logicalView && impl._logicalView->vocbase()) {
-    ViewRegistry::insert(impl._logicalView->vocbase()->id(), impl);
   }
 
   // skip link creation for previously created views or if no links were specified in the definition
