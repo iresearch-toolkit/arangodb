@@ -90,7 +90,7 @@ SECTION("test_defaults") {
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
-  CHECK((irs::flags({irs::term_attribute::type()}) == meta._tokenizers.begin()->features()));
+  CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -130,7 +130,7 @@ SECTION("test_inheritDefaults") {
         CHECK(1U == actual._tokenizers.size());
         CHECK("identity" == actual._tokenizers.begin()->name());
         CHECK("" == actual._tokenizers.begin()->args());
-        CHECK((irs::flags({irs::term_attribute::type()}) == actual._tokenizers.begin()->features()));
+        CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == actual._tokenizers.begin()->features()));
         CHECK(false == !actual._tokenizers.begin()->tokenizer());
       }
     }
@@ -161,7 +161,7 @@ SECTION("test_readDefaults") {
   CHECK(1U == meta._tokenizers.size());
   CHECK("identity" == meta._tokenizers.begin()->name());
   CHECK("" == meta._tokenizers.begin()->args());
-  CHECK((irs::flags({irs::term_attribute::type()}) == meta._tokenizers.begin()->features()));
+  CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == meta._tokenizers.begin()->features()));
   CHECK(false == !meta._tokenizers.begin()->tokenizer());
 }
 
@@ -211,7 +211,7 @@ SECTION("test_readCustomizedValues") {
           CHECK(1U == actual._tokenizers.size());
           CHECK("identity" == actual._tokenizers.begin()->name());
           CHECK("" == actual._tokenizers.begin()->args());
-          CHECK((irs::flags({irs::term_attribute::type()}) == actual._tokenizers.begin()->features()));
+          CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == actual._tokenizers.begin()->features()));
           CHECK(false == !actual._tokenizers.begin()->tokenizer());
         } else if ("all" == fieldOverride.key()) {
           CHECK(11. == actual._boost);
@@ -239,7 +239,7 @@ SECTION("test_readCustomizedValues") {
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
-          CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
+          CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
         } else if ("none" == fieldOverride.key()) {
           CHECK(10. == actual._boost); // inherited
@@ -254,7 +254,7 @@ SECTION("test_readCustomizedValues") {
           ++itr;
           CHECK("identity" == itr->name());
           CHECK("" == itr->args());
-          CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
+          CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == itr->features()));
           CHECK(false == !itr->tokenizer());
         }
       }
@@ -272,7 +272,7 @@ SECTION("test_readCustomizedValues") {
     ++itr;
     CHECK("identity" == itr->name());
     CHECK("" == itr->args());
-    CHECK((irs::flags({irs::term_attribute::type()}) == itr->features()));
+    CHECK((irs::flags({irs::term_attribute::type(), irs::increment::type()}) == itr->features()));
     CHECK(false == !itr->tokenizer());
   }
 }

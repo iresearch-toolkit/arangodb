@@ -469,9 +469,6 @@ IResearchViewMeta::Mask::Mask(bool mask /*=false*/) noexcept
     _iid(mask),
     _locale(mask),
     _name(mask),
-    _nestingDelimiter(mask),
-    _nestingListOffsetPrefix(mask),
-    _nestingListOffsetSuffix(mask),
     _scorers(mask),
     _threadsMaxIdle(mask),
     _threadsMaxTotal(mask) {
@@ -482,9 +479,6 @@ IResearchViewMeta::IResearchViewMeta()
     _iid(0),
     _locale(std::locale::classic()),
     _name(""),
-    _nestingDelimiter("."),
-    _nestingListOffsetPrefix("["),
-    _nestingListOffsetSuffix("]"),
     _threadsMaxIdle(5),
     _threadsMaxTotal(5) {
   _commitBulk._cleanupIntervalStep = 10;
@@ -527,9 +521,6 @@ IResearchViewMeta& IResearchViewMeta::operator=(IResearchViewMeta&& other) noexc
     _iid = std::move(other._iid);
     _locale = std::move(other._locale);
     _name = std::move(other._name);
-    _nestingDelimiter = std::move(other._nestingDelimiter);
-    _nestingListOffsetPrefix = std::move(other._nestingListOffsetPrefix);
-    _nestingListOffsetSuffix = std::move(other._nestingListOffsetSuffix);
     _scorers = std::move(other._scorers);
     _threadsMaxIdle = std::move(other._threadsMaxIdle);
     _threadsMaxTotal = std::move(other._threadsMaxTotal);
@@ -548,9 +539,6 @@ IResearchViewMeta& IResearchViewMeta::operator=(IResearchViewMeta const& other) 
     _iid = other._iid;
     _locale = other._locale;
     _name = other._name;
-    _nestingDelimiter = other._nestingDelimiter;
-    _nestingListOffsetPrefix = other._nestingListOffsetPrefix;
-    _nestingListOffsetSuffix = other._nestingListOffsetSuffix;
     _scorers = other._scorers;
     _threadsMaxIdle = other._threadsMaxIdle;
     _threadsMaxTotal = other._threadsMaxTotal;
@@ -591,18 +579,6 @@ bool IResearchViewMeta::operator==(IResearchViewMeta const& other) const noexcep
   }
 
   if (_name != other._name) {
-    return false; // values do not match
-  }
-
-  if (_nestingDelimiter != other._nestingDelimiter) {
-    return false; // values do not match
-  }
-
-  if (_nestingListOffsetPrefix != other._nestingListOffsetPrefix) {
-    return false; // values do not match
-  }
-
-  if (_nestingListOffsetSuffix != other._nestingListOffsetSuffix) {
     return false; // values do not match
   }
 
@@ -844,39 +820,6 @@ bool IResearchViewMeta::init(
   }
 
   {
-    // optional string
-    static const std::string fieldName("nestingDelimiter");
-
-    if (!getString(_nestingDelimiter, slice, fieldName, mask->_nestingDelimiter, defaults._nestingDelimiter)) {
-      errorField = fieldName;
-
-      return false;
-    }
-  }
-
-  {
-    // optional string
-    static const std::string fieldName("nestingListOffsetPrefix");
-
-    if (!getString(_nestingListOffsetPrefix, slice, fieldName, mask->_nestingListOffsetPrefix, defaults._nestingListOffsetPrefix)) {
-      errorField = fieldName;
-
-      return false;
-    }
-  }
-
-  {
-    // optional string
-    static const std::string fieldName("nestingListOffsetSuffix");
-
-    if (!getString(_nestingListOffsetSuffix, slice, fieldName, mask->_nestingListOffsetSuffix, defaults._nestingListOffsetSuffix)) {
-      errorField = fieldName;
-
-      return false;
-    }
-  }
-
-  {
     // optional string list
     static const std::string fieldName("scorers");
 
@@ -1034,18 +977,6 @@ bool IResearchViewMeta::json(
     builder.add(VIEW_NAME_FIELD, arangodb::velocypack::Value(_name));
   }
 
-  if ((!ignoreEqual || _nestingDelimiter != ignoreEqual->_nestingDelimiter) && (!mask || mask->_nestingDelimiter)) {
-    builder.add("nestingDelimiter", arangodb::velocypack::Value(_nestingDelimiter));
-  }
-
-  if ((!ignoreEqual || _nestingListOffsetPrefix != ignoreEqual->_nestingListOffsetPrefix) && (!mask || mask->_nestingListOffsetPrefix)) {
-    builder.add("nestingListOffsetPrefix", arangodb::velocypack::Value(_nestingListOffsetPrefix));
-  }
-
-  if ((!ignoreEqual || _nestingListOffsetSuffix != ignoreEqual->_nestingListOffsetSuffix) && (!mask || mask->_nestingListOffsetSuffix)) {
-    builder.add("nestingListOffsetSuffix", arangodb::velocypack::Value(_nestingListOffsetSuffix));
-  }
-
   if ((!ignoreEqual || _scorers != ignoreEqual->_scorers) && (!mask || mask->_scorers)) {
     arangodb::velocypack::Builder subBuilder;
 
@@ -1086,9 +1017,6 @@ size_t IResearchViewMeta::memory() const {
   size += _dataPath.size();
   size += sizeof(irs::flags::type_map::key_type) * _features.size();
   size += _name.length();
-  size += _nestingDelimiter.size();
-  size += _nestingListOffsetPrefix.size();
-  size += _nestingListOffsetSuffix.size();
 
   for (auto& scorer: _scorers) {
     size += scorer.first.length() + sizeof(scorer.second);

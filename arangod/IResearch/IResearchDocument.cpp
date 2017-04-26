@@ -44,6 +44,24 @@
 
 NS_LOCAL
 
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the delimiter used to separate jSON nesting levels when generating
+///        flat iResearch field names
+////////////////////////////////////////////////////////////////////////////////
+std::string const NESTING_LEVEL_DELIMITER(".");
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the prefix used to denote start of jSON list offset when generating
+///        flat iResearch field names
+////////////////////////////////////////////////////////////////////////////////
+std::string const NESTING_LIST_OFFSET_PREFIX("[");
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief the suffix used to denote end of jSON list offset when generating
+///        flat iResearch field names
+////////////////////////////////////////////////////////////////////////////////
+std::string const NESTING_LIST_OFFSET_SUFFIX("]");
+
 irs::string_ref const CID_FIELD("@_CID");
 irs::string_ref const RID_FIELD("@_REV");
 irs::string_ref const PK_COLUMN("@_PK");
@@ -140,7 +158,6 @@ inline arangodb::iresearch::IResearchLinkMeta const* findMeta(
 inline bool inObjectFiltered(
     std::string& buffer,
     arangodb::iresearch::IResearchLinkMeta const*& context,
-    arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
     arangodb::iresearch::IteratorValue const& value
 ) {
   auto const key = arangodb::iresearch::getStringRef(value.key);
@@ -160,7 +177,6 @@ inline bool inObjectFiltered(
 inline bool inObject(
     std::string& buffer,
     arangodb::iresearch::IResearchLinkMeta const*& context,
-    arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
     arangodb::iresearch::IteratorValue const& value
 ) {
   auto const key = arangodb::iresearch::getStringRef(value.key);
@@ -174,12 +190,11 @@ inline bool inObject(
 inline bool inArrayOrdered(
     std::string& buffer,
     arangodb::iresearch::IResearchLinkMeta const*& context,
-    arangodb::iresearch::IResearchViewMeta const& viewMeta,
     arangodb::iresearch::IteratorValue const& value
 ) {
-  buffer += viewMeta._nestingListOffsetPrefix;
+  buffer += NESTING_LIST_OFFSET_PREFIX;
   append(buffer, value.pos);
-  buffer += viewMeta._nestingListOffsetSuffix;
+  buffer += NESTING_LIST_OFFSET_SUFFIX;
 
   return canHandleValue(value.value, *context);
 }
@@ -187,7 +202,6 @@ inline bool inArrayOrdered(
 inline bool inArray(
     std::string& /*buffer*/,
     arangodb::iresearch::IResearchLinkMeta const*& context,
-    arangodb::iresearch::IResearchViewMeta const& /*viewMeta*/,
     arangodb::iresearch::IteratorValue const& value
 ) noexcept {
   return canHandleValue(value.value, *context);
@@ -196,7 +210,6 @@ inline bool inArray(
 typedef bool(*Filter)(
   std::string& buffer,
   arangodb::iresearch::IResearchLinkMeta const*& context,
-  arangodb::iresearch::IResearchViewMeta const& viewMeta,
   arangodb::iresearch::IteratorValue const& value
 );
 
@@ -434,18 +447,14 @@ Field& Field::operator=(Field&& rhs) {
 
 /*static*/ FieldIterator const FieldIterator::END;
 
-FieldIterator::FieldIterator(
-    IResearchViewMeta const& viewMeta
-) : _meta(&viewMeta) {
+FieldIterator::FieldIterator(): _name(BufferPool.emplace()) {
   // initialize iterator's value
-  _name = BufferPool.emplace();
 }
 
 FieldIterator::FieldIterator(
     VPackSlice const& doc,
-    IResearchLinkMeta const& linkMeta,
-    IResearchViewMeta const& viewMeta
-) : FieldIterator(viewMeta) {
+    IResearchLinkMeta const& linkMeta
+): FieldIterator() {
   reset(doc, linkMeta);
 }
 
@@ -482,7 +491,7 @@ IResearchLinkMeta const* FieldIterator::nextTop() {
   auto const filter = level.filter;
 
   name.resize(level.nameLength);
-  while (it.next() &&  !filter(name, context, *_meta, it.value())) {
+  while (it.next() && !filter(name, context, it.value())) {
     // filtered out
     name.resize(level.nameLength);
   }
@@ -495,7 +504,7 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
 
   while (isArrayOrObject(slice)) {
     if (!name.empty() && !slice.isArray()) {
-      name += _meta->_nestingDelimiter;
+      name += NESTING_LEVEL_DELIMITER;
     }
 
     auto const filter = getFilter(slice, *context);
@@ -511,7 +520,7 @@ bool FieldIterator::push(VPackSlice slice, IResearchLinkMeta const*& context) {
 
     auto& value = it.value();
 
-    if (!filter(name, context, *_meta, value)) {
+    if (!filter(name, context, value)) {
       // filtered out
       TRI_ASSERT(context);
       return false;
@@ -1139,8 +1148,8 @@ bool processSubnode(
   return member && processSubnode(rootFilter, *member);
 }
 
-} // iresearch
-} // arangodb
+NS_END // iresearch
+NS_END // arangodb
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                                       END-OF-FILE

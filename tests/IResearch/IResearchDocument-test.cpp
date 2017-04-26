@@ -25,7 +25,6 @@
 
 #include "IResearch/IResearchDocument.h"
 #include "IResearch/IResearchLinkMeta.h"
-#include "IResearch/IResearchViewMeta.h"
 
 #include "velocypack/Iterator.h"
 #include "velocypack/Builder.h"
@@ -220,10 +219,9 @@ SECTION("FieldIterator_static_checks") {
 }
 
 SECTION("FieldIterator_construct") {
-  arangodb::iresearch::IResearchViewMeta viewMeta;
-  arangodb::iresearch::FieldIterator it(viewMeta);
+  arangodb::iresearch::FieldIterator it;
   CHECK(!it.valid());
-  CHECK(it == arangodb::iresearch::FieldIterator(viewMeta));
+  CHECK(it == arangodb::iresearch::FieldIterator());
   CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
 
@@ -245,29 +243,27 @@ SECTION("FieldIterator_traverse_complex_object_custom_nested_delimiter") {
   }");
 
   std::unordered_map<std::string, size_t> expectedValues {
-    { mangleName("nested---foo", "identity"), 1 },
+    { mangleName("nested.foo", "identity"), 1 },
     { mangleName("keys", "identity"), 4 },
     { mangleName("boost", "identity"), 1 },
     { mangleName("depth", "identity"), 1 },
-    { mangleName("fields---fieldA---name", "identity"), 1 },
-    { mangleName("fields---fieldB---name", "identity"), 1 },
+    { mangleName("fields.fieldA.name", "identity"), 1 },
+    { mangleName("fields.fieldB.name", "identity"), 1 },
     { mangleName("listValuation", "identity"), 1 },
     { mangleName("locale", "identity"), 1 },
-    { mangleName("array---id", "identity"), 3 },
-    { mangleName("array---subarr", "identity"), 9 },
-    { mangleName("array---subobj---id", "identity"), 2 },
-    { mangleName("array---subobj---name", "identity"), 1 },
-    { mangleName("array---id", "identity"), 2 }
+    { mangleName("array.id", "identity"), 3 },
+    { mangleName("array.subarr", "identity"), 9 },
+    { mangleName("array.subobj.id", "identity"), 2 },
+    { mangleName("array.subobj.name", "identity"), 1 },
+    { mangleName("array.id", "identity"), 2 }
   };
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
-  viewMeta._nestingDelimiter = "---";
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = true; // include all fields
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
@@ -331,11 +327,10 @@ SECTION("FieldIterator_traverse_complex_object_all_fields") {
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = true;
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
@@ -415,7 +410,6 @@ SECTION("FieldIterator_traverse_complex_object_ordered_all_fields") {
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = true; // include all fields
   linkMeta._nestListValues = true; // allow indexes in field names
@@ -423,7 +417,7 @@ SECTION("FieldIterator_traverse_complex_object_ordered_all_fields") {
   // default analyzer
   auto const expected_analyzer = irs::analysis::analyzers::get("identity", "");
 
-  arangodb::iresearch::FieldIterator doc(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator doc(slice, linkMeta);
   for (;doc.valid(); ++doc) {
     auto& field = *doc;
     std::string const actualName = std::string(field.name());
@@ -464,13 +458,13 @@ SECTION("FieldIterator_traverse_complex_object_ordered_filtered") {
   }");
 
   auto const slice = json->slice();
-  arangodb::iresearch::IResearchViewMeta viewMeta;
+
   arangodb::iresearch::IResearchLinkMeta linkMeta;
 
   std::string error;
   REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   REQUIRE(it.valid());
   REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
@@ -506,12 +500,11 @@ SECTION("FieldIterator_traverse_complex_object_ordered_filtered") {
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = false; // ignore all fields
   linkMeta._nestListValues = true; // allow indexes in field names
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(!it.valid());
   CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
@@ -535,12 +528,11 @@ SECTION("FieldIterator_traverse_complex_object_ordered_empty_tokenizers") {
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._tokenizers.clear(); // clear all tokenizers
   linkMeta._includeAllFields = true; // include all fields
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(!it.valid());
   CHECK(it == arangodb::iresearch::FieldIterator::END);
 }
@@ -564,12 +556,11 @@ SECTION("FieldIterator_traverse_complex_object_ordered_check_value_types") {
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
   linkMeta._includeAllFields = true; // include all fields
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // stringValue (with IdentityTokenizer)
@@ -755,11 +746,10 @@ SECTION("FieldIterator_reset") {
     \"name\": \"foo\" \
   }");
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = true; // include all fields
 
-  arangodb::iresearch::FieldIterator it(json0->slice(), linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(json0->slice(), linkMeta);
   REQUIRE(it.valid());
 
   {
@@ -825,10 +815,10 @@ SECTION("FieldIterator_traverse_complex_object_ordered_all_fields_custom_list_of
 
   std::unordered_multiset<std::string> expectedValues {
     mangleName("nested.foo", "identity"),
-    mangleName("keys{0}", "identity"),
-    mangleName("keys{1}", "identity"),
-    mangleName("keys{2}", "identity"),
-    mangleName("keys{3}", "identity"),
+    mangleName("keys[0]", "identity"),
+    mangleName("keys[1]", "identity"),
+    mangleName("keys[2]", "identity"),
+    mangleName("keys[3]", "identity"),
     mangleName("boost", "identity"),
     mangleName("depth", "identity"),
     mangleName("fields.fieldA.name", "identity"),
@@ -836,35 +826,32 @@ SECTION("FieldIterator_traverse_complex_object_ordered_all_fields_custom_list_of
     mangleName("listValuation", "identity"),
     mangleName("locale", "identity"),
 
-    mangleName("array{0}.id", "identity"),
-    mangleName("array{0}.subarr{0}", "identity"),
-    mangleName("array{0}.subarr{1}", "identity"),
-    mangleName("array{0}.subarr{2}", "identity"),
-    mangleName("array{0}.subobj.id", "identity"),
+    mangleName("array[0].id", "identity"),
+    mangleName("array[0].subarr[0]", "identity"),
+    mangleName("array[0].subarr[1]", "identity"),
+    mangleName("array[0].subarr[2]", "identity"),
+    mangleName("array[0].subobj.id", "identity"),
 
-    mangleName("array{1}.subarr{0}", "identity"),
-    mangleName("array{1}.subarr{1}", "identity"),
-    mangleName("array{1}.subarr{2}", "identity"),
-    mangleName("array{1}.subobj.name", "identity"),
-    mangleName("array{1}.id", "identity"),
+    mangleName("array[1].subarr[0]", "identity"),
+    mangleName("array[1].subarr[1]", "identity"),
+    mangleName("array[1].subarr[2]", "identity"),
+    mangleName("array[1].subobj.name", "identity"),
+    mangleName("array[1].id", "identity"),
 
-    mangleName("array{2}.id", "identity"),
-    mangleName("array{2}.subarr{0}", "identity"),
-    mangleName("array{2}.subarr{1}", "identity"),
-    mangleName("array{2}.subarr{2}", "identity"),
-    mangleName("array{2}.subobj.id", "identity")
+    mangleName("array[2].id", "identity"),
+    mangleName("array[2].subarr[0]", "identity"),
+    mangleName("array[2].subarr[1]", "identity"),
+    mangleName("array[2].subarr[2]", "identity"),
+    mangleName("array[2].subobj.id", "identity")
   };
 
   auto const slice = json->slice();
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
-  viewMeta._nestingListOffsetPrefix = "{";
-  viewMeta._nestingListOffsetSuffix= "}";
   arangodb::iresearch::IResearchLinkMeta linkMeta;
   linkMeta._includeAllFields = true; // include all fields
   linkMeta._nestListValues = true; // allow indexes in field names
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   CHECK(it != arangodb::iresearch::FieldIterator::END);
 
   // default analyzer
@@ -921,13 +908,12 @@ SECTION("FieldIterator_traverse_complex_object_check_meta_inheritance") {
     \"tokenizers\" : { \"iresearch-document-empty\" : [\"en\"], \"identity\": [\"\"] } \
   }");
 
-  arangodb::iresearch::IResearchViewMeta viewMeta;
   arangodb::iresearch::IResearchLinkMeta linkMeta;
 
   std::string error;
   REQUIRE(linkMeta.init(linkMetaJson->slice(), error));
 
-  arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+  arangodb::iresearch::FieldIterator it(slice, linkMeta);
   REQUIRE(it.valid());
   REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
@@ -1233,7 +1219,6 @@ SECTION("FieldIterator_nullptr_tokenizer") {
     // ensure that there will be no exception on 'emplace_back'
     InvalidTokenizer::returnNullFromMake = false;
 
-    arangodb::iresearch::IResearchViewMeta viewMeta;
     arangodb::iresearch::IResearchLinkMeta linkMeta;
     linkMeta._tokenizers.emplace_back("iresearch-document-empty", "en"); // add tokenizer
     linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
@@ -1242,7 +1227,7 @@ SECTION("FieldIterator_nullptr_tokenizer") {
     // acquire tokenizer, another one should be created
     auto tokenizer = linkMeta._tokenizers.back().tokenizer();
 
-    arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+    arangodb::iresearch::FieldIterator it(slice, linkMeta);
     REQUIRE(it.valid());
     REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 
@@ -1286,7 +1271,6 @@ SECTION("FieldIterator_nullptr_tokenizer") {
     // ensure that there will be no exception on 'emplace_back'
     InvalidTokenizer::returnNullFromMake = false;
 
-    arangodb::iresearch::IResearchViewMeta viewMeta;
     arangodb::iresearch::IResearchLinkMeta linkMeta;
     linkMeta._tokenizers.clear();
     linkMeta._tokenizers.emplace_back("iresearch-document-invalid", "en"); // add tokenizer
@@ -1296,7 +1280,7 @@ SECTION("FieldIterator_nullptr_tokenizer") {
     // acquire tokenizer, another one should be created
     auto tokenizer = linkMeta._tokenizers.front().tokenizer();
 
-    arangodb::iresearch::FieldIterator it(slice, linkMeta, viewMeta);
+    arangodb::iresearch::FieldIterator it(slice, linkMeta);
     REQUIRE(it.valid());
     REQUIRE(it != arangodb::iresearch::FieldIterator::END);
 

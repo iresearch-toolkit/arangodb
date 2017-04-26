@@ -111,9 +111,6 @@ SECTION("test_defaults") {
   CHECK(0 == meta._iid);
   CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
   CHECK(std::string("") == meta._name);
-  CHECK(std::string(".") == meta._nestingDelimiter);
-  CHECK(std::string("[") == meta._nestingListOffsetPrefix);
-  CHECK(std::string("]") == meta._nestingListOffsetSuffix);
   CHECK(defaultScorers == meta._scorers);
   CHECK(5 == meta._threadsMaxIdle);
   CHECK(5 == meta._threadsMaxTotal);
@@ -143,9 +140,6 @@ SECTION("test_inheritDefaults") {
   defaults._dataPath = "path";
   defaults._iid = 10;
   defaults._locale = irs::locale_utils::locale("ru");
-  defaults._nestingDelimiter = ":";
-  defaults._nestingListOffsetPrefix = "<";
-  defaults._nestingListOffsetSuffix = ">";
   defaults._scorers.emplace("testScorer", invalidScorer);
   defaults._threadsMaxIdle = 8;
   defaults._threadsMaxTotal = 16;
@@ -232,9 +226,6 @@ SECTION("test_inheritDefaults") {
     CHECK(10 == meta._iid);
     CHECK(std::string("ru") == irs::locale_utils::name(meta._locale));
     CHECK(std::string("abc") == meta._name);
-    CHECK(std::string(":") == meta._nestingDelimiter);
-    CHECK(std::string("<") == meta._nestingListOffsetPrefix);
-    CHECK(std::string(">") == meta._nestingListOffsetSuffix);
     CHECK(defaultScorers.size() + 1 == meta._scorers.size());
     CHECK(meta._scorers.find("testScorer") != meta._scorers.end());
     CHECK(8 == meta._threadsMaxIdle);
@@ -286,9 +277,6 @@ SECTION("test_readDefaults") {
     CHECK(0 == meta._iid);
     CHECK(std::string("C") == irs::locale_utils::name(meta._locale));
     CHECK(std::string("abc") == meta._name);
-    CHECK(std::string(".") == meta._nestingDelimiter);
-    CHECK(std::string("[") == meta._nestingListOffsetPrefix);
-    CHECK(std::string("]") == meta._nestingListOffsetSuffix);
     CHECK(defaultScorers == meta._scorers);
     CHECK(5 == meta._threadsMaxIdle);
     CHECK(5 == meta._threadsMaxTotal);
@@ -499,9 +487,6 @@ SECTION("test_readCustomizedValues") {
         \"id\": 10, \
         \"locale\": \"ru_RU.KOI8-R\", \
         \"name\": \"abc\", \
-        \"nestingDelimiter\": \"->\", \
-        \"nestingListOffsetPrefix\": \"-{\", \
-        \"nestingListOffsetSuffix\": \"}-\", \
         \"dataPath\": \"somepath\", \
         \"scorers\": [ \"tfidf\" ], \
         \"threadsMaxIdle\": 8, \
@@ -587,9 +572,6 @@ SECTION("test_readCustomizedValues") {
   CHECK(10 == meta._iid);
   CHECK(std::string("ru_RU.UTF-8") == iresearch::locale_utils::name(meta._locale));
   CHECK(std::string("abc") == meta._name);
-  CHECK(std::string("->") == meta._nestingDelimiter);
-  CHECK(std::string("-{") == meta._nestingListOffsetPrefix);
-  CHECK(std::string("}-") == meta._nestingListOffsetSuffix);
   CHECK(defaultScorers.size() + 1 == meta._scorers.size());
 
   for (auto& scorer: meta._scorers) {
@@ -624,7 +606,7 @@ SECTION("test_writeDefaults") {
 
   auto slice = builder.slice();
 
-  CHECK(12 == slice.length());
+  CHECK(9 == slice.length());
   tmpSlice = slice.get("collections");
   CHECK((true == tmpSlice.isArray() && 0 == tmpSlice.length()));
   tmpSlice = slice.get("commitBulk");
@@ -689,12 +671,6 @@ SECTION("test_writeDefaults") {
   CHECK((true == tmpSlice.isString() && std::string("C") == tmpSlice.copyString()));
   tmpSlice = slice.get("name");
   CHECK((true == tmpSlice.isString() && std::string("") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingDelimiter");
-  CHECK((true == tmpSlice.isString() && std::string(".") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingListOffsetPrefix");
-  CHECK((true == tmpSlice.isString() && std::string("[") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingListOffsetSuffix");
-  CHECK((true == tmpSlice.isString() && std::string("]") == tmpSlice.copyString()));
   tmpSlice = slice.get("scorers");
   CHECK((true == tmpSlice.isArray() && defaultScorers.size() == tmpSlice.length()));
   tmpSlice = slice.get("threadsMaxIdle");
@@ -760,9 +736,6 @@ SECTION("test_writeCustomizedValues") {
   meta._iid = 10;
   meta._locale = iresearch::locale_utils::locale("en_UK.UTF-8");
   meta._name = "abc";
-  meta._nestingDelimiter = "!";
-  meta._nestingListOffsetPrefix = "(";
-  meta._nestingListOffsetSuffix = ")";
   meta._dataPath = "somepath";
   meta._scorers.emplace("scorer1", invalidScorer);
   meta._scorers.emplace("scorer2", invalidScorer);
@@ -792,7 +765,7 @@ SECTION("test_writeCustomizedValues") {
 
   auto slice = builder.slice();
 
-  CHECK(13 == slice.length());
+  CHECK(10 == slice.length());
   tmpSlice = slice.get("collections");
   CHECK((true == tmpSlice.isArray() && 3 == tmpSlice.length()));
 
@@ -866,12 +839,6 @@ SECTION("test_writeCustomizedValues") {
   CHECK((tmpSlice.isString() && std::string("en_UK.UTF-8") == tmpSlice.copyString()));
   tmpSlice = slice.get("name");
   CHECK((tmpSlice.isString() && std::string("abc") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingDelimiter");
-  CHECK((tmpSlice.isString() && std::string("!") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingListOffsetPrefix");
-  CHECK((tmpSlice.isString() && std::string("(") == tmpSlice.copyString()));
-  tmpSlice = slice.get("nestingListOffsetSuffix");
-  CHECK((tmpSlice.isString() && std::string(")") == tmpSlice.copyString()));
   tmpSlice = slice.get("scorers");
   CHECK((tmpSlice.isArray() && defaultScorers.size() + 3 == tmpSlice.length()));
 
@@ -905,9 +872,6 @@ SECTION("test_readMaskAll") {
     \"id\": 10, \
     \"locale\": \"ru_RU.KOI8-R\", \
     \"name\": \"abc\", \
-    \"nestingDelimiter\": \"->\", \
-    \"nestingListOffsetPrefix\": \"-{\", \
-    \"nestingListOffsetSuffix\": \"}-\", \
     \"scorers\": [ \"tfidf\" ], \
     \"threadsMaxIdle\": 8, \
     \"threadsMaxTotal\": 16 \
@@ -920,9 +884,6 @@ SECTION("test_readMaskAll") {
   CHECK(true == mask._iid);
   CHECK(true == mask._locale);
   CHECK(true == mask._name);
-  CHECK(true == mask._nestingDelimiter);
-  CHECK(true == mask._nestingListOffsetPrefix);
-  CHECK(true == mask._nestingListOffsetSuffix);
   CHECK(true == mask._scorers);
   CHECK(true == mask._threadsMaxIdle);
   CHECK(true == mask._threadsMaxTotal);
@@ -950,9 +911,6 @@ SECTION("test_readMaskNone") {
   CHECK(false == mask._iid);
   CHECK(false == mask._locale);
   CHECK(true == mask._name);
-  CHECK(false == mask._nestingDelimiter);
-  CHECK(false == mask._nestingListOffsetPrefix);
-  CHECK(false == mask._nestingListOffsetSuffix);
   CHECK(false == mask._scorers);
   CHECK(false == mask._threadsMaxIdle);
   CHECK(false == mask._threadsMaxTotal);
@@ -970,7 +928,7 @@ SECTION("test_writeMaskAll") {
 
   auto slice = builder.slice();
 
-  CHECK(13 == slice.length());
+  CHECK(10 == slice.length());
   CHECK(true == slice.hasKey("collections"));
   CHECK(true == slice.hasKey("commitBulk"));
   tmpSlice = slice.get("commitBulk");
@@ -987,9 +945,6 @@ SECTION("test_writeMaskAll") {
   CHECK(true == slice.hasKey("id"));
   CHECK(true == slice.hasKey("locale"));
   CHECK(true == slice.hasKey("name"));
-  CHECK(true == slice.hasKey("nestingDelimiter"));
-  CHECK(true == slice.hasKey("nestingListOffsetPrefix"));
-  CHECK(true == slice.hasKey("nestingListOffsetSuffix"));
   CHECK(true == slice.hasKey("scorers"));
   CHECK(true == slice.hasKey("threadsMaxIdle"));
   CHECK(true == slice.hasKey("threadsMaxTotal"));

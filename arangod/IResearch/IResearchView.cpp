@@ -1464,7 +1464,7 @@ int IResearchView::insert(
     arangodb::velocypack::Slice const& doc,
     IResearchLinkMeta const& meta
 ) {
-  FieldIterator body(doc, meta, _meta);
+  FieldIterator body(doc, meta);
 
   if (!body.valid()) {
     // nothing to index
@@ -1518,7 +1518,7 @@ int IResearchView::insert(
   size_t batchCount = 0;
   auto begin = batch.begin();
   auto const end = batch.end();
-  FieldIterator body(_meta);
+  FieldIterator body;
 
   auto batchInsert = [&meta, &batchCount, &body, &begin, end, cid, commitBatch] (irs::index_writer::document& doc) mutable {
     body.reset(begin->second, meta);
