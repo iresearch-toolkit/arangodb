@@ -717,6 +717,10 @@ inline irs::bytes_ref toBytesRef(arangodb::aql::AstNode const& node) {
   );
 }
 
+inline bool checkAttributeAccess(arangodb::aql::AstNode const& node) {
+  return arangodb::aql::NODE_TYPE_ATTRIBUTE_ACCESS == node.type;
+}
+
 // generates field name from the specified 'node' and value 'type'
 std::string nameFromAttributeAccess(
     arangodb::aql::AstNode const& node,
@@ -761,7 +765,7 @@ bool processSubnode(
 );
 
 template<typename Filter>
-bool from(
+bool fromGroup(
   irs::boolean_filter& rootFilter,
   arangodb::aql::AstNode const& node
 );
@@ -867,6 +871,11 @@ bool fromInterval(
 
   auto const* attributeNode = node.getMemberUnchecked(0);
   TRI_ASSERT(attributeNode);
+
+  if (!checkAttributeAccess(*attributeNode)) {
+    return false;
+  }
+
   auto const* valueNode = node.getMemberUnchecked(1);
   TRI_ASSERT(attributeNode);
 
@@ -889,6 +898,11 @@ bool fromBinaryEq(
 
   auto* attributeNode = node.getMemberUnchecked(0);
   TRI_ASSERT(attributeNode);
+
+  if (!checkAttributeAccess(*attributeNode)) {
+    return false;
+  }
+
   auto* valueNode = node.getMemberUnchecked(1);
   TRI_ASSERT(attributeNode);
 
@@ -935,6 +949,11 @@ bool fromArrayIn(
 
   auto* attributeNode = node.getMemberUnchecked(0);
   TRI_ASSERT(attributeNode);
+
+  if (!checkAttributeAccess(*attributeNode)) {
+    return false;
+  }
+
   auto* valueNode = node.getMemberUnchecked(1);
   TRI_ASSERT(valueNode);
 
@@ -974,7 +993,8 @@ bool fromValue(
   if (node.isTrue()) {
     rootFilter.add<irs::all>();
   } else {
-    // empty filter
+    // FIXME empty query
+    rootFilter.add<irs::Not>();
   }
 
   return true;
@@ -1028,11 +1048,11 @@ bool fromBinaryAnd(
   }
 
   // treat as ordinal 'And'
-  return from<irs::And>(rootFilter, node);
+  return fromGroup<irs::And>(rootFilter, node);
 }
 
 template<typename Filter>
-bool from(
+bool fromGroup(
     irs::boolean_filter& rootFilter,
     arangodb::aql::AstNode const& node
 ) {
@@ -1072,7 +1092,7 @@ bool processSubnode(
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_AND: // logical and
       return fromBinaryAnd(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_OR: // logical or
-      return from<irs::Or>(rootFilter, node);
+      return fromGroup<irs::Or>(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_EQ: // compare ==
     case arangodb::aql::NODE_TYPE_OPERATOR_BINARY_NE: // compare !=
       return fromBinaryEq(rootFilter, node);
@@ -1101,9 +1121,9 @@ bool processSubnode(
     case arangodb::aql::NODE_TYPE_RANGE: // range
       return fromRange(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_NARY_AND: // n-ary and
-      return from<irs::And>(rootFilter, node);
+      return fromGroup<irs::And>(rootFilter, node);
     case arangodb::aql::NODE_TYPE_OPERATOR_NARY_OR: // n-ary or
-      return from<irs::Or>(rootFilter, node);
+      return fromGroup<irs::Or>(rootFilter, node);
     default:
       break;
   }

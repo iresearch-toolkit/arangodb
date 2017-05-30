@@ -135,6 +135,13 @@ TEST_CASE("IResearchFilterTest", "[iresearch][iresearch-filter]") {
   UNUSED(s);
 
 SECTION("BinaryIn") {
+  std::unordered_set<int> set;
+  std::vector<int> v;
+  for (auto i = 0;i < 100; ++i) {
+    set.reserve(set.size() + 1);
+   // v.reserve(v.size() + 1);
+  }
+
   // simple attribute
   {
     std::string const queryString = "FOR d IN collection FILTER d.a in ['1','2','3'] RETURN d";
@@ -937,6 +944,88 @@ SECTION("BinaryAnd") {
     root.add<irs::by_granular_range>()
         .field(mangleNumeric("a.b.c"))
         .include<irs::Bound::MAX>(true).insert<irs::Bound::MAX>(maxTerm);
+
+    assertFilterSuccess(queryString, expected);
+  }
+}
+
+SECTION("Value") {
+  // string value == true
+  {
+    std::string const queryString = "FOR d IN collection FILTER '1' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::all>();
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // true value
+  {
+    std::string const queryString = "FOR d IN collection FILTER true RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::all>();
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // string empty value == false
+  {
+    std::string const queryString = "FOR d IN collection FILTER '' RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>(); // FIXME empty query
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // false
+  {
+    std::string const queryString = "FOR d IN collection FILTER false RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>(); // FIXME empty query
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // null == value
+  {
+    std::string const queryString = "FOR d IN collection FILTER null RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>(); // FIXME empty query
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // non zero numeric value
+  {
+    std::string const queryString = "FOR d IN collection FILTER 1 RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::all>();
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // zero numeric value
+  {
+    std::string const queryString = "FOR d IN collection FILTER 0 RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::Not>();
+
+    assertFilterSuccess(queryString, expected);
+  }
+
+  // array == true
+  {
+    std::string const queryString = "FOR d IN collection FILTER [] RETURN d";
+
+    irs::Or expected;
+    expected.add<irs::all>();
 
     assertFilterSuccess(queryString, expected);
   }
