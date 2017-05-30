@@ -26,16 +26,6 @@
 NS_BEGIN(arangodb)
 NS_BEGIN(iresearch)
 
-template<>
-size_t Hasher::operator()<irs::bytes_ref>(irs::bytes_ref const& value) const {
-  return irs::hash_utils::hash(value);
-}
-
-template<>
-size_t Hasher::operator()<irs::string_ref>(irs::string_ref const& value) const {
-  return irs::hash_utils::hash(value);
-}
-
 NS_END // iresearch
 NS_END // arangodb
 

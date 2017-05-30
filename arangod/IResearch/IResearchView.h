@@ -157,14 +157,10 @@ class IResearchView final: public arangodb::ViewImplementation {
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief register an iResearch Link with the specified view
-  /// @return iResearch View registered with
-  ///         or nullptr if not found or already registered
+  ///        on success this call will set the '_view' pointer in the link
+  /// @return new registration was successful
   ///////////////////////////////////////////////////////////////////////////////
-  static IResearchView* linkRegister(
-    TRI_vocbase_t& vocbase,
-    std::string const& viewName,
-    LinkPtr const& ptr
-  );
+  bool linkRegister(LinkPtr& ptr);
 
   ///////////////////////////////////////////////////////////////////////////////
   /// @brief unregister an iResearch Link from the specified view

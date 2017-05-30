@@ -128,7 +128,7 @@ SECTION("test_defaults") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((12U == slice.length()));
+    CHECK((9U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
   }
 
@@ -148,7 +148,7 @@ SECTION("test_defaults") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
   }
 
@@ -167,7 +167,7 @@ SECTION("test_defaults") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((12U == slice.length()));
+    CHECK((9U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
   }
 
@@ -187,7 +187,7 @@ SECTION("test_defaults") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -279,8 +279,11 @@ SECTION("test_query") {
     \"name\": \"testView\", \
     \"type\": \"iresearch\" \
   }");
-  arangodb::aql::AstNode noop(arangodb::aql::AstNodeType::NODE_TYPE_NOP);
   static std::vector<std::string> const EMPTY;
+  arangodb::aql::AstNode noop(arangodb::aql::AstNodeType::NODE_TYPE_FILTER);
+  arangodb::aql::AstNode noopChild(arangodb::aql::AstNodeType::NODE_TYPE_OPERATOR_BINARY_OR);
+
+  noop.addMember(&noopChild);
 
   // no transaction provided
   {
@@ -450,7 +453,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -488,7 +491,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -525,7 +528,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -565,7 +568,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -617,7 +620,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -658,7 +661,7 @@ SECTION("test_update") {
       arangodb::iresearch::IResearchViewMeta meta;
       std::string error;
 
-      CHECK((13U == slice.length()));
+      CHECK((10U == slice.length()));
       CHECK((meta.init(slice, error) && expectedMeta == meta));
 
       auto tmpSlice = slice.get("links");
@@ -684,7 +687,7 @@ SECTION("test_update") {
       arangodb::iresearch::IResearchViewMeta meta;
       std::string error;
 
-      CHECK((13U == slice.length()));
+      CHECK((10U == slice.length()));
       CHECK((meta.init(slice, error) && expectedMeta == meta));
 
       auto tmpSlice = slice.get("links");
@@ -719,7 +722,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");
@@ -757,7 +760,7 @@ SECTION("test_update") {
     arangodb::iresearch::IResearchViewMeta meta;
     std::string error;
 
-    CHECK((13U == slice.length()));
+    CHECK((10U == slice.length()));
     CHECK((meta.init(slice, error) && expectedMeta == meta));
 
     auto tmpSlice = slice.get("links");

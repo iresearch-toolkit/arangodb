@@ -27,6 +27,7 @@
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
+#include "VocBase/LogicalView.h"
 
 #include "IResearchLink.h"
 
@@ -42,6 +43,14 @@ static const std::string LINK_TYPE("iresearch");
 ///        corresponding iResearch View
 ////////////////////////////////////////////////////////////////////////////////
 static const std::string VIEW_NAME_FIELD("name");
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief a flag in the iResearch Link definition, if present, denoting the
+///        need to skip registration with the corresponding iResearch View
+///        during construction if the object
+///        this field is not persisted
+////////////////////////////////////////////////////////////////////////////////
+static const std::string SKIP_VIEW_REGISTRATION_FIELD("skipViewRegistration");
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief return a reference to a static VPackSlice of an empty index definition
@@ -211,25 +220,39 @@ bool IResearchLink::isSorted() const {
       return nullptr; // failed to parse metadata
     }
 
-    std::string viewName;
+    PTR_NAMED(IResearchLink, ptr, iid, collection, std::move(meta));
+
+    if (definition.hasKey(SKIP_VIEW_REGISTRATION_FIELD)) {
+      return ptr;
+    }
 
     if (collection && definition.hasKey(VIEW_NAME_FIELD)) {
       auto name = definition.get(VIEW_NAME_FIELD);
       auto vocbase = collection->vocbase();
 
       if (vocbase && name.isString()) {
-        viewName = name.copyString();
+        auto viewName = name.copyString();
 
-        PTR_NAMED(IResearchLink, ptr, iid, collection, std::move(meta));
-        auto* view = IResearchView::linkRegister(*vocbase, viewName, ptr);
+        // NOTE: this will cause a deadlock if registering a link while view is being created
+        auto logicalView = vocbase->lookupView(viewName);
 
-        if (!view) {
+        if (!logicalView || !logicalView->getPhysical() || IResearchView::type() != logicalView->type()) {
+          return false; // no such view
+        }
+
+        // TODO FIXME find a better way to look up an iResearch View
+        #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
+          auto* view = dynamic_cast<IResearchView*>(logicalView->getImplementation());
+        #else
+          auto* view = static_cast<IResearchView*>(logicalView->getImplementation());
+        #endif
+
+        // on success this call will set the '_view' pointer
+        if (!view || !view->linkRegister(ptr)) {
           LOG_TOPIC(WARN, Logger::FIXME) << "error finding view: '" << viewName << "' for link '" << iid << "'";
 
           return nullptr;
         }
-
-        ptr->_view = view;
 
         return ptr;
       }
@@ -258,7 +281,7 @@ bool IResearchLink::matchesDefinition(VPackSlice const& slice) const {
     irs::string_ref sliceName(nameValue, nameLength);
 
     if (sliceName != _view->name()) {
-      return false; // iResearch View names of current object and slice do nto match
+      return false; // iResearch View names of current object and slice do not match
     }
   } else if (_view) {
     return false; // slice has no 'name' but the current object does
@@ -316,6 +339,19 @@ int IResearchLink::remove(
   }
 
   builder.add(VIEW_NAME_FIELD, arangodb::velocypack::Value(value));
+
+  return true;
+}
+
+/*static*/ bool IResearchLink::setSkipViewRegistration(
+  arangodb::velocypack::Builder& builder,
+  std::string const& value
+) {
+  if (!builder.isOpenObject()) {
+    return false;
+  }
+
+  builder.add(SKIP_VIEW_REGISTRATION_FIELD, arangodb::velocypack::Value(true));
 
   return true;
 }

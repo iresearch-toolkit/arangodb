@@ -44,10 +44,10 @@ TEST_CASE("ContainersTest", "[iresearch][iresearch-containers]") {
   UNUSED(s);
 
   SECTION("test_Hasher") {
-    arangodb::iresearch::Hasher hasher;
-
     // ensure hashing of irs::bytes_ref is possible
     {
+      typedef arangodb::iresearch::UnorderedRefKeyMapBase<irs::byte_type, int>::KeyHasher Hasher;
+      Hasher hasher;
       irs::string_ref strRef("abcdefg");
       irs::bytes_ref ref = irs::ref_cast<irs::byte_type>(strRef);
       CHECK(false == (0 == hasher(ref)));
@@ -55,6 +55,8 @@ TEST_CASE("ContainersTest", "[iresearch][iresearch-containers]") {
 
     // ensure hashing of irs::string_ref is possible
     {
+      typedef arangodb::iresearch::UnorderedRefKeyMapBase<char, int>::KeyHasher Hasher;
+      Hasher hasher;
       irs::string_ref ref("abcdefg");
       CHECK(false == (0 == hasher(ref)));
     }

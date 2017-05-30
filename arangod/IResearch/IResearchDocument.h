@@ -35,16 +35,14 @@
 #include "analysis/token_streams.hpp"
 #include "search/filter.hpp"
 
-namespace iresearch {
+NS_BEGIN(iresearch)
 
 class boolean_filter;
 
-} // iresearch
+NS_END // iresearch
 
-namespace arangodb {
-namespace iresearch {
-
-struct IResearchViewMeta;
+NS_BEGIN(arangodb)
+NS_BEGIN(iresearch)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief indexed/stored document field adapter for IResearch
@@ -91,21 +89,14 @@ struct Field {
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief allows to iterate over the provided VPack accoring the specified
-///        IResearchLinkMeta and IResearchViewMeta
+///        IResearchLinkMeta
 ////////////////////////////////////////////////////////////////////////////////
 class FieldIterator : public std::iterator<std::forward_iterator_tag, Field const> {
  public:
   static FieldIterator const END; // unified end for all field iterators
 
-  explicit FieldIterator(
-    IResearchViewMeta const& viewMeta
-  );
-
-  FieldIterator(
-    VPackSlice const& doc,
-    IResearchLinkMeta const& linkMeta,
-    IResearchViewMeta const& viewMeta
-  );
+  explicit FieldIterator();
+  FieldIterator(VPackSlice const& doc, IResearchLinkMeta const& linkMeta);
 
   Field const& operator*() const noexcept {
     return _value;
@@ -143,7 +134,6 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
   typedef bool(*Filter)(
     std::string& buffer,
     IResearchLinkMeta const*& rootMeta,
-    IResearchViewMeta const& viewMeta,
     IteratorValue const& value
   );
 
@@ -165,8 +155,6 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
     IResearchLinkMeta const* meta; // metadata
     Filter filter;
   }; // Level
-
-  FieldIterator() = default;
 
   Level& top() noexcept {
     TRI_ASSERT(!_stack.empty());
@@ -199,7 +187,6 @@ class FieldIterator : public std::iterator<std::forward_iterator_tag, Field cons
 
   TokenizerIterator _begin{};
   TokenizerIterator _end{};
-  IResearchViewMeta const* _meta{};
   std::vector<Level> _stack;
   std::shared_ptr<std::string> _name; // buffer for field name
   Field _value; // iterator's value
@@ -236,7 +223,6 @@ struct FilterFactory {
   static bool filter(irs::boolean_filter& rootFilter, arangodb::aql::AstNode const& root);
 }; // FilterFactory
 
-} // iresearch
-} // arangodb
-
+NS_END // iresearch
+NS_END // arangodb
 #endif

@@ -120,9 +120,6 @@ struct IResearchViewMeta {
     bool _iid;
     bool _locale;
     bool _name;
-    bool _nestingDelimiter;
-    bool _nestingListOffsetPrefix;
-    bool _nestingListOffsetSuffix;
     bool _scorers;
     bool _threadsMaxIdle;
     bool _threadsMaxTotal;
@@ -137,9 +134,6 @@ struct IResearchViewMeta {
   TRI_idx_iid_t _iid;
   std::locale _locale;
   std::string _name; // IResearch view name
-  std::string _nestingDelimiter;
-  std::string _nestingListOffsetPrefix;
-  std::string _nestingListOffsetSuffix;
   irs::iql::order_functions _scorers; // supported scorers
   size_t _threadsMaxIdle; // maximum idle number of threads for single-run tasks
   size_t _threadsMaxTotal; // maximum total number of threads for single-run tasks
